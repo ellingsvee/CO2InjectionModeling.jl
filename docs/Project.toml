@@ -1,0 +1,3 @@
+[deps]
+CO2InjectionModeling = "89694a89-419d-4f9a-9689-436a4a7f6b0c"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
