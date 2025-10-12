@@ -39,12 +39,13 @@ end
 leakage_height = 5.0
 heights_above_trap_bottom = spillpoint_heights_above_trap_bottom(tstruct)
 
-time_at_leakage = get_time_of_leakage(seq, tstruct, injection_location, leakage_height)
+(leakage_location, time_at_leakage) = get_loc_and_time_of_leakage(seq, tstruct, injection_location, leakage_height)
 if isnothing(time_at_leakage)
     println("No leakage occurred.")
 end
 
-tstates = trap_states_at_timepoints(tstruct, seq, [time_at_leakage])
+tpoints = [time_at_leakage]
+tstates = trap_states_at_timepoints(tstruct, seq, tpoints)
 water_content = [e[2] for e in tstates]
 for time_ix = 1:length(tpoints)
     print("At time: ", tpoints[time_ix], ":\n")
@@ -58,3 +59,14 @@ for time_ix = 1:length(tpoints)
         print("   Trap: ", trap_ix, " contains: ", content, " units of water.\n")
     end
 end
+
+# Visualize the leakage location and the water level at leakage time
+tex, = interpolate_timeseries(tstruct, seq, tpoints,
+    filled_color=cmap[:blue],
+    trap_color=cmap[:orange],
+    river_color=cmap[:red])
+tex[1][leakage_location] = cmap[:lilac] # mark the leakage location
+
+drape_surface(sf, tex[1])
+
+set_camerapos(sc, view1...)

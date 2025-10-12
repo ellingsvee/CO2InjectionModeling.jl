@@ -2,7 +2,7 @@ using SurfaceWaterIntegratedModeling
 import Interpolations
 
 export spillpoint_heights_above_trap_bottom
-export get_time_of_leakage
+export get_loc_and_time_of_leakage
 
 function get_leakage_root_trap(
     tstruct::TrapStructure{<:Real},
@@ -40,6 +40,16 @@ function get_leakage_root_trap(
     end
 
     return nothing
+end
+
+function get_leakage_location(
+    tstruct::TrapStructure{<:Real},
+    leakage_root_trap::Int,
+)
+    # The leakage location will be the lowest point in the footprint of the leakage root trap
+    footprint = tstruct.footprints[leakage_root_trap]
+    leakage_location = footprint[argmin(tstruct.topography[footprint])]
+    return leakage_location
 end
 
 function spillpoint_heights_above_trap_bottom(tstruct::TrapStructure{<:Real})
@@ -90,7 +100,7 @@ function time_to_reach_height(seq, tstruct, trap_ix, target_height_above_trap_bo
     return nothing
 end
 
-function get_time_of_leakage(seq, tstruct, injection_location, leakage_height)
+function get_loc_and_time_of_leakage(seq, tstruct, injection_location, leakage_height)
     # Find the trap that is leaking
     leaking_trap = get_leakage_root_trap(tstruct, injection_location, leakage_height)
     if isnothing(leaking_trap)
@@ -100,5 +110,6 @@ function get_time_of_leakage(seq, tstruct, injection_location, leakage_height)
 
     # Get the time at which the leakage occurs
     time_at_leakage = time_to_reach_height(seq, tstruct, leaking_trap, leakage_height)
-    return time_at_leakage
+    leakage_location = get_leakage_location(tstruct, leaking_trap)
+    return (leakage_location, time_at_leakage)
 end
