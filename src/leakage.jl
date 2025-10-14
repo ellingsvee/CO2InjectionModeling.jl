@@ -9,8 +9,6 @@ export get_leakage_root_trap
 export get_leakage_trap
 
 
-
-
 function get_leakage_root_trap(
     tstruct::TrapStructure{<:Real},
     injection_location::Int,
@@ -41,10 +39,7 @@ function get_leakage_root_trap(
     end
 
     # Select the trap with the smallest spillpoint height above trap bottom
-    sorted_candidates = sort(candidate_traps, by=x -> spillpoint_heights[x])
-
-    root_trap = sorted_candidates[1]
-
+    root_trap = candidate_traps[argmin(spillpoint_heights[candidate_traps])]
     return root_trap
 end
 
@@ -135,8 +130,9 @@ function spillpoint_heights_above_trap_bottom(tstruct::TrapStructure{<:Real})
     return heights
 end
 
-function time_to_reach_height(seq, tstruct, trap_ix, target_height_above_trap_bottom)
-    zvtable = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
+function time_to_reach_height(seq, tstruct, trap_ix, target_height_above_trap_bottom; zvtable::Vector{Tuple{Vector{Float64},Vector{Float64}}})
+    # zvtable = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
+
     zvals, vvals = zvtable[trap_ix]
 
     # Compute trap bottom consistently
@@ -194,7 +190,7 @@ function get_loc_and_time_of_leakage(seq, tstruct, injection_location, leakage_h
     end
 
     # Get the time at which the leakage occurs
-    time_at_leakage = time_to_reach_height(seq, tstruct, leakage_trap, leakage_height)
+    time_at_leakage = time_to_reach_height(seq, tstruct, leakage_trap, leakage_height; zvtable=zvtable)
     leakage_location = get_leakage_location(tstruct, leakage_trap)
     return (leakage_location, time_at_leakage)
 end
