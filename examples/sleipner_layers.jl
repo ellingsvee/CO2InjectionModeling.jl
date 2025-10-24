@@ -1,8 +1,6 @@
 using CO2InjectionModeling
 using SurfaceWaterIntegratedModeling
-import GLMakie, Images # for visualization and loading of textures
-# import CairoMakie, Images # for visualization and loading of textures
-import ColorSchemes
+using CairoMakie, ColorSchemes
 import Graphs
 import Interpolations
 using Pkg.Artifacts
@@ -37,20 +35,12 @@ leakage_heights = [20.0, 15.0] # leakage heights
 # Run the injection simulation with leakage between the layers
 seqs, times_at_leakage, leakage_locations = run_injection(tstructs, injection_location, injection_rate, leakage_heights)
 
-
-# Plotting
-# cmap = Dict(:blue => 2, :green => 4, :red => 6, :orange => 8,
-#     :lilac => 10, :bright => 11)
-
-# view = (GLMakie.Vec(-83, 378, 197), GLMakie.Vec(100, 114, -4.5), 1.5)
-
-# sf, fig, sc = plotgrid(layers[1], texture=fill(cmap[:bright], size(layers[1])),
-#     colormap=ColorSchemes.:Paired_12,
-#     colorrange=(1, 12), wireframe=true)
-
-# tpoints = [time_at_leakage * 0.25, time_at_leakage * 0.5, time_at_leakage * 0.75, time_at_leakage]
 # Remove any nothing values from tpoints
 times_at_leakage = Float64[x for x in times_at_leakage if x !== nothing]
+
+# Visualization
+cmap = Dict(:blue => 2, :green => 4, :red => 6, :orange => 8,
+    :lilac => 10, :bright => 11)
 
 start_time = 0.1
 end_time = seqs[end][end].timestamp
@@ -79,7 +69,7 @@ end
 
 # For the animation we use 100 frames between the start and end time
 # Also add the times at leakage to ensure they are included
-times_for_animation = range(start_time, end_time, length=20)
+times_for_animation = range(start_time, end_time, length=40)
 times_for_animation = sort(collect(union(times_for_animation, times_at_leakage)))
 
 texs_for_animation = []
@@ -89,14 +79,13 @@ for i in 1:length(tstructs)
     seq = seqs[i]
 
     times_for_animation_filtered = [t for t in times_for_animation if t <= (i < length(tstructs) ? times_at_leakage[i] : end_time)]
-
     tex, = interpolate_timeseries(tstruct, seq, times_for_animation_filtered;
         filled_color=cmap[:blue],
         trap_color=cmap[:orange],
         river_color=cmap[:red])
     push!(texs_for_animation, tex)
 end
-using CairoMakie, ColorSchemes
+
 
 n_layers = length(texs_for_animation)
 
@@ -104,22 +93,12 @@ n_layers = length(texs_for_animation)
 current_tex = [Observable(reverse(transpose(texs_for_animation[i][1]), dims=1)) for i in 1:n_layers]
 
 # Build figure and axes
-fig = Figure(resolution=(1600, 800))
+fig = Figure(resolution=(1000, 800))
 axes = [Axis(fig[1, i]; aspect=DataAspect()) for i in 1:n_layers]
 
 # Link images to observables
 for i in 1:n_layers
     image!(axes[i], current_tex[i]; colormap=ColorSchemes.viridis, colorrange=(1, 12))
-end
-
-# Optionally, overlay leakage points once (static)
-for loc in leakage_locations
-    if loc !== nothing
-        i, j = linear_index_to_two_dim_index(layers[1], loc)
-        for ax in axes
-            scatter!(ax, [j], [i]; color=:red, markersize=15, marker=:xcross)
-        end
-    end
 end
 
 # Add a label for the time
