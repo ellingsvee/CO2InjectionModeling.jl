@@ -8,7 +8,14 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 
+from read_sleipner_surfaces import (
+    load_sleipner_9_layers,
+    load_sleipner_topographies_from_npz,
+)
+
+
 DATA_FILE = Path(__file__).parent.parent / "sleipner_depth_surfaces.npz"
+SLEIPNER_TOPOGRAPHIES_FILE = Path(__file__).parent.parent / "sleipner_topographies.npz"
 OUTPUT_PATH = Path(__file__).parent.parent / "plots"
 
 
@@ -195,6 +202,37 @@ def plot_cross_section():
     plt.close()
 
 
+def plot_cross_section_sleipner_layers():
+    layers = load_sleipner_9_layers(DATA_FILE)
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+    fig.suptitle(
+        "Sleipner Reservoir Cross-Section with 9 Layers", fontsize=16, fontweight="bold"
+    )
+
+    for layer_name, layer_data in layers.items():
+        top = layer_data["top"]
+        base = layer_data["base"]
+        thickness = layer_data["thickness"]
+        # Plotting code
+        ax.plot(top[32, :], label=f"{layer_name} Top", linewidth=2)
+        ax.plot(base[32, :], label=f"{layer_name} Base", linewidth=2)
+        ax.fill_between(
+            np.arange(thickness.shape[1]), base[32, :], top[32, :], alpha=0.3
+        )
+
+    ax.set_xlabel("X grid index", fontweight="bold")
+    ax.set_ylabel("Depth (m)", fontweight="bold")
+    ax.legend(loc="best", fontsize=8, ncol=2)
+    ax.grid(alpha=0.3)
+    ax.invert_yaxis()  # Depth increases downward
+    plt.tight_layout()
+    output_file = OUTPUT_PATH / "sleipner_cross_section_9_layers.png"
+    plt.savefig(output_file, dpi=300, bbox_inches="tight")
+    print(f"Saved cross-section with 9 layers plot to: {output_file}")
+    plt.close()
+
+
 def plot_3d_surface():
     """Create a 3D visualization of selected surfaces."""
     data_file = DATA_FILE
@@ -256,6 +294,64 @@ def plot_3d_surface():
     plt.close()
 
 
+# def plot_sleipner_topographies_3d():
+#     """Create a 3D visualization of the Sleipner topographies."""
+#     data_file = SLEIPNER_TOPOGRAPHIES_FILE
+#     topographies = load_sleipner_topographies_from_npz(data_file)
+
+
+#     for i in range(topographies.shape[0]):
+#         topo = topographies[i]
+#         ny, nx = topo.shape
+#         X, Y = np.meshgrid(np.arange(nx), np.arange(ny))
+
+
+def plot_sleipner_topographies_3d():
+    """Create a 3D visualization of all Sleipner topographies in one figure."""
+    data_file = SLEIPNER_TOPOGRAPHIES_FILE
+    topographies = load_sleipner_topographies_from_npz(data_file)
+
+    fig = plt.figure(figsize=(16, 12))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # import matplotlib as mpl
+    colors = plt.cm.viridis(np.linspace(0, 1, topographies.shape[0]))
+    ny, nx = topographies[0].shape
+    X, Y = np.meshgrid(np.arange(nx), np.arange(ny))
+
+    for i in range(topographies.shape[0]):
+        topo = topographies[i]
+        ax.plot_surface(
+            X,
+            Y,
+            topo,
+            color=colors[i],
+            alpha=1,
+            edgecolor="none",
+            label=f"Surface {i + 1}",
+        )
+    ax.set_box_aspect((nx, ny, np.ptp(topographies)))
+    ax.set_title("Sleipner Topographies (All Surfaces)", fontweight="bold")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Depth (m)")
+    ax.invert_zaxis()
+    # For legend, use proxy artists
+    from matplotlib.lines import Line2D
+
+    legend_elements = [
+        Line2D([0], [0], color=colors[i], lw=4, label=f"Surface {i + 1}")
+        for i in range(topographies.shape[0])
+    ]
+    ax.legend(handles=legend_elements, loc="best", fontsize=10)
+
+    plt.tight_layout()
+    output_file = OUTPUT_PATH / "sleipner_topographies_3d.png"
+    plt.savefig(output_file, dpi=300, bbox_inches="tight")
+    print(f"Saved 3D topographies plot to: {output_file}")
+    plt.close()
+
+
 def main():
     """Generate all visualizations."""
     print("=" * 70)
@@ -274,6 +370,12 @@ def main():
 
     print("4. Creating 3D surface visualizations...")
     plot_3d_surface()
+
+    print("5. Creating cross-section with 9 layers...")
+    plot_cross_section_sleipner_layers()
+
+    print("6. Creating 3D topographies visualization...")
+    plot_sleipner_topographies_3d()
 
     print()
     print("=" * 70)

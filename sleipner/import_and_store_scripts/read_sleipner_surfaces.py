@@ -203,40 +203,159 @@ def load_surfaces_from_npz(input_file: Path) -> Dict[str, np.ndarray]:
     return surfaces
 
 
-def load_sleipner_layers(input_file: Path) -> Dict[str, np.ndarray]:
+def load_sleipner_9_layers(
+    input_file: Path,
+) -> Dict[str, Dict[str, np.ndarray]]:
+    """
+    Load the 9 permeable sand layers of the Sleipner Utsira Formation for CO2 storage modeling.
+
+    The Sleipner reservoir consists of 9 PERMEABLE SAND layers where CO2 is stored and flows,
+    separated by 7 thin INTRASHALE BARRIERS (shale layers ~1-2m thick) that act as seals.
+
+    CO2 is stored WITHIN the sand layers (between the shale barriers), NOT in the barriers.
+    The layers are numbered from bottom (Layer 1) to top (Layer 9).
+
+    Parameters
+    ----------
+    input_file : Path
+        Path to the .npz file containing all surfaces
+
+    Returns
+    -------
+    layers : dict
+        Dictionary with keys 'Layer_1' through 'Layer_9', each containing:
+        - 'top': 2D numpy array of top surface depths (m)
+        - 'base': 2D numpy array of base surface depths (m)
+        - 'thickness': 2D numpy array of layer thickness (m)
+        - 'description': String describing the permeable sand layer
+    """
     surfaces = load_surfaces_from_npz(input_file)
 
-    surfaces_names_to_return = [
-        # Top of intrashales (Reflectors 1-7)
-        "Reflector1",
-        "Reflector2",
-        "Reflector3",
-        "Reflector4",
-        "Reflector5",
-        "Reflector6",
-        "Reflector7",
-        # Base of intrashales (Base reflectors 1-7)
-        "Base_Reflector1",
-        "Base_Reflector2",
-        "Base_Reflector3",
-        "Base_Reflector4",
-        "Base_Reflector5",
-        "Base_Reflector6",
-        "Base_Reflector7",
-        # Top and base of Utsira Formation
-        "TopUtsiraFm",
-        "BaseUtsiraFm",
-        # Top of Sand Wedge
-        "TopSW",
-        # Top of caprock
-        "Top_Caprock",
-        # Additional surface
-        "ThickShale",
-    ]
+    layers = {}
 
-    return {
-        name: surfaces[name] for name in surfaces_names_to_return if name in surfaces
+    # Layer 9: Topmost sand layer (PERMEABLE - CO2 is injected here)
+    layers["Layer_9"] = {
+        "top": surfaces["TopSW"],
+        "base": surfaces["ThickShale"],
+        "thickness": surfaces["ThickShale"] - surfaces["TopSW"],
+        "description": "Topmost permeable sand (injection layer)",
     }
+
+    # Layer 9: Topmost sand layer (PERMEABLE - CO2 is injected here)
+    layers["Layer_8"] = {
+        "top": surfaces["TopUtsiraFm"],
+        "base": surfaces["Reflector7"],
+        "thickness": surfaces["Reflector7"] - surfaces["TopUtsiraFm"],
+        "description": "Topmost permeable sand (injection layer)",
+    }
+
+    # Layer 8: Sand between intrashale barriers 7 and 6 (PERMEABLE)
+    layers["Layer_7"] = {
+        "top": surfaces["Base_Reflector7"],
+        "base": surfaces["Reflector6"],
+        "thickness": surfaces["Reflector6"] - surfaces["Base_Reflector7"],
+        "description": "Permeable sand between barriers 7 and 6",
+    }
+
+    # Layer 7: Sand between intrashale barriers 6 and 5 (PERMEABLE)
+    layers["Layer_6"] = {
+        "top": surfaces["Base_Reflector6"],
+        "base": surfaces["Reflector5"],
+        "thickness": surfaces["Reflector5"] - surfaces["Base_Reflector6"],
+        "description": "Permeable sand between barriers 6 and 5",
+    }
+
+    # Layer 6: Sand between intrashale barriers 5 and 4 (PERMEABLE)
+    layers["Layer_5"] = {
+        "top": surfaces["Base_Reflector5"],
+        "base": surfaces["Reflector4"],
+        "thickness": surfaces["Reflector4"] - surfaces["Base_Reflector5"],
+        "description": "Permeable sand between barriers 5 and 4",
+    }
+
+    # Layer 5: Sand between intrashale barriers 4 and 3 (PERMEABLE)
+    layers["Layer_4"] = {
+        "top": surfaces["Base_Reflector4"],
+        "base": surfaces["Reflector3"],
+        "thickness": surfaces["Reflector3"] - surfaces["Base_Reflector4"],
+        "description": "Permeable sand between barriers 4 and 3",
+    }
+
+    # Layer 4: Sand between intrashale barriers 3 and 2 (PERMEABLE)
+    layers["Layer_3"] = {
+        "top": surfaces["Base_Reflector3"],
+        "base": surfaces["Reflector2"],
+        "thickness": surfaces["Reflector2"] - surfaces["Base_Reflector3"],
+        "description": "Permeable sand between barriers 3 and 2",
+    }
+
+    # Layer 3: Sand between intrashale barriers 2 and 1 (PERMEABLE)
+    layers["Layer_2"] = {
+        "top": surfaces["Base_Reflector2"],
+        "base": surfaces["Reflector1"],
+        "thickness": surfaces["Reflector1"] - surfaces["Base_Reflector2"],
+        "description": "Permeable sand between barriers 2 and 1",
+    }
+
+    # Layer 1: Bottommost sand layer (PERMEABLE)
+    layers["Layer_1"] = {
+        "top": surfaces["Base_Reflector1"],
+        "base": surfaces["BaseUtsiraFm"],
+        "thickness": surfaces["BaseUtsiraFm"] - surfaces["Base_Reflector1"],
+        "description": "Bottommost permeable sand layer",
+    }
+
+    return layers
+
+
+def load_sleipner_topographies(
+    input_file: Path,
+) -> np.ndarray:
+    layers = load_sleipner_9_layers(input_file)
+    topographies = np.zeros(
+        (9, layers["Layer_1"]["top"].shape[0], layers["Layer_1"]["top"].shape[1])
+    )
+
+    # Topography is the top surface of each layer
+    for i in range(9):
+        layer_key = f"Layer_{i + 1}"
+        topographies[i, :, :] = layers[layer_key]["top"]
+
+    return topographies
+
+
+def save_topographies_to_npz(topographies: np.ndarray, output_file: Path):
+    """
+    Save topographies to a compressed numpy file.
+
+    Parameters
+    ----------
+    topographies : np.ndarray
+        3D array of shape (9, ny, nx) containing top surface depths for each layer
+    output_file : Path
+        Output .npz file path
+    """
+    np.savez_compressed(output_file, topographies=topographies)
+    print(f"\nSaved topographies to {output_file}")
+
+
+def load_sleipner_topographies_from_npz(input_file: Path) -> np.ndarray:
+    """
+    Load topographies from a compressed numpy file.
+
+    Parameters
+    ----------
+    input_file : Path
+        Input .npz file path
+
+    Returns
+    -------
+    topographies : np.ndarray
+        3D array of shape (9, ny, nx) containing top surface depths for each layer
+    """
+    data = np.load(input_file)
+    topographies = data["topographies"]
+    return topographies
 
 
 def main():
@@ -309,6 +428,13 @@ def main():
     loaded_surfaces = load_surfaces_from_npz(output_file)
     print(f"Loaded {len(loaded_surfaces)} surfaces from {output_file}")
     print(f"Available surfaces: {list(loaded_surfaces.keys())}")
+
+    # Load topographies
+    topographies = load_sleipner_topographies(output_file)
+    print(f"Loaded topographies with shape: {topographies.shape}")
+    # Save topographies to a separate file
+    topography_output_file = output_dir / "sleipner_topographies.npz"
+    save_topographies_to_npz(topographies, topography_output_file)
 
 
 if __name__ == "__main__":
