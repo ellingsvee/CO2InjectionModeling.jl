@@ -5,7 +5,7 @@
 using CO2InjectionModeling
 using SurfaceWaterIntegratedModeling
 using CairoMakie
-using GLMakie
+# using GLMakie
 using ColorSchemes
 using NPZ
 using Random
@@ -52,7 +52,7 @@ function compute_leakage_heights(tstructs)
             max_leakage_height = max(max_leakage_height, leakage_height)
         end
 
-        push!(leakage_heights, max_leakage_height / 2)
+        push!(leakage_heights, max_leakage_height / 1.9)
     end
     return leakage_heights
 end
@@ -182,7 +182,7 @@ for i in 1:n_layers
     heatmap!(ax, co2_mask;
         colormap=:hot,  # Contrasting warm colors for CO2
         colorrange=(1, 12),
-        alpha=0.6,
+        alpha=1.0,
         nan_color=:transparent)
 
     hidedecorations!(ax)
@@ -202,7 +202,7 @@ Colorbar(fig[3:n_rows+2, n_cols+1],
 # Animation loop
 maxlength = maximum(length.(texs_for_animation))
 
-record(fig, "../media/animation_true.gif", 1:maxlength; framerate=5) do t
+record(fig, "../media/animation_temp.gif", 1:maxlength; framerate=5) do t
     for i in 1:n_layers
         idx = min(t, length(texs_for_animation[i]))
         new_tex = reverse(transpose(texs_for_animation[i][idx]), dims=1)
@@ -222,4 +222,4 @@ record(fig, "../media/animation_true.gif", 1:maxlength; framerate=5) do t
     end
 end
 
-println("Animation saved to ../media/animation_true.gif")
+println("Animation saved to ../media/animation.gif")
