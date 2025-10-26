@@ -148,6 +148,12 @@ time_label = Label(fig[2, 1:n_cols+1], "Time: $(round(times_for_animation[1], di
 # Create grid of subplots (starting at row 3)
 axes = []
 co2_masks = []
+topo_hmaps = []
+
+# Get elevation range across all layers for consistent colorbar
+all_elevations = [caprock_topography[i, :, :] for i in 1:n_layers]
+elev_min = minimum(minimum, all_elevations)
+elev_max = maximum(maximum, all_elevations)
 
 for i in 1:n_layers
     row = div(i - 1, n_cols) + 3  # Start at row 3 (after title and time)
@@ -162,9 +168,11 @@ for i in 1:n_layers
     # Background: topography
     topo = caprock_topography[i, :, :]
     topo_reversed = reverse(transpose(topo), dims=1)
-    heatmap!(ax, topo_reversed; colormap=:terrain, alpha=1.0)
+    topo_hm = heatmap!(ax, topo_reversed;
+        colormap=:terrain,
+        colorrange=(elev_min, elev_max))
 
-    # Overlay: CO2 distribution (use NaN for transparency)
+    # Overlay: CO2 distribution with contrasting color (use NaN for transparency)
     co2_mask = Observable(fill(NaN, size(current_tex[i][])))
     for idx in CartesianIndices(current_tex[i][])
         val = current_tex[i][][idx]
@@ -172,25 +180,24 @@ for i in 1:n_layers
     end
 
     heatmap!(ax, co2_mask;
-        colormap=ColorSchemes.viridis,
+        colormap=:hot,  # Contrasting warm colors for CO2
         colorrange=(1, 12),
-        alpha=0.7,
+        alpha=0.6,
         nan_color=:transparent)
 
     hidedecorations!(ax)
     push!(axes, ax)
     push!(co2_masks, co2_mask)
+    push!(topo_hmaps, topo_hm)
 end
 
-# Colorbar positioned to the right of all plots, spanning the full height
+# Colorbar for topography elevation
 Colorbar(fig[3:n_rows+2, n_cols+1],
-    limits=(1, 12),
-    colormap=ColorSchemes.viridis,
-    label="CO2 State",
+    topo_hmaps[1],
+    label="Elevation (m)",
     labelsize=16,
     ticklabelsize=14,
-    width=20,
-    ticks=([2, 6, 8], ["Filled", "River", "Trapped"]))
+    width=20)
 
 # Animation loop
 maxlength = maximum(length.(texs_for_animation))
