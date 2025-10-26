@@ -3,6 +3,7 @@ plots
 velocities_trends_surfaces
 *.npy
 *.npz
+!sleipner_topographies.npz
 *.zip
 
 # Byte-compiled / optimized / DLL files
