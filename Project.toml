@@ -1,38 +1,24 @@
 name = "CO2InjectionModeling"
 uuid = "89694a89-419d-4f9a-9689-436a4a7f6b0c"
-authors = ["Elling Svee"]
 version = "1.0.0-DEV"
+authors = ["Elling Svee"]
 
 [deps]
 ArchGDAL = "c9ce4bd3-c3d5-55b8-8973-c0e20141b8c3"
-CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
-ColorSchemes = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
-GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
-Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
 Interpolations = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
-Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 SurfaceWaterIntegratedModeling = "71e2a337-b4d4-4738-9f2b-3c37e1d3d462"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
-ArchGDAL = "0.10.2"
-CairoMakie = "0.12.18"
-ColorSchemes = "3.24"
-DifferentialEquations = "7.16.1"
-GLMakie = "0.10.18"
-GeometryBasics = "0.4.11"
-Graphs = "1.9"
-Images = "0.26.1"
+ArchGDAL = "0.10.8"
+DifferentialEquations = "7.17.0"
+GeometryBasics = "0.5.10"
+Graphs = "1.13.1"
 Interpolations = "0.15.1"
-Makie = "0.21"
-NPZ = "0.4.3"
-julia = "1.9"
-
-[extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test"]

@@ -20,6 +20,7 @@ function get_leakage_root_trap(
     # Identify traps containing the injection location
     traps_in_footprint = findall(trap -> injection_location in tstruct.footprints[trap], 1:N)
     if isempty(traps_in_footprint)
+        println("Injection location was ", injection_location)
         println("Injection location not found in any trap footprint.")
         return nothing
     end

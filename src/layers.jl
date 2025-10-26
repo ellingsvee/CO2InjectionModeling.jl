@@ -16,6 +16,16 @@ function analyze_layers(
     return tstructs
 end
 
+function analyze_layers(
+    layers::Array{Float64,3};
+)::Vector{TrapStructure{Float64}}
+    tstructs = TrapStructure{Float64}[]
+    for i in 1:size(layers, 1)
+        push!(tstructs, spillanalysis(layers[i, :, :]))
+    end
+    return tstructs
+end
+
 """
 Function that runs a full injection simulation with leakage between the layers.
 Takes in the tstructs, injection location in the top layer, the injection rate, leakage heights for the different layers.
@@ -78,7 +88,7 @@ function run_injection(
 
         # Analyzing to get the time and location of leakage
         leakage_height = leakage_heights[i]
-        (leakage_location, time_at_leakage) = get_loc_and_time_of_leakage(seqs[i], tstruct, injection_location, leakage_height)
+        (leakage_location, time_at_leakage) = get_loc_and_time_of_leakage(seqs[i], tstruct, leakage_location, leakage_height)
 
         # Update the leakage location and time for the next layer
         leakage_locations[i] = leakage_location

@@ -184,7 +184,7 @@ def save_surfaces_to_npz(
     print(f"\nSaved all surfaces to {output_file}")
 
 
-def load_surfaces_from_npz(input_file: Path) -> Dict[str, np.ndarray]:
+def load_surfaces_from_npz(input_file: Path):
     """
     Load surfaces from a compressed numpy file.
 
@@ -200,7 +200,8 @@ def load_surfaces_from_npz(input_file: Path) -> Dict[str, np.ndarray]:
     """
     data = np.load(input_file)
     surfaces = {key: data[key] for key in data.files if key != "_metadata"}
-    return surfaces
+    metadata = {key: data["_metadata"] for key in data.files if key == "_metadata"}
+    return surfaces, metadata
 
 
 def load_sleipner_9_layers(
@@ -229,7 +230,7 @@ def load_sleipner_9_layers(
         - 'thickness': 2D numpy array of layer thickness (m)
         - 'description': String describing the permeable sand layer
     """
-    surfaces = load_surfaces_from_npz(input_file)
+    surfaces, metadata = load_surfaces_from_npz(input_file)
 
     layers = {}
 
@@ -239,6 +240,8 @@ def load_sleipner_9_layers(
         "base": surfaces["ThickShale"],
         "thickness": surfaces["ThickShale"] - surfaces["TopSW"],
         "description": "Topmost permeable sand (injection layer)",
+        "metadata_top": metadata["TopSW"],
+        "metadata_base": metadata["ThickShale"],
     }
 
     # Layer 9: Topmost sand layer (PERMEABLE - CO2 is injected here)
@@ -247,6 +250,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector7"],
         "thickness": surfaces["Reflector7"] - surfaces["TopUtsiraFm"],
         "description": "Topmost permeable sand (injection layer)",
+        "metadata_top": metadata["TopUtsiraFm"],
+        "metadata_base": metadata["Reflector7"],
     }
 
     # Layer 8: Sand between intrashale barriers 7 and 6 (PERMEABLE)
@@ -255,6 +260,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector6"],
         "thickness": surfaces["Reflector6"] - surfaces["Base_Reflector7"],
         "description": "Permeable sand between barriers 7 and 6",
+        "metadata_top": metadata["Base_Reflector7"],
+        "metadata_base": metadata["Reflector6"],
     }
 
     # Layer 7: Sand between intrashale barriers 6 and 5 (PERMEABLE)
@@ -263,6 +270,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector5"],
         "thickness": surfaces["Reflector5"] - surfaces["Base_Reflector6"],
         "description": "Permeable sand between barriers 6 and 5",
+        "metadata_top": metadata["Base_Reflector6"],
+        "metadata_base": metadata["Reflector5"],
     }
 
     # Layer 6: Sand between intrashale barriers 5 and 4 (PERMEABLE)
@@ -271,6 +280,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector4"],
         "thickness": surfaces["Reflector4"] - surfaces["Base_Reflector5"],
         "description": "Permeable sand between barriers 5 and 4",
+        "metadata_top": metadata["Base_Reflector5"],
+        "metadata_base": metadata["Reflector4"],
     }
 
     # Layer 5: Sand between intrashale barriers 4 and 3 (PERMEABLE)
@@ -279,6 +290,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector3"],
         "thickness": surfaces["Reflector3"] - surfaces["Base_Reflector4"],
         "description": "Permeable sand between barriers 4 and 3",
+        "metadata_top": metadata["Base_Reflector4"],
+        "metadata_base": metadata["Reflector3"],
     }
 
     # Layer 4: Sand between intrashale barriers 3 and 2 (PERMEABLE)
@@ -287,6 +300,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector2"],
         "thickness": surfaces["Reflector2"] - surfaces["Base_Reflector3"],
         "description": "Permeable sand between barriers 3 and 2",
+        "metadata_top": metadata["Base_Reflector3"],
+        "metadata_base": metadata["Reflector2"],
     }
 
     # Layer 3: Sand between intrashale barriers 2 and 1 (PERMEABLE)
@@ -295,6 +310,8 @@ def load_sleipner_9_layers(
         "base": surfaces["Reflector1"],
         "thickness": surfaces["Reflector1"] - surfaces["Base_Reflector2"],
         "description": "Permeable sand between barriers 2 and 1",
+        "metadata_top": metadata["Base_Reflector2"],
+        "metadata_base": metadata["Reflector1"],
     }
 
     # Layer 1: Bottommost sand layer (PERMEABLE)
@@ -303,6 +320,8 @@ def load_sleipner_9_layers(
         "base": surfaces["BaseUtsiraFm"],
         "thickness": surfaces["BaseUtsiraFm"] - surfaces["Base_Reflector1"],
         "description": "Bottommost permeable sand layer",
+        "metadata_top": metadata["Base_Reflector1"],
+        "metadata_base": metadata["BaseUtsiraFm"],
     }
 
     return layers
@@ -425,7 +444,7 @@ def main():
     print("\n" + "=" * 70)
     print("Testing data reload...")
     print("=" * 70)
-    loaded_surfaces = load_surfaces_from_npz(output_file)
+    loaded_surfaces, loaded_metadata = load_surfaces_from_npz(output_file)
     print(f"Loaded {len(loaded_surfaces)} surfaces from {output_file}")
     print(f"Available surfaces: {list(loaded_surfaces.keys())}")
 
