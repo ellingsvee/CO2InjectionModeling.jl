@@ -88,22 +88,34 @@ function run_injection(
 
         # Analyzing to get the time and location of leakage
         leakage_height = leakage_heights[i]
-        (leakage_location, time_at_leakage) = get_loc_and_time_of_leakage(seqs[i], tstruct, leakage_location, leakage_height)
+        leakage_result = get_loc_and_time_of_leakage(seqs[i], tstruct, leakage_location, leakage_height)
 
-        # Update the leakage location and time for the next layer
-        leakage_locations[i] = leakage_location
-        times_at_leakage[i] = time_at_leakage
+        # Check if leakage occurred
+        if isnothing(leakage_result) || isnothing(leakage_result[1]) || isnothing(leakage_result[2])
+            println("No leakage occurred in layer $i - CO2 has likely exited the domain.")
+            leakage_locations[i] = nothing
+            times_at_leakage[i] = nothing
 
-        if isnothing(time_at_leakage)
-            println("No leakage occurred in layer $i.")
-            # If no leakage occurs, we stop the simulation for the lower layers
-            for j in i+1:length(tstructs)
-                seqs[j] = Vector{SpillEvent}() # Empty sequence for the lower layers
-                leakage_locations[j] = nothing
-                times_at_leakage[j] = nothing
+            # For remaining layers, run fill_sequence with zero injection
+            # This maintains consistent sequence lengths and structure
+            for j in (i+1):length(tstructs)
+                println("Layer $j: Running with zero injection (CO2 already exited domain)")
+                topography_j = tstructs[j].topography
+                zero_injection = [WeatherEvent(0.0, fill(0.0, size(topography_j)))]
+                seqs[j] = fill_sequence(tstructs[j], zero_injection)
+
+                # Mark as no leakage for remaining layers
+                if j < length(tstructs)
+                    leakage_locations[j] = nothing
+                    times_at_leakage[j] = nothing
+                end
             end
             break
         else
+            # Leakage occurred successfully
+            (leakage_location, time_at_leakage) = leakage_result
+            leakage_locations[i] = leakage_location
+            times_at_leakage[i] = time_at_leakage
             println("Leakage occurred in layer $i at time $time_at_leakage at location $leakage_location.")
         end
     end

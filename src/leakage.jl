@@ -175,8 +175,8 @@ function get_loc_and_time_of_leakage(seq, tstruct, injection_location, leakage_h
     root_trap = get_leakage_root_trap(tstruct, injection_location, leakage_height, spillpoint_heights=spillpoint_heights)
 
     if isnothing(root_trap)
-        println("No leaking trap found.")
-        return nothing
+        println("No root trap found - CO2 may have exited the domain or not reached leakage height.")
+        return (nothing, nothing)
     else
         println("Root trap: ", root_trap)
     end
@@ -184,14 +184,20 @@ function get_loc_and_time_of_leakage(seq, tstruct, injection_location, leakage_h
     leakage_trap = get_leakage_trap(tstruct, leakage_height, root_trap, zvtable=zvtable, spillpoint_heights=spillpoint_heights)
 
     if isnothing(leakage_trap)
-        println("No leakage trap found.")
-        return nothing
+        println("No leakage trap found - CO2 has likely exited the domain.")
+        return (nothing, nothing)
     else
         println("Leakage trap: ", leakage_trap)
     end
 
     # Get the time at which the leakage occurs
     time_at_leakage = time_to_reach_height(seq, tstruct, leakage_trap, leakage_height; zvtable=zvtable)
+
+    if isnothing(time_at_leakage)
+        println("Target leakage height not reached - CO2 has exited the domain.")
+        return (nothing, nothing)
+    end
+
     leakage_location = get_leakage_location(tstruct, leakage_trap)
     return (leakage_location, time_at_leakage)
 end
