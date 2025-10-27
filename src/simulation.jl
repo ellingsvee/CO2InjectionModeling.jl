@@ -102,30 +102,50 @@ function interpolate_simulation_results(
             layer_end_time = seq_end
         end
 
-        # Get all requested times, clamped to sequence bounds
-        times_bounded = [clamp(t, seq_start, seq_end) for t in times]
-        times_for_interp = unique(sort(times_bounded))
-
-        # Ensure we have at least 2 points for interpolation
-        if length(times_for_interp) < 2
-            times_for_interp = [seq_start, seq_end]
+        # Get times for interpolation, but only up to when layer is active
+        times_for_layer = Float64[]
+        for t in times
+            if t <= layer_end_time
+                # Layer is active at this time
+                push!(times_for_layer, clamp(t, seq_start, layer_end_time))
+            end
         end
 
-        # Interpolate for all requested times
-        tex_interp, = interpolate_timeseries(tstruct, seq, times_for_interp;
+        # Add the layer end time to ensure we capture the state at leakage
+        if i <= length(times_at_leakage)
+            push!(times_for_layer, layer_end_time)
+        end
+
+        times_for_layer = unique(sort(times_for_layer))
+
+        # Ensure we have at least 2 points for interpolation
+        if length(times_for_layer) < 2
+            times_for_layer = Float64[seq_start, layer_end_time]
+        end
+
+        # Interpolate only for times when layer is active
+        tex_interp, = interpolate_timeseries(tstruct, seq, times_for_layer;
             filled_color=filled_color,
             trap_color=trap_color,
             river_color=river_color)
 
-        # Map interpolated results back to original time grid
+        # Map interpolated results to original time grid
+        # For times after leakage, use the state at leakage time (frozen state)
         tex = []
         for t in times
-            t_clamped = clamp(t, seq_start, seq_end)
-            idx = findfirst(x -> x == t_clamped, times_for_interp)
-            if idx !== nothing
-                push!(tex, tex_interp[idx])
+            if t <= layer_end_time
+                # Find interpolated value for this time
+                t_clamped = clamp(t, seq_start, layer_end_time)
+                idx = findfirst(x -> x == t_clamped, times_for_layer)
+                if idx !== nothing
+                    push!(tex, tex_interp[idx])
+                else
+                    # Use closest time
+                    closest_idx = argmin(abs.(times_for_layer .- t_clamped))
+                    push!(tex, tex_interp[closest_idx])
+                end
             else
-                # Shouldn't happen, but use final state as fallback
+                # Time is after leakage - use frozen state at leakage time
                 push!(tex, tex_interp[end])
             end
         end
