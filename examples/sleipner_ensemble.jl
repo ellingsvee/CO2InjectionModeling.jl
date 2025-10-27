@@ -28,16 +28,16 @@ footprints = top_tstruct.footprints
 trap_idx = rand(1:length(footprints))
 footprint = footprints[trap_idx]
 injection_location = rand(footprint)
-injection_rate = 1.0
+injection_rate = 20000.0
 
 # ============================================================================
 # 2. Generate Ensemble of Leakage Heights
 # ============================================================================
 
-n_simulations = 20  # Number of ensemble members (increased for better statistics)
+n_simulations = 25  # Number of ensemble members (increased for better statistics)
 
 # Generate different leakage heights by varying the fraction parameter
-fractions = range(1.1, 2.0, length=n_simulations)  # Different leakage thresholds
+fractions = range(1.0, 2.0, length=n_simulations)  # Different leakage thresholds
 
 leakage_height_samples = [
     compute_leakage_heights(tstructs; fraction=frac)
@@ -87,69 +87,20 @@ fig_prob = create_ensemble_probability_animation(
 # 6. Visualize Individual Simulations
 # ============================================================================
 
-# Optionally create animations for individual realizations
-for i in [1, 3, n_simulations]  # First, middle, last
-    println("\nCreating animation for simulation $i (fraction=$(round(fractions[i], digits=2)))...")
-    fig = create_layer_animation(
-        caprock_topography,
-        all_texs[i],
-        common_times,
-        "../media/ensemble_sim_$i.gif";
-        title="CO2 Migration - Realization $i (fraction=$(round(fractions[i], digits=2)))",
-        n_cols=3,
-        framerate=5,
-        co2_colormap=:hot,
-        figure_size=(1600, 1300),
-        show_terrain=true
-    )
-end
-
+# # Optionally create animations for individual realizations
+# for i in [1, div(n_simulations, 2), n_simulations]  # First, middle, last
+#     println("\nCreating animation for simulation $i (fraction=$(round(fractions[i], digits=2)))...")
+#     fig = create_layer_animation(
+#         caprock_topography,
+#         all_texs[i],
+#         common_times,
+#         "../media/ensemble_sim_$i.gif";
+#         title="CO2 Migration - Realization $i (fraction=$(round(fractions[i], digits=2)))",
+#         n_cols=3,
+#         framerate=5,
+#         co2_colormap=:hot,
+#         figure_size=(1600, 1300),
+#         show_terrain=true
+#     )
+# end
 # ============================================================================
-# 7. Analyze Uncertainty at Specific Time
-# ============================================================================
-
-# Choose a specific time point (e.g., halfway through simulation)
-time_idx = div(length(common_times), 2)
-time_point = common_times[time_idx]
-
-println("\nAnalyzing uncertainty at t=$(round(time_point, digits=2)) years...")
-
-# Create figure showing fill probability and uncertainty for each layer at this time
-fig_uncertainty = Figure(size=(1800, 1200))
-
-n_layers = length(tstructs)
-n_cols = 3
-n_rows = ceil(Int, n_layers / n_cols)
-
-for layer_idx in 1:n_layers
-    row = div(layer_idx - 1, n_cols) + 1
-    col = mod(layer_idx - 1, n_cols) + 1
-
-    # Fill probability (fraction of simulations with CO2)
-    ax_prob = Axis(fig_uncertainty[2*row-1, col];
-        aspect=DataAspect(),
-        title="Layer $layer_idx - Fill Probability",
-        titlesize=14)
-
-    fill_prob = reverse(transpose(fill_fractions[layer_idx][time_idx]), dims=1)
-    heatmap!(ax_prob, fill_prob; colormap=:viridis, colorrange=(0, 1))
-    hidedecorations!(ax_prob)
-
-    # Uncertainty (standard deviation of fill indicator)
-    ax_std = Axis(fig_uncertainty[2*row, col];
-        aspect=DataAspect(),
-        title="Layer $layer_idx - Uncertainty",
-        titlesize=14)
-
-    uncertainty = reverse(transpose(fill_uncertainties[layer_idx][time_idx]), dims=1)
-    heatmap!(ax_std, uncertainty; colormap=:reds, colorrange=(0, 0.5))
-    hidedecorations!(ax_std)
-end
-
-Label(fig_uncertainty[0, :], "Ensemble Statistics at t=$(round(time_point, digits=2)) years",
-    fontsize=20, halign=:center, font=:bold)
-
-save("../media/ensemble_uncertainty.png", fig_uncertainty)
-println("Uncertainty plot saved to ../media/ensemble_uncertainty.png")
-
-println("\nEnsemble analysis complete!")

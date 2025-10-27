@@ -211,16 +211,24 @@ function run_ensemble_simulations(
 
     # Find maximum end time across all simulations
     max_end_time = -Inf
+    seqs_end_times = Float64[]
     for (sim_idx, seqs) in enumerate(all_seqs)
         n_filled = length(all_times_at_leakage[sim_idx]) + 1
         end_time = seqs[n_filled][end].timestamp
         max_end_time = max(max_end_time, end_time)
+        push!(seqs_end_times, end_time)
     end
 
     println("\nCommon time range: $start_time to $max_end_time")
 
     # Create common time grid
     common_times = collect(range(start_time, max_end_time, length=n_common_times))
+
+    # Remove 0.0 and nothing from the seqs_end_times
+    seqs_end_times = filter(x -> x > 0.0, seqs_end_times)
+
+    # Include the seqs_end_times in the common times to ensure coverage
+    common_times = unique(sort(vcat(common_times, seqs_end_times)))
 
     # Interpolate all simulations onto common time grid
     all_texs = []
