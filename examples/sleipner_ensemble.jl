@@ -34,10 +34,10 @@ injection_rate = 1.0
 # 2. Generate Ensemble of Leakage Heights
 # ============================================================================
 
-n_simulations = 10  # Number of ensemble members (increased for better statistics)
+n_simulations = 20  # Number of ensemble members (increased for better statistics)
 
 # Generate different leakage heights by varying the fraction parameter
-fractions = range(1.2, 2.0, length=n_simulations)  # Different leakage thresholds
+fractions = range(1.1, 2.0, length=n_simulations)  # Different leakage thresholds
 
 leakage_height_samples = [
     compute_leakage_heights(tstructs; fraction=frac)
@@ -63,39 +63,7 @@ common_times, all_texs, all_n_filled, simulation_metadata = run_ensemble_simulat
 # 4. Compute Ensemble Statistics
 # ============================================================================
 
-println("\nComputing ensemble statistics...")
-
-# Additional diagnostic: Check structure of all_texs
-println("\nDiagnostic - all_texs structure:")
-println("  Number of simulations: $(length(all_texs))")
-for sim_idx in 1:length(all_texs)
-    println("  Simulation $sim_idx: $(length(all_texs[sim_idx])) layers")
-    for layer_idx in 1:min(3, length(all_texs[sim_idx]))
-        println("    Layer $layer_idx: $(length(all_texs[sim_idx][layer_idx])) time steps")
-        # Check a sample state value
-        sample_state = all_texs[sim_idx][layer_idx][1]
-        n_co2 = count(x -> x > 1, sample_state)
-        println("      Time 1: CO2 cells = $n_co2 / $(length(sample_state))")
-    end
-end
-
 fill_fractions, fill_uncertainties = compute_ensemble_statistics(all_texs)
-
-# Diagnostic: Check if we have non-zero probabilities
-println("\nDiagnostic - Checking fill_fractions data:")
-for layer_idx in 1:min(3, length(fill_fractions))
-    for time_idx in [1, div(length(fill_fractions[layer_idx]), 2), length(fill_fractions[layer_idx])]
-        max_prob = maximum(fill_fractions[layer_idx][time_idx])
-        min_prob = minimum(fill_fractions[layer_idx][time_idx])
-        n_nonzero = count(x -> x > 0, fill_fractions[layer_idx][time_idx])
-        println("  Layer $layer_idx, Time $time_idx: min=$(round(min_prob, digits=3)), max=$(round(max_prob, digits=3)), nonzero=$n_nonzero")
-    end
-end
-
-println("\nEnsemble Summary:")
-for (i, meta) in enumerate(simulation_metadata)
-    println("Simulation $i: reached $(meta.n_filled_layers) layers, fraction=$(round(fractions[i], digits=2))")
-end
 
 # ============================================================================
 # 5. Visualize Ensemble Probability Animation
@@ -107,14 +75,12 @@ fig_prob = create_ensemble_probability_animation(
     fill_fractions,
     common_times,
     "../media/ensemble_probability.gif";
-    title="Ensemble CO2 Probability (Opacity = Fill Fraction)",
+    title="Ensemble CO2 Probability",
     n_cols=3,
     framerate=5,
-    topo_colormap=:terrain,
-    co2_colormap=:hot,
+    co2_colormap=:viridis,
     figure_size=(1600, 1300),
-    show_terrain=false,
-    terrain_contours=false
+    show_terrain=true
 )
 
 # ============================================================================
@@ -132,9 +98,9 @@ for i in [1, 3, n_simulations]  # First, middle, last
         title="CO2 Migration - Realization $i (fraction=$(round(fractions[i], digits=2)))",
         n_cols=3,
         framerate=5,
-        topo_colormap=:terrain,
         co2_colormap=:hot,
-        figure_size=(1600, 1300)
+        figure_size=(1600, 1300),
+        show_terrain=true
     )
 end
 

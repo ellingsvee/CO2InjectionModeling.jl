@@ -6,8 +6,9 @@ export create_layer_animation, create_ensemble_probability_animation
     create_layer_animation(topographies, texs_for_times, times, output_path;
                           title="CO2 Migration Through Layers",
                           n_cols=3, framerate=5, 
-                          topo_colormap=:terrain, co2_colormap=:hot,
-                          figure_size=(1600, 1300))
+                          co2_colormap=:hot,
+                          figure_size=(1600, 1300),
+                          show_terrain=true)
 
 Create an animated GIF showing CO2 migration through multiple layers.
 
@@ -21,9 +22,9 @@ Requires CairoMakie to be loaded in the calling scope.
 - `title::String`: Title for the animation
 - `n_cols::Int=3`: Number of columns in grid layout
 - `framerate::Int=5`: Frames per second for animation
-- `topo_colormap::Symbol=:terrain`: Colormap for topography background
 - `co2_colormap::Symbol=:hot`: Colormap for CO2 overlay
 - `figure_size::Tuple{Int,Int}=(1600, 1300)`: Figure size in pixels
+- `show_terrain::Bool=true`: Whether to show terrain as contour lines
 
 # Returns
 - `fig`: The Makie Figure object (also saves animation to `output_path`)
@@ -45,9 +46,9 @@ function create_layer_animation(
     title::String="CO2 Migration Through Layers",
     n_cols::Int=3,
     framerate::Int=5,
-    topo_colormap::Symbol=:terrain,
     co2_colormap::Symbol=:hot,
-    figure_size::Tuple{Int,Int}=(1600, 1300)
+    figure_size::Tuple{Int,Int}=(1600, 1300),
+    show_terrain::Bool=true
 )
     # Check if Makie is available
     if !isdefined(Main, :Figure) && !isdefined(Main, :CairoMakie)
@@ -60,6 +61,7 @@ function create_layer_animation(
     Label = Main.Label
     Axis = Main.Axis
     heatmap! = Main.heatmap!
+    contour! = Main.contour!
     Colorbar = Main.Colorbar
     DataAspect = Main.DataAspect
     hidedecorations! = Main.hidedecorations!
@@ -83,7 +85,6 @@ function create_layer_animation(
     # Create grid of subplots
     axes = []
     co2_masks = []
-    topo_hmaps = []
 
     # Get elevation range across all layers for consistent colorbar
     all_elevations = [topographies[i, :, :] for i in 1:n_layers]
@@ -100,12 +101,16 @@ function create_layer_animation(
             titlesize=18,
             titlegap=8)
 
-        # Background: topography
-        topo = topographies[i, :, :]
-        topo_reversed = reverse(transpose(topo), dims=1)
-        topo_hm = heatmap!(ax, topo_reversed;
-            colormap=topo_colormap,
-            colorrange=(elev_min, elev_max))
+        # Background: topography contours (if enabled)
+        if show_terrain
+            topo = topographies[i, :, :]
+            topo_reversed = reverse(transpose(topo), dims=1)
+            contour!(ax, topo_reversed;
+                levels=10,
+                color=:black,
+                linewidth=0.5,
+                alpha=0.3)
+        end
 
         # Overlay: CO2 distribution with contrasting color
         co2_mask = Observable(fill(NaN, size(current_tex[i][])))
@@ -123,16 +128,7 @@ function create_layer_animation(
         hidedecorations!(ax)
         push!(axes, ax)
         push!(co2_masks, co2_mask)
-        push!(topo_hmaps, topo_hm)
     end
-
-    # Colorbar for topography elevation
-    Colorbar(fig[3:n_rows+2, n_cols+1],
-        topo_hmaps[1],
-        label="Elevation (m)",
-        labelsize=16,
-        ticklabelsize=14,
-        width=20)
 
     # Animation loop
     maxlength = maximum(length.(texs_for_times))
@@ -166,10 +162,9 @@ end
     create_ensemble_probability_animation(topographies, fraction_filled, times, output_path;
                                          title="Ensemble CO2 Probability",
                                          n_cols=3, framerate=5,
-                                         topo_colormap=:terrain, co2_colormap=:viridis,
+                                         co2_colormap=:viridis,
                                          figure_size=(1600, 1300),
-                                         show_terrain=true,
-                                         terrain_contours=false)
+                                         show_terrain=true)
 
 Create an animated GIF showing ensemble probability of CO2 presence through layers.
 The CO2 probability is shown using a colormap from 0 (not present) to 1 (always present).
@@ -184,11 +179,9 @@ Requires CairoMakie to be loaded in the calling scope.
 - `title::String`: Title for the animation
 - `n_cols::Int=3`: Number of columns in grid layout
 - `framerate::Int=5`: Frames per second for animation
-- `topo_colormap::Symbol=:terrain`: Colormap for topography background (when `show_terrain=true` and `terrain_contours=false`)
 - `co2_colormap::Symbol=:viridis`: Colormap for CO2 probability (from 0 to 1). Good options: `:viridis`, `:plasma`, `:inferno`, `:magma`
 - `figure_size::Tuple{Int,Int}=(1600, 1300)`: Figure size in pixels
-- `show_terrain::Bool=true`: Whether to show the underlying terrain topography
-- `terrain_contours::Bool=false`: If true, show terrain as contour lines; if false, show as heatmap (only used when `show_terrain=true`)
+- `show_terrain::Bool=true`: Whether to show the underlying terrain as contour lines
 
 # Returns
 - `fig`: The Makie Figure object (also saves animation to `output_path`)
@@ -200,12 +193,12 @@ using CairoMakie, CO2InjectionModeling
 # ... run ensemble simulations ...
 fraction_filled, n_filled = compute_ensemble_statistics(all_texs)
 
-# With terrain heatmap and viridis colormap (default)
+# With terrain contours and viridis colormap (default)
 fig = create_ensemble_probability_animation(topographies, fraction_filled, times, "ensemble.gif")
 
-# With terrain contours and plasma colormap
-fig = create_ensemble_probability_animation(topographies, fraction_filled, times, "ensemble_contours.gif";
-    terrain_contours=true, co2_colormap=:plasma)
+# With plasma colormap
+fig = create_ensemble_probability_animation(topographies, fraction_filled, times, "ensemble_plasma.gif";
+    co2_colormap=:plasma)
 
 # Without terrain (only CO2 probability with inferno colormap)
 fig = create_ensemble_probability_animation(topographies, fraction_filled, times, "ensemble_clean.gif";
@@ -220,11 +213,9 @@ function create_ensemble_probability_animation(
     title::String="Ensemble CO2 Probability",
     n_cols::Int=3,
     framerate::Int=5,
-    topo_colormap::Symbol=:terrain,
     co2_colormap::Symbol=:viridis,
     figure_size::Tuple{Int,Int}=(1600, 1300),
-    show_terrain::Bool=true,
-    terrain_contours::Bool=false
+    show_terrain::Bool=true
 )
     # Check if Makie is available
     if !isdefined(Main, :Figure) && !isdefined(Main, :CairoMakie)
@@ -261,10 +252,9 @@ function create_ensemble_probability_animation(
     # Create grid of subplots
     axes = []
     co2_overlays = []
-    topo_hmaps = []
     co2_hmaps = []  # Store CO2 heatmaps for colorbar
 
-    # Get elevation range across all layers for consistent colorbar
+    # Get elevation range across all layers for consistent contours
     all_elevations = [topographies[i, :, :] for i in 1:n_layers]
     elev_min = minimum(minimum, all_elevations)
     elev_max = maximum(maximum, all_elevations)
@@ -279,25 +269,15 @@ function create_ensemble_probability_animation(
             titlesize=18,
             titlegap=8)
 
-        # Background: topography (if enabled)
-        topo_hm = nothing
+        # Background: topography contours (if enabled)
         if show_terrain
             topo = topographies[i, :, :]
             topo_reversed = reverse(transpose(topo), dims=1)
-
-            if terrain_contours
-                # Show terrain as contours
-                topo_hm = contour!(ax, topo_reversed;
-                    levels=10,
-                    color=:black,
-                    linewidth=0.5,
-                    alpha=0.3)
-            else
-                # Show terrain as heatmap
-                topo_hm = heatmap!(ax, topo_reversed;
-                    colormap=topo_colormap,
-                    colorrange=(elev_min, elev_max))
-            end
+            contour!(ax, topo_reversed;
+                levels=10,
+                color=:black,
+                linewidth=0.5,
+                alpha=0.3)
         end
 
         # Overlay: CO2 probability as a colormap
@@ -320,31 +300,16 @@ function create_ensemble_probability_animation(
         hidedecorations!(ax)
         push!(axes, ax)
         push!(co2_overlays, co2_data)
-        push!(topo_hmaps, topo_hm)
         push!(co2_hmaps, co2_hm)
     end
 
-    # Colorbar for topography elevation (only if showing terrain as heatmap)
-    if show_terrain && !terrain_contours
-        # Find first non-nothing topo_hm for colorbar
-        first_topo_hm = findfirst(!isnothing, topo_hmaps)
-        if !isnothing(first_topo_hm)
-            Colorbar(fig[3:n_rows+2, n_cols+1],
-                topo_hmaps[first_topo_hm],
-                label="Elevation (m)",
-                labelsize=16,
-                ticklabelsize=14,
-                width=20)
-        end
-    else
-        # If not showing terrain heatmap, show CO2 probability colorbar instead
-        Colorbar(fig[3:n_rows+2, n_cols+1],
-            co2_hmaps[1],  # Use first CO2 heatmap for colorbar
-            label="CO2 Probability",
-            labelsize=16,
-            ticklabelsize=14,
-            width=20)
-    end
+    # Colorbar for CO2 probability
+    Colorbar(fig[3:n_rows+2, n_cols+1],
+        co2_hmaps[1],
+        label="CO2 Probability",
+        labelsize=16,
+        ticklabelsize=14,
+        width=20)
 
     # Animation loop
     maxlength = maximum(length.(fraction_filled))
