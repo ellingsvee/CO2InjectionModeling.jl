@@ -52,12 +52,13 @@ function compute_leakage_heights(tstructs)
             max_leakage_height = max(max_leakage_height, leakage_height)
         end
 
-        push!(leakage_heights, max_leakage_height / 1.9)
+        push!(leakage_heights, max_leakage_height / 1.5)
     end
     return leakage_heights
 end
 
 leakage_heights = compute_leakage_heights(tstructs)
+
 
 # ============================================================================
 # 4. Run Simulation
@@ -85,7 +86,13 @@ cmap = Dict(
 )
 
 start_time = 0.1
-end_time = seqs[end][end].timestamp
+
+# Determine how many layers actually have CO2 (filled sequences)
+# CO2 reaches: layer 1 (injection) + layers where leakage occurred
+n_filled_layers = length(times_at_leakage) + 1
+
+# End time is the last timestamp of the last filled layer
+end_time = seqs[n_filled_layers][end].timestamp
 
 # Generate animation frames
 times_for_animation = range(start_time, end_time, length=40)
@@ -100,15 +107,25 @@ texs_for_animation = []
 for i in 1:length(tstructs)
     tstruct = tstructs[i]
     seq = seqs[i]
+
+    # Check if this layer has any CO2 (is it within filled layers?)
+    if i > n_filled_layers
+        # This layer never receives CO2 - create empty texture for all times
+        empty_state = ones(Int, size(tstruct.topography))  # 1 = empty state
+        tex = [empty_state for _ in times_for_animation]
+        push!(texs_for_animation, tex)
+        continue
+    end
+
     seq_start = seq[1].timestamp
     seq_end = seq[end].timestamp
 
-    # Filter times based on when leakage occurs
-    if isempty(times_at_leakage)
-        times_filtered = times_for_animation
-    elseif i < length(tstructs) && i <= length(times_at_leakage)
+    # Filter times based on when this layer is active
+    if i <= length(times_at_leakage)
+        # This layer has leakage - only animate until leakage time
         times_filtered = [t for t in times_for_animation if t <= times_at_leakage[i]]
     else
+        # This is the last filled layer - animate through end
         times_filtered = times_for_animation
     end
 
