@@ -197,10 +197,33 @@ def load_surfaces_from_npz(input_file: Path):
     -------
     surfaces : dict
         Dictionary mapping surface name to grid data array
+    metadata : dict
+        Dictionary mapping surface name to metadata dict (empty if not available)
     """
     data = np.load(input_file)
     surfaces = {key: data[key] for key in data.files if key != "_metadata"}
-    metadata = {key: data["_metadata"] for key in data.files if key == "_metadata"}
+
+    # Try to load metadata if it exists, otherwise return empty dict for each surface
+    metadata = {}
+    if "_metadata" in data.files:
+        # Metadata is stored as a string representation of a dict
+        import ast
+
+        try:
+            metadata_str = str(data["_metadata"])
+            metadata_dict = ast.literal_eval(metadata_str)
+            # Parse the nested metadata strings
+            for key, value in metadata_dict.items():
+                metadata[key] = (
+                    ast.literal_eval(value) if isinstance(value, str) else value
+                )
+        except Exception:
+            # If parsing fails, create empty metadata for each surface
+            metadata = {key: {} for key in surfaces.keys()}
+    else:
+        # No metadata available, create empty dict for each surface
+        metadata = {key: {} for key in surfaces.keys()}
+
     return surfaces, metadata
 
 
@@ -343,7 +366,9 @@ def load_sleipner_topographies(
     return topographies
 
 
-def save_topographies_to_npz(topographies: np.ndarray, output_file: Path):
+def save_topographies_to_npz(
+    topographies: np.ndarray, output_file: Path, grid_metadata: dict | None = None
+):
     """
     Save topographies to a compressed numpy file.
 
@@ -353,9 +378,31 @@ def save_topographies_to_npz(topographies: np.ndarray, output_file: Path):
         3D array of shape (9, ny, nx) containing top surface depths for each layer
     output_file : Path
         Output .npz file path
+    grid_metadata : dict, optional
+        Dictionary containing grid metadata (dimensions, bounding box, etc.)
     """
-    np.savez_compressed(output_file, topographies=topographies)
-    print(f"\nSaved topographies to {output_file}")
+    if grid_metadata is not None:
+        # Convert metadata dict to numpy arrays for storage
+        metadata_arrays = {
+            "nx": np.array(grid_metadata.get("nx", 0)),
+            "ny": np.array(grid_metadata.get("ny", 0)),
+            "xmin": np.array(grid_metadata.get("xmin", 0.0)),
+            "xmax": np.array(grid_metadata.get("xmax", 0.0)),
+            "ymin": np.array(grid_metadata.get("ymin", 0.0)),
+            "ymax": np.array(grid_metadata.get("ymax", 0.0)),
+        }
+        np.savez_compressed(
+            str(output_file), topographies=topographies, **metadata_arrays
+        )
+        print(f"\nSaved topographies to {output_file}")
+        print(
+            f"Grid dimensions: nx={grid_metadata.get('nx')}, ny={grid_metadata.get('ny')}"
+        )
+        print(f"X range: [{grid_metadata.get('xmin')}, {grid_metadata.get('xmax')}] m")
+        print(f"Y range: [{grid_metadata.get('ymin')}, {grid_metadata.get('ymax')}] m")
+    else:
+        np.savez_compressed(str(output_file), topographies=topographies)
+        print(f"\nSaved topographies to {output_file}")
 
 
 def load_sleipner_topographies_from_npz(input_file: Path) -> np.ndarray:
@@ -396,6 +443,20 @@ def main():
 
     # Read all surfaces
     surfaces = read_all_sleipner_surfaces(data_dir)
+
+    # Extract grid metadata from the first surface (they should all have the same grid)
+    grid_metadata = None
+    for name, (grid_data, meta) in surfaces.items():
+        if meta:
+            grid_metadata = {
+                "nx": meta.get("nx", 0),
+                "ny": meta.get("ny", 0),
+                "xmin": meta.get("xmin", 0.0),
+                "xmax": meta.get("xmax", 0.0),
+                "ymin": meta.get("ymin", 0.0),
+                "ymax": meta.get("ymax", 0.0),
+            }
+            break
 
     print()
     print("=" * 70)
@@ -451,9 +512,9 @@ def main():
     # Load topographies
     topographies = load_sleipner_topographies(output_file)
     print(f"Loaded topographies with shape: {topographies.shape}")
-    # Save topographies to a separate file
+    # Save topographies to a separate file with grid metadata
     topography_output_file = output_dir / "sleipner_topographies.npz"
-    save_topographies_to_npz(topographies, topography_output_file)
+    save_topographies_to_npz(topographies, topography_output_file, grid_metadata)
 
 
 if __name__ == "__main__":

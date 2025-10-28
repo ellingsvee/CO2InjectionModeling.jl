@@ -18,9 +18,24 @@ using Colors: RGBA
 # ============================================================================
 
 datapath = "../sleipner/sleipner_topographies.npz"
-caprock_topography = NPZ.npzread(datapath)["topographies"][:, :, :]
+data = NPZ.npzread(datapath)
+caprock_topography = data["topographies"][:, :, :]
 
-tstructs = analyze_layers(caprock_topography)
+# Load grid metadata for physical dimensions
+xmin, xmax = data["xmin"], data["xmax"]
+ymin, ymax = data["ymin"], data["ymax"]
+length_x = Float64(xmax - xmin)  # Physical length in x-direction (meters)
+length_y = Float64(ymax - ymin)  # Physical length in y-direction (meters)
+
+println("Grid dimensions:")
+println("  X range: [$xmin, $xmax] m, length = $(length_x) m")
+println("  Y range: [$ymin, $ymax] m, length = $(length_y) m")
+
+# ============================================================================
+# 2. Analyze Layer Trap Structures
+# ============================================================================
+
+tstructs = analyze_layers(caprock_topography; lengths=(length_x, length_y))
 
 # Select injection location
 top_tstruct = tstructs[1]
@@ -28,6 +43,10 @@ footprints = top_tstruct.footprints
 trap_idx = rand(1:length(footprints))
 footprint = footprints[trap_idx]
 injection_location = rand(footprint)
+
+# Injection rate
+nx, ny = size(caprock_topography[1, :, :])
+ratio = nx * ny / (length_x * length_y)
 injection_rate = 20000.0
 
 # ============================================================================

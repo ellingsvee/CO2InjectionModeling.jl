@@ -4,24 +4,68 @@ export analyze_layers
 export run_injection
 
 """
-Function that takes in the grids for several layers, and outputs the tstructs from the spillanalysis
+    analyze_layers(layers; lengths=nothing)
+
+Analyze trap structures for multiple layers.
+
+# Arguments
+- `layers::Vector{Matrix{Float64}}` or `Array{Float64,3}`: Topography grids for each layer
+- `lengths::Union{Tuple{<:Real, <:Real}, Nothing}=nothing`: Physical dimensions (length_x, length_y) of the grid in meters
+
+# Returns
+- `Vector{TrapStructure{Float64}}`: Trap structures for each layer
+
+# Example
+```julia
+# Without physical dimensions (grid units assumed)
+tstructs = analyze_layers(layers)
+
+# With physical dimensions from Sleipner data
+# If grid is 461×701 cells covering (xmin=435000, xmax=470000) and (ymin=6475000, ymax=6498000)
+length_x = 470000 - 435000  # 35000 meters
+length_y = 6498000 - 6475000  # 23000 meters
+tstructs = analyze_layers(layers; lengths=(length_x, length_y))
+```
 """
+# function analyze_layers(
+#     layers::Vector{Matrix{Float64}};
+# )::Vector{TrapStructure{Float64}}
+#     tstructs = TrapStructure{Float64}[]
+#     for layer in layers
+#         push!(tstructs, spillanalysis(layer))
+#     end
+#     return tstructs
+# end
+
+# function analyze_layers(
+#     layers::Array{Float64,3};
+# )::Vector{TrapStructure{Float64}}
+#     tstructs = TrapStructure{Float64}[]
+
+#     for i in 1:size(layers, 1)
+#         push!(tstructs, spillanalysis(layers[i, :, :]))
+#     end
+#     return tstructs
+# end
 function analyze_layers(
     layers::Vector{Matrix{Float64}};
+    lengths::Union{Tuple{<:Real,<:Real},Nothing}=nothing
 )::Vector{TrapStructure{Float64}}
     tstructs = TrapStructure{Float64}[]
     for layer in layers
-        push!(tstructs, spillanalysis(layer))
+        push!(tstructs, spillanalysis(layer; lengths=lengths))
     end
     return tstructs
 end
 
 function analyze_layers(
     layers::Array{Float64,3};
+    lengths::Union{Tuple{<:Real,<:Real},Nothing}=nothing
 )::Vector{TrapStructure{Float64}}
     tstructs = TrapStructure{Float64}[]
     for i in 1:size(layers, 1)
-        push!(tstructs, spillanalysis(layers[i, :, :]))
+        push!(tstructs, spillanalysis(layers[i, :, :]; lengths=lengths))
+        # push!(tstructs, spillanalysis(layers[i, :, :]))
     end
     return tstructs
 end
