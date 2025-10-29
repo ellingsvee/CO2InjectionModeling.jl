@@ -48,7 +48,8 @@ function create_layer_animation(
     framerate::Int=5,
     co2_colormap::Symbol=:hot,
     figure_size::Tuple{Int,Int}=(1600, 1300),
-    show_terrain::Bool=true
+    show_terrain::Bool=true,
+    inner_domain::Union{Nothing,Tuple{UnitRange{Int},UnitRange{Int}}}=nothing
 )
     # Check if Makie is available
     if !isdefined(Main, :Figure) && !isdefined(Main, :CairoMakie)
@@ -70,8 +71,22 @@ function create_layer_animation(
     n_layers = size(topographies, 1)
     n_rows = ceil(Int, n_layers / n_cols)
 
+    # Extract visualization domain
+    if !isnothing(inner_domain)
+        i_range, j_range = inner_domain
+        vis_topographies = topographies[:, i_range, j_range]
+        # Extract inner domain from texs_for_times
+        vis_texs_for_times = [
+            [tex[i_range, j_range] for tex in layer_texs]
+            for layer_texs in texs_for_times
+        ]
+    else
+        vis_topographies = topographies
+        vis_texs_for_times = texs_for_times
+    end
+
     # Initialize observables for each layer
-    current_tex = [Observable(reverse(transpose(texs_for_times[i][1]), dims=1)) for i in 1:n_layers]
+    current_tex = [Observable(reverse(transpose(vis_texs_for_times[i][1]), dims=1)) for i in 1:n_layers]
 
     # Create figure
     fig = Figure(size=figure_size, figure_padding=20)
@@ -87,7 +102,7 @@ function create_layer_animation(
     co2_masks = []
 
     # Get elevation range across all layers for consistent colorbar
-    all_elevations = [topographies[i, :, :] for i in 1:n_layers]
+    all_elevations = [vis_topographies[i, :, :] for i in 1:n_layers]
     elev_min = minimum(minimum, all_elevations)
     elev_max = maximum(maximum, all_elevations)
 
@@ -103,7 +118,7 @@ function create_layer_animation(
 
         # Background: topography contours (if enabled)
         if show_terrain
-            topo = topographies[i, :, :]
+            topo = vis_topographies[i, :, :]
             topo_reversed = reverse(transpose(topo), dims=1)
             contour!(ax, topo_reversed;
                 levels=10,
@@ -131,12 +146,12 @@ function create_layer_animation(
     end
 
     # Animation loop
-    maxlength = maximum(length.(texs_for_times))
+    maxlength = maximum(length.(vis_texs_for_times))
 
     record(fig, output_path, 1:maxlength; framerate=framerate) do t
         for i in 1:n_layers
-            idx = min(t, length(texs_for_times[i]))
-            new_tex = reverse(transpose(texs_for_times[i][idx]), dims=1)
+            idx = min(t, length(vis_texs_for_times[i]))
+            new_tex = reverse(transpose(vis_texs_for_times[i][idx]), dims=1)
             current_tex[i][] = new_tex
 
             # Update CO2 mask
@@ -215,7 +230,8 @@ function create_ensemble_probability_animation(
     framerate::Int=5,
     co2_colormap::Symbol=:viridis,
     figure_size::Tuple{Int,Int}=(1600, 1300),
-    show_terrain::Bool=true
+    show_terrain::Bool=true,
+    inner_domain::Union{Nothing,Tuple{UnitRange{Int},UnitRange{Int}}}=nothing
 )
     # Check if Makie is available
     if !isdefined(Main, :Figure) && !isdefined(Main, :CairoMakie)
@@ -237,8 +253,22 @@ function create_ensemble_probability_animation(
     n_layers = size(topographies, 1)
     n_rows = ceil(Int, n_layers / n_cols)
 
+    # Extract visualization domain
+    if !isnothing(inner_domain)
+        i_range, j_range = inner_domain
+        vis_topographies = topographies[:, i_range, j_range]
+        # Extract inner domain from fraction_filled
+        vis_fraction_filled = [
+            [frac[i_range, j_range] for frac in layer_fracs]
+            for layer_fracs in fraction_filled
+        ]
+    else
+        vis_topographies = topographies
+        vis_fraction_filled = fraction_filled
+    end
+
     # Initialize observables for each layer
-    current_fraction = [Observable(reverse(transpose(fraction_filled[i][1]), dims=1)) for i in 1:n_layers]
+    current_fraction = [Observable(reverse(transpose(vis_fraction_filled[i][1]), dims=1)) for i in 1:n_layers]
 
     # Create figure
     fig = Figure(size=figure_size, figure_padding=20)
@@ -255,7 +285,7 @@ function create_ensemble_probability_animation(
     co2_hmaps = []  # Store CO2 heatmaps for colorbar
 
     # Get elevation range across all layers for consistent contours
-    all_elevations = [topographies[i, :, :] for i in 1:n_layers]
+    all_elevations = [vis_topographies[i, :, :] for i in 1:n_layers]
     elev_min = minimum(minimum, all_elevations)
     elev_max = maximum(maximum, all_elevations)
 
@@ -271,7 +301,7 @@ function create_ensemble_probability_animation(
 
         # Background: topography contours (if enabled)
         if show_terrain
-            topo = topographies[i, :, :]
+            topo = vis_topographies[i, :, :]
             topo_reversed = reverse(transpose(topo), dims=1)
             contour!(ax, topo_reversed;
                 levels=10,
@@ -312,12 +342,12 @@ function create_ensemble_probability_animation(
         width=20)
 
     # Animation loop
-    maxlength = maximum(length.(fraction_filled))
+    maxlength = maximum(length.(vis_fraction_filled))
 
     record(fig, output_path, 1:maxlength; framerate=framerate) do t
         for i in 1:n_layers
-            idx = min(t, length(fraction_filled[i]))
-            new_fraction = reverse(transpose(fraction_filled[i][idx]), dims=1)
+            idx = min(t, length(vis_fraction_filled[i]))
+            new_fraction = reverse(transpose(vis_fraction_filled[i][idx]), dims=1)
             current_fraction[i][] = new_fraction
 
             # Update CO2 data matrix with new fraction values (NaN for zero, fraction for non-zero)
