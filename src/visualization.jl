@@ -1,6 +1,6 @@
 # Visualization functions for CO2 injection simulations
 
-export create_layer_animation, create_ensemble_probability_animation
+export create_layer_animation, create_ensemble_probability_animation, create_volume_timeseries_plot, create_injection_metrics_plot
 
 """
     create_layer_animation(topographies, texs_for_times, times, output_path;
@@ -366,5 +366,316 @@ function create_ensemble_probability_animation(
 
     println("Ensemble probability animation saved to $output_path")
 
+    return fig
+end
+
+"""
+    create_volume_timeseries_plot(tstructs, all_texs, common_times, cell_volume, output_path;
+                                  title="CO2 Volume Over Time",
+                                  figure_size=(1400, 1000),
+                                  show_total=true,
+                                  show_cumulative=false)
+
+Create a plot showing CO2 volume evolution over time for each layer.
+
+# Arguments
+- `tstructs::Vector{TrapStructure}`: Trap structures for all layers
+- `all_texs::Vector{Vector{Vector}}`: Textures for each simulation, layer, and time
+- `common_times::Vector{Float64}`: Time points for all simulations
+- `cell_volume::Float64`: Volume of a single grid cell (m³)
+- `output_path::String`: Path where plot will be saved
+- `title::String="CO2 Volume Over Time"`: Title for the plot
+- `figure_size::Tuple{Int,Int}=(1400, 1000)`: Figure size in pixels
+- `show_total::Bool=true`: Whether to show total volume across all layers
+- `show_cumulative::Bool=false`: Whether to show cumulative volume plot
+
+# Returns
+- `fig`: The Makie Figure object (also saves plot to `output_path`)
+
+# Example
+```julia
+using CairoMakie, CO2InjectionModeling
+
+# Calculate cell volume
+cell_volume = (length_x / ny) * (length_y / nx)
+
+# Create volume timeseries plot
+fig = create_volume_timeseries_plot(
+    tstructs, all_texs, common_times, cell_volume,
+    "volume_timeseries.png"
+)
+```
+"""
+function create_volume_timeseries_plot(
+    tstructs::Vector,
+    all_texs::Vector,
+    common_times::Vector{Float64},
+    cell_volume::Float64,
+    output_path::String;
+    title::String="CO2 Volume Over Time",
+    figure_size::Tuple{Int,Int}=(1400, 1000),
+    show_total::Bool=true,
+    show_cumulative::Bool=false
+)
+    # Check if Makie is available
+    if !isdefined(Main, :Figure) && !isdefined(Main, :CairoMakie)
+        error("CairoMakie must be loaded before calling create_volume_timeseries_plot.")
+    end
+
+    # Get symbols from calling scope
+    Figure = Main.Figure
+    Axis = Main.Axis
+    lines! = Main.lines!
+    band! = Main.band!
+    Label = Main.Label
+    axislegend = Main.axislegend
+    save = Main.save
+
+    println("\nComputing CO2 volumes...")
+    
+    # Compute volumes for all simulations
+    all_volumes = compute_co2_volumes_over_time(tstructs, all_texs, common_times, cell_volume)
+    
+    # Compute statistics
+    mean_volumes, std_volumes, max_volumes = compute_ensemble_volume_statistics(all_volumes)
+    
+    n_layers = length(tstructs)
+    n_simulations = length(all_texs)
+    
+    # Create figure
+    n_plots = show_cumulative ? 2 : 1
+    n_plots += show_total ? 1 : 0
+    
+    fig = Figure(size=figure_size, figure_padding=20)
+    
+    # Main title
+    Label(fig[1, 1:2], title, fontsize=24, halign=:center, font=:bold, tellwidth=false)
+    
+    # Color palette for layers
+    colors = Main.ColorSchemes.tab10.colors
+    
+    plot_row = 2
+    
+    # Plot 1: Individual layer volumes
+    ax1 = Axis(fig[plot_row, 1:2];
+        xlabel="Time (years)",
+        ylabel="CO2 Volume (m³)",
+        title="CO2 Volume by Layer (Mean ± Std)")
+    
+    for layer_idx in 1:n_layers
+        color = colors[mod1(layer_idx, length(colors))]
+        
+        # Plot mean
+        lines!(ax1, common_times, mean_volumes[layer_idx];
+            label="Layer $layer_idx",
+            color=color,
+            linewidth=2)
+        
+        # Plot uncertainty band (mean ± std)
+        lower = max.(mean_volumes[layer_idx] .- std_volumes[layer_idx], 0.0)
+        upper = mean_volumes[layer_idx] .+ std_volumes[layer_idx]
+        
+        band!(ax1, common_times, lower, upper;
+            color=(color, 0.2))
+    end
+    
+    axislegend(ax1, position=:lt)
+    plot_row += 1
+    
+    # Plot 2: Total volume (if requested)
+    if show_total
+        ax2 = Axis(fig[plot_row, 1:2];
+            xlabel="Time (years)",
+            ylabel="Total CO2 Volume (m³)",
+            title="Total CO2 Volume Across All Layers")
+        
+        # Compute total volumes
+        total_mean = sum(mean_volumes)
+        total_std_squared = sum([s.^2 for s in std_volumes])  # Variance adds
+        total_std = sqrt.(total_std_squared)
+        
+        lines!(ax2, common_times, total_mean;
+            label="Mean total volume",
+            color=:black,
+            linewidth=3)
+        
+        lower_total = max.(total_mean .- total_std, 0.0)
+        upper_total = total_mean .+ total_std
+        
+        band!(ax2, common_times, lower_total, upper_total;
+            color=(:gray, 0.3),
+            label="± 1 std")
+        
+        # Also plot individual simulation totals (lighter lines)
+        for sim_idx in 1:min(n_simulations, 10)  # Limit to 10 for clarity
+            sim_total = sum([all_volumes[sim_idx][layer_idx] for layer_idx in 1:n_layers])
+            lines!(ax2, common_times, sim_total;
+                color=(:gray, 0.3),
+                linewidth=0.5)
+        end
+        
+        axislegend(ax2, position=:lt)
+        plot_row += 1
+    end
+    
+    # Plot 3: Cumulative/stacked area (if requested)
+    if show_cumulative
+        ax3 = Axis(fig[plot_row, 1:2];
+            xlabel="Time (years)",
+            ylabel="Cumulative CO2 Volume (m³)",
+            title="Cumulative CO2 Volume (Stacked by Layer)")
+        
+        # Create cumulative volumes
+        cumulative_volumes = Vector{Vector{Float64}}(undef, n_layers)
+        cumulative_volumes[1] = mean_volumes[1]
+        
+        for layer_idx in 2:n_layers
+            cumulative_volumes[layer_idx] = cumulative_volumes[layer_idx-1] .+ mean_volumes[layer_idx]
+        end
+        
+        # Plot stacked areas (from top to bottom)
+        for layer_idx in n_layers:-1:1
+            color = colors[mod1(layer_idx, length(colors))]
+            
+            lower = layer_idx > 1 ? cumulative_volumes[layer_idx-1] : zeros(length(common_times))
+            upper = cumulative_volumes[layer_idx]
+            
+            band!(ax3, common_times, lower, upper;
+                color=(color, 0.6),
+                label="Layer $layer_idx")
+        end
+        
+        axislegend(ax3, position=:lt, nbanks=2)
+        plot_row += 1
+    end
+    
+    # Add summary statistics
+    total_final_mean = sum([mean_volumes[i][end] for i in 1:n_layers])
+    println("\nVolume Statistics:")
+    println("  Final time: $(round(common_times[end], digits=2)) years")
+    println("  Total CO2 volume (mean): $(round(total_final_mean, sigdigits=4)) m³")
+    for layer_idx in 1:n_layers
+        println("    Layer $layer_idx: $(round(mean_volumes[layer_idx][end], sigdigits=4)) m³ " *
+                "(std: $(round(std_volumes[layer_idx][end], sigdigits=3)) m³)")
+    end
+    
+    save(output_path, fig)
+    println("\nVolume timeseries plot saved to $output_path")
+    
+    return fig
+end
+
+"""
+    create_injection_metrics_plot(common_times, all_volumes, injection_rate, co2_density, 
+                                   output_path; title="CO2 Injection Metrics", figure_size=(1400, 800))
+
+Create a plot showing injection-related metrics including storage efficiency and injected mass.
+
+# Arguments
+- `common_times::Vector{Float64}`: Time points (years)
+- `all_volumes::Vector{Vector{Vector{Float64}}}`: Volumes from `compute_co2_volumes_over_time`
+- `injection_rate::Float64`: Injection rate (kg/s)
+- `co2_density::Float64`: CO2 density under storage conditions (kg/m³)
+- `output_path::String`: Path where plot will be saved
+- `title::String="CO2 Injection Metrics"`: Title for the plot
+- `figure_size::Tuple{Int,Int}=(1400, 800)`: Figure size in pixels
+
+# Returns
+- `fig`: The Makie Figure object
+
+# Example
+```julia
+# Typical CO2 density under storage conditions: ~700 kg/m³ (supercritical at ~1200m depth)
+co2_density = 700.0  # kg/m³
+injection_rate = 20000.0  # kg/s
+
+fig = create_injection_metrics_plot(
+    common_times, all_volumes, injection_rate, co2_density,
+    "injection_metrics.png"
+)
+```
+"""
+function create_injection_metrics_plot(
+    common_times::Vector{Float64},
+    all_volumes::Vector,
+    injection_rate::Float64,
+    co2_density::Float64,
+    output_path::String;
+    title::String="CO2 Injection Metrics",
+    figure_size::Tuple{Int,Int}=(1400, 800)
+)
+    # Check if Makie is available
+    if !isdefined(Main, :Figure) && !isdefined(Main, :CairoMakie)
+        error("CairoMakie must be loaded before calling create_injection_metrics_plot.")
+    end
+
+    # Get symbols from calling scope
+    Figure = Main.Figure
+    Axis = Main.Axis
+    lines! = Main.lines!
+    band! = Main.band!
+    Label = Main.Label
+    save = Main.save
+
+    println("\nComputing injection metrics...")
+    
+    # Compute metrics
+    cumulative_injected, mean_stored_fraction, std_stored_fraction = 
+        compute_injection_metrics(common_times, all_volumes, injection_rate, co2_density)
+    
+    # Create figure
+    fig = Figure(size=figure_size, figure_padding=20)
+    
+    # Main title
+    Label(fig[1, 1:2], title, fontsize=24, halign=:center, font=:bold, tellwidth=false)
+    
+    # Plot 1: Cumulative injected mass vs time
+    ax1 = Axis(fig[2, 1];
+        xlabel="Time (years)",
+        ylabel="Cumulative Injected Mass (tonnes)",
+        title="CO2 Injection Rate")
+    
+    # Convert to tonnes for readability
+    cumulative_injected_tonnes = cumulative_injected ./ 1000
+    
+    lines!(ax1, common_times, cumulative_injected_tonnes;
+        color=:blue,
+        linewidth=2,
+        label="Cumulative injected")
+    
+    # Plot 2: Storage efficiency
+    ax2 = Axis(fig[2, 2];
+        xlabel="Time (years)",
+        ylabel="Storage Efficiency",
+        title="Fraction of Injected CO2 Stored (Mean ± Std)")
+    
+    lines!(ax2, common_times, mean_stored_fraction;
+        color=:green,
+        linewidth=2,
+        label="Mean storage efficiency")
+    
+    lower = max.(mean_stored_fraction .- std_stored_fraction, 0.0)
+    upper = min.(mean_stored_fraction .+ std_stored_fraction, 1.0)
+    
+    band!(ax2, common_times, lower, upper;
+        color=(:green, 0.2),
+        label="± 1 std")
+    
+    # Add reference lines for efficiency
+    Main.hlines!(ax2, [1.0]; color=:gray, linestyle=:dash, linewidth=1, label="100% efficiency")
+    Main.hlines!(ax2, [0.5]; color=:gray, linestyle=:dot, linewidth=1, label="50% efficiency")
+    
+    Main.axislegend(ax2, position=:rb)
+    
+    # Print summary
+    println("\nInjection Metrics Summary:")
+    println("  Total injected (final): $(round(cumulative_injected_tonnes[end], sigdigits=4)) tonnes")
+    println("  Storage efficiency (final): $(round(mean_stored_fraction[end] * 100, digits=2))% " *
+            "(± $(round(std_stored_fraction[end] * 100, digits=2))%)")
+    println("  Injection rate: $injection_rate kg/s = $(round(injection_rate * 365.25 * 24 * 3600 / 1000, sigdigits=4)) tonnes/year")
+    
+    save(output_path, fig)
+    println("\nInjection metrics plot saved to $output_path")
+    
     return fig
 end

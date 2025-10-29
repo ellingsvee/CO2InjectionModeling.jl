@@ -158,7 +158,7 @@ end
 
 """
     run_ensemble_simulations(tstructs, injection_location, injection_rate, 
-                            leakage_height_samples; n_common_times=100, start_time=0.1)
+                            leakage_height_samples; n_common_times=100, start_time=0.1, max_time=nothing)
 
 Run multiple simulations with different leakage heights and interpolate results 
 onto a common time grid for comparison.
@@ -170,6 +170,7 @@ onto a common time grid for comparison.
 - `leakage_height_samples::Vector{Vector{Float64}}`: Vector of leakage height vectors for each simulation
 - `n_common_times::Int=100`: Number of time points for comparison
 - `start_time::Float64=0.1`: Start time for common time grid
+- `max_time::Union{Float64,Nothing}=nothing`: Maximum time for simulation/animation. If `nothing`, runs until last update.
 
 # Returns
 - `common_times::Vector{Float64}`: Common time points for all simulations
@@ -183,7 +184,8 @@ function run_ensemble_simulations(
     injection_rate::Float64,
     leakage_height_samples::Vector{Vector{Float64}};
     n_common_times::Int=100,
-    start_time::Float64=0.1
+    start_time::Float64=0.1,
+    max_time::Union{Float64,Nothing}=nothing
 )
     n_simulations = length(leakage_height_samples)
 
@@ -219,16 +221,27 @@ function run_ensemble_simulations(
         push!(seqs_end_times, end_time)
     end
 
-    println("\nCommon time range: $start_time to $max_end_time")
+    # Apply max_time constraint if specified
+    if !isnothing(max_time)
+        max_end_time = min(max_end_time, max_time)
+        println("\nCommon time range: $start_time to $max_end_time (limited by max_time=$max_time)")
+    else
+        println("\nCommon time range: $start_time to $max_end_time")
+    end
 
     # Create common time grid
     common_times = collect(range(start_time, max_end_time, length=n_common_times))
 
-    # Remove 0.0 and nothing from the seqs_end_times
-    seqs_end_times = filter(x -> x > 0.0, seqs_end_times)
+    # Remove 0.0 and nothing from the seqs_end_times, and apply max_time filter
+    seqs_end_times = filter(x -> x > 0.0 && (isnothing(max_time) || x <= max_time), seqs_end_times)
 
     # Include the seqs_end_times in the common times to ensure coverage
     common_times = unique(sort(vcat(common_times, seqs_end_times)))
+    
+    # Final filter to ensure all times are within bounds
+    if !isnothing(max_time)
+        common_times = filter(t -> t <= max_time, common_times)
+    end
 
     # Interpolate all simulations onto common time grid
     all_texs = []

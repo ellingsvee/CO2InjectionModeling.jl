@@ -1,6 +1,6 @@
 # CO2InjectionModeling
 
-<img src="media/animation.gif" alt="Animation of CO2 Injection" width="800" />
+<img src="media/animation.gif" alt="Animation of CO2 Injection" />
 
 CO2InjectionModeling.jl is a Julia package for modeling CO2 injection and migration in subsurface geological formations. It provides tools to simulate the movement, trapping and potential leakage of injected CO2.
 
