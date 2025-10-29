@@ -39,10 +39,21 @@ tstructs = analyze_layers(caprock_topography; lengths=(length_x, length_y))
 
 # Select injection location
 top_tstruct = tstructs[1]
-footprints = top_tstruct.footprints
-trap_idx = rand(1:length(footprints))
-footprint = footprints[trap_idx]
-injection_location = rand(footprint)
+# Select the injection location as the lowest point in the top layer
+min_elevation = Inf
+min_point = nothing
+for footprint in top_tstruct.footprints
+    elevations = top_tstruct.topography[footprint]
+    # Find the point with the minimum elevation in this footprint
+    local_min_elevation = minimum(elevations)
+    if local_min_elevation < min_elevation
+        min_elevation = local_min_elevation
+        local_min_index = findfirst(==(local_min_elevation), elevations)
+        min_point = footprint[local_min_index]
+    end
+end
+
+injection_location = min_point
 
 # Injection rate
 nx, ny = size(caprock_topography[1, :, :])
@@ -55,15 +66,19 @@ injection_rate = 20000.0
 
 n_simulations = 25  # Number of ensemble members (increased for better statistics)
 
-# Generate different leakage heights by varying the fraction parameter
-fractions = range(1.0, 2.0, length=n_simulations)  # Different leakage thresholds
+# # Generate different leakage heights by varying the fraction parameter
+# fractions = range(1.0, 2.0, length=n_simulations)  # Different leakage thresholds
 
+# leakage_height_samples = [
+#     compute_leakage_heights(tstructs; fraction=frac)
+#     for frac in fractions
+# ]
+
+heights = [40.8]
 leakage_height_samples = [
-    compute_leakage_heights(tstructs; fraction=frac)
-    for frac in fractions
+    fill(height, length(tstructs) - 1) for height in heights
 ]
 
-println("Running $n_simulations ensemble simulations with fraction range: $(fractions[1]) to $(fractions[end])")
 
 # ============================================================================
 # 3. Run Ensemble Simulations
@@ -74,8 +89,8 @@ common_times, all_texs, all_n_filled, simulation_metadata = run_ensemble_simulat
     injection_location,
     injection_rate,
     leakage_height_samples;
-    n_common_times=100,
-    start_time=0.1
+    n_common_times=50,
+    start_time=0.001
 )
 
 # ============================================================================
