@@ -1,7 +1,7 @@
 using SurfaceWaterIntegratedModeling
 import Interpolations
 using DifferentialEquations: solve, ODEProblem, VectorContinuousCallback, terminate!
-export fill_layer_co2, InjectionEvent, LeakageState, LeakageEvent, compute_per_trap_leaked_volumes, get_total_leaked_volume
+export fill_layer, InjectionEvent, LeakageState, LeakageEvent, compute_per_trap_leaked_volumes, get_total_leaked_volume
 
 struct InjectionEvent
     timestamp::Float64
@@ -14,6 +14,9 @@ struct LeakageEvent
     height_at_detection::Float64  # Height when leakage was detected (>= threshold)
     volume_in_trap::Float64     # Volume in trap at detection (swim units)
     source_regions::Set{Int}    # Regions whose injection contributed to this leakage
+    connected_filled_traps::Vector{Int}  # Trap IDs that are filled and connected (will leak)
+    total_leakable_volume::Float64       # Total volume that will leak (after residual trapping)
+    residual_trapped_volume::Float64     # Volume that stays trapped (residual)
 end
 
 mutable struct LeakageState
@@ -119,7 +122,7 @@ function find_regions_to_stop(tracker::SourceTracker, trap_id::Int)
     return contributing_sources
 end
 
-function fill_layer_co2(tstruct::TrapStructure{<:Real},
+function fill_layer(tstruct::TrapStructure{<:Real},
             domain::Domain3D,
             reservoir_properties::ReservoirProperties,
             weather_events::Vector{WeatherEvent};
@@ -196,25 +199,10 @@ function fill_layer_co2(tstruct::TrapStructure{<:Real},
         _fill_sequence_for_weather_event_with_leakage!(seq, sgraph, rateinfo, changetimeest,
                                           filled_traps, cur_amounts, z_vol_tables,
                                           tstruct, infiltration, end_time, time_slack,
-                                          leakage_state, rain_rate, source_tracker, verbose)
+                                          leakage_state, rain_rate, source_tracker,
+                                          reservoir_properties, verbose)
     end
 
-    # TODO: Using the seq and the leakage_state, we 
-
-
-
-    # # Generate snapshots at regular time intervals
-    # start_time = weather_events[1].timestamp
-    # end_time = seq[end].timestamp
-
-    # # 10 evenly spaced timepoints between start and end time
-    # num_snapshots = 10
-    # timepoints = range(start_time, stop=1.0, length=num_snapshots)
-    # timepoints = collect(timepoints)
-
-    # snapshots = simulation_layer_snapshots_from_spill_events(seq, timepoints, tstruct, reservoir_properties, domain)
-
-    # return seq, snapshots, leakage_state
     return seq, leakage_state
 end
 
@@ -371,6 +359,36 @@ function _identify_all_parent_traps(trap_id::Int, tstruct)
 end
 
 """
+Find all filled parent traps that are connected to a leaking trap.
+
+These are the traps whose CO2 will drain through the leaking trap.
+Only filled parent traps contribute their volume to the leakage.
+"""
+function _find_connected_filled_parents(trap_id::Int, filled_traps::Vector{Bool}, tstruct)
+    connected = Int[trap_id]  # Start with the leaking trap itself
+
+    # Traverse up the parent hierarchy
+    current = trap_id
+    while true
+        parent = parentof(tstruct, current)
+        if isnothing(parent)
+            break
+        end
+
+        # Only include if the parent is filled
+        if filled_traps[parent]
+            push!(connected, parent)
+            current = parent
+        else
+            # If parent is not filled, stop traversing
+            break
+        end
+    end
+
+    return connected
+end
+
+"""
 Trigger leakage for a trap and propagate to all parent traps.
 Modifies leakage_state and rain_rate in place.
 
@@ -380,11 +398,17 @@ to the total leaked amount (to avoid double counting).
 
 Uses source_tracker to determine which injection sources contributed CO2 to this trap,
 and turns off injection only in those source regions.
+
+Computes the total volume that will leak based on:
+- Only filled parent traps connected to the leaking trap contribute
+- Only (1 - sand_residual_co2_saturation) fraction of the volume leaks
+- The remaining fraction stays as residually trapped CO2
 """
 function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
                           cur_amounts::Vector, rain_rate::Matrix{Float64},
                           z_vol_tables, tstruct, cur_time::Float64,
-                          source_tracker::SourceTracker, verbose::Bool)
+                          source_tracker::SourceTracker, filled_traps::Vector{Bool},
+                          reservoir_properties::ReservoirProperties, verbose::Bool)
     # Get all traps that need to be marked as leaked (trap + all parents)
     all_affected_traps = _identify_all_parent_traps(trap_id, tstruct)
 
@@ -397,15 +421,38 @@ function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
     contributing_sources = find_regions_to_stop(source_tracker, trap_id)
 
     # First, record the leakage event for the trap that triggered it
-    # This is the only volume we count as "leaked"
     if !leakage_state.leaked_traps[trap_id]
         volume_in_trap = cur_amounts[trap_id].amount
         height_at_detection = _compute_trap_height(trap_id, cur_amounts, z_vol_tables, tstruct)
 
+        # Find connected filled traps (these will contribute to leakage)
+        connected_filled_traps = _find_connected_filled_parents(trap_id, filled_traps, tstruct)
+
+        # Calculate total volume in connected filled traps
+        total_connected_volume = 0.0
+        for connected_trap in connected_filled_traps
+            total_connected_volume += cur_amounts[connected_trap].amount
+        end
+
+        # Calculate leakable vs residual volumes
+        # Only (1 - sand_residual_co2_saturation) fraction leaks through
+        leakage_fraction = 1.0 - reservoir_properties.sand_residual_co2_saturation
+        total_leakable_volume = total_connected_volume * leakage_fraction
+        residual_trapped_volume = total_connected_volume * reservoir_properties.sand_residual_co2_saturation
+
         leakage_state.leaked_traps[trap_id] = true
 
         push!(leakage_state.leakage_events,
-              LeakageEvent(cur_time, trap_id, height_at_detection, volume_in_trap, copy(contributing_sources)))
+              LeakageEvent(cur_time, trap_id, height_at_detection, volume_in_trap,
+                          copy(contributing_sources), connected_filled_traps,
+                          total_leakable_volume, residual_trapped_volume))
+
+        if verbose
+            println("  Connected filled traps: $connected_filled_traps")
+            println("  Total connected volume: $total_connected_volume")
+            println("  Leakable volume: $total_leakable_volume ($(leakage_fraction*100)%)")
+            println("  Residual trapped: $residual_trapped_volume ($(reservoir_properties.sand_residual_co2_saturation*100)%)")
+        end
     end
 
     # Now mark all affected traps as leaked
@@ -449,7 +496,9 @@ Returns true if any leakage was detected and triggered.
 """
 function _check_and_trigger_leakage!(leakage_state::LeakageState, cur_amounts::Vector,
                                      rain_rate::Matrix{Float64}, z_vol_tables, tstruct,
-                                     cur_time::Float64, source_tracker::SourceTracker, verbose::Bool)
+                                     cur_time::Float64, source_tracker::SourceTracker,
+                                     filled_traps::Vector{Bool}, reservoir_properties::ReservoirProperties,
+                                     verbose::Bool)
     leakage_occurred = false
     num_traps = length(cur_amounts)
 
@@ -469,7 +518,8 @@ function _check_and_trigger_leakage!(leakage_state::LeakageState, cur_amounts::V
             end
 
             _trigger_leakage!(trap_id, leakage_state, cur_amounts, rain_rate,
-                            z_vol_tables, tstruct, cur_time, source_tracker, verbose)
+                            z_vol_tables, tstruct, cur_time, source_tracker,
+                            filled_traps, reservoir_properties, verbose)
             leakage_occurred = true
         end
     end
@@ -481,7 +531,8 @@ function _fill_sequence_for_weather_event_with_leakage!(seq, sgraph, rateinfo, c
                                            filled_traps, cur_amounts, z_vol_tables,
                                            tstruct, infiltration, endtime, time_slack,
                                            leakage_state::LeakageState, rain_rate::Matrix{Float64},
-                                           source_tracker::SourceTracker, verbose)
+                                           source_tracker::SourceTracker,
+                                           reservoir_properties::ReservoirProperties, verbose)
     cur_time = cur_amounts[1].time
 
     fill_updates = Vector{IncrementalUpdate{Bool}}()
@@ -537,7 +588,8 @@ function _fill_sequence_for_weather_event_with_leakage!(seq, sgraph, rateinfo, c
         # CHECK FOR LEAKAGE after each status change
         leakage_occurred = _check_and_trigger_leakage!(leakage_state, cur_amounts,
                                                        rain_rate, z_vol_tables,
-                                                       tstruct, cur_time, source_tracker, verbose)
+                                                       tstruct, cur_time, source_tracker,
+                                                       filled_traps, reservoir_properties, verbose)
 
         # If leakage occurred, we need to recompute flow rates with modified injection
         if leakage_occurred

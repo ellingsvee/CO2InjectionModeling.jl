@@ -166,8 +166,18 @@ function create_trap_mask_3d(
     return combined_mask
 end
 
-function simulation_layer_snapshots_from_spill_events(seq::Vector{SpillEvent}, timepoints::Vector{Float64}, tstruct::TrapStructure, reservoir_properties::ReservoirProperties, domain::Domain3D)
-    # spill_event = seq[seq_idx]
+# function simulation_layer_snapshots_from_spill_events(seq::Vector{SpillEvent}, timepoints::Vector{Float64}, tstruct::TrapStructure, reservoir_properties::ReservoirProperties, domain::Domain3D)
+function simulation_layer_snapshots_from_spill_events(
+    layer::Layer,
+    seq::Vector{SpillEvent},
+    domain::Domain3D,
+    reservoir_properties::ReservoirProperties;
+    num_snapshots::Int,
+    start_time::Float64,
+    end_time::Float64
+)
+    tstruct = layer.trap_structure
+    timepoints = collect(range(start_time, stop=end_time, length=num_snapshots))
 
     # tpoints = [seq[seq_idx].timestamp]
     tstates = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
@@ -218,6 +228,14 @@ function simulation_layer_snapshots_from_spill_events(seq::Vector{SpillEvent}, t
         total_co2_volume = swim_volume_to_physical_volume(total_contents[time_ix], reservoir_properties, domain)
 
 
+    # timestamp::Float64
+    # spill_event::SpillEvent
+    # heights::Array{Float64, 2}
+    # filled_traps::Vector{Bool}
+    # co2_volume::Float64
+    # mobile_co2_volume::Float64
+    # residual_trapped_co2_volume::Float64
+    # residual_trapped::Vector{Bool}
 
         push!(snapshots, SimulationLayerSnapshot(
             timepoints[time_ix],
@@ -225,9 +243,11 @@ function simulation_layer_snapshots_from_spill_events(seq::Vector{SpillEvent}, t
             height_matrices[time_ix],
             tstates[time_ix][1],
             total_co2_volume,
-            residual_trapped_co2_volume,
-            residual_trapped
-        ))
+            total_co2_volume,  # Placeholder: all CO2 is mobile for now
+            residual_trapped_co2_volume, # Placeholder
+            residual_trapped # Placeholder
+        ));
+
     end
 
     return snapshots
