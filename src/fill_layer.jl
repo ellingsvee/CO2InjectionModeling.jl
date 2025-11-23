@@ -122,14 +122,13 @@ end
 function fill_layer_co2(tstruct::TrapStructure{<:Real},
             domain::Domain3D,
             reservoir_properties::ReservoirProperties,
-            injection_events::Vector{InjectionEvent};
+            weather_events::Vector{WeatherEvent};
             time_slack::Float64=0.0, # NOT USED. Included for legacy
             infiltration::Union{Matrix{<:Real}, Nothing} = nothing,
             verbose::Bool=false)
-    @assert !isempty(injection_events)
-
-    # Convert injection events to weather events
-    weather_events = [WeatherEvent(ie.timestamp, physical_volume_to_swim_volume(ie.injection_rate, reservoir_properties, domain)) for ie in injection_events]
+    @assert !isempty(weather_events)
+    # # Convert injection events to weather events
+    # weather_events = [WeatherEvent(ie.timestamp, physical_volume_to_swim_volume(ie.injection_rate, reservoir_properties, domain)) for ie in injection_events]
 
 
     num_traps = SurfaceWaterIntegratedModeling.numtraps(tstruct)
@@ -144,7 +143,6 @@ function fill_layer_co2(tstruct::TrapStructure{<:Real},
     # water level
     z_vol_tables = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
 
-    println(z_vol_tables)
 
     # set initial filled_traps, cur_amounts and spillgraph
     filled_traps = Vector{Bool}(tstruct.trapvolumes .== 0.0)
@@ -201,18 +199,23 @@ function fill_layer_co2(tstruct::TrapStructure{<:Real},
                                           leakage_state, rain_rate, source_tracker, verbose)
     end
 
-    # Generate snapshots at regular time intervals
-    start_time = weather_events[1].timestamp
-    end_time = seq[end].timestamp
+    # TODO: Using the seq and the leakage_state, we 
 
-    # 10 evenly spaced timepoints between start and end time
-    num_snapshots = 10
-    timepoints = range(start_time, stop=1.0, length=num_snapshots)
-    timepoints = collect(timepoints)
 
-    snapshots = simulation_layer_snapshots_from_spill_events(seq, timepoints, tstruct, reservoir_properties, domain)
 
-    return seq, snapshots, leakage_state
+    # # Generate snapshots at regular time intervals
+    # start_time = weather_events[1].timestamp
+    # end_time = seq[end].timestamp
+
+    # # 10 evenly spaced timepoints between start and end time
+    # num_snapshots = 10
+    # timepoints = range(start_time, stop=1.0, length=num_snapshots)
+    # timepoints = collect(timepoints)
+
+    # snapshots = simulation_layer_snapshots_from_spill_events(seq, timepoints, tstruct, reservoir_properties, domain)
+
+    # return seq, snapshots, leakage_state
+    return seq, leakage_state
 end
 
 
