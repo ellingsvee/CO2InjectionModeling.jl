@@ -122,6 +122,27 @@ function find_regions_to_stop(tracker::SourceTracker, trap_id::Int)
     return contributing_sources
 end
 
+"""
+Update the source tracker when a new weather event starts with a different rain_rate.
+
+This is needed for multi-layer simulations where the initial rain_rate may be zero
+(no direct injection) but later weather events have non-zero rain_rate from leakage.
+"""
+function update_injection_sources!(tracker::SourceTracker, tstruct::TrapStructure, rain_rate::Matrix{<:Real})
+    # Find regions with active injection in this weather event
+    for idx in CartesianIndices(rain_rate)
+        if rain_rate[idx] > 0
+            region = tstruct.regions[idx]
+            if region > 0
+                # Add this region as an injection source
+                push!(tracker.injection_regions, region)
+                # Mark this region as a source for itself
+                push!(tracker.trap_sources[region], region)
+            end
+        end
+    end
+end
+
 function fill_layer(tstruct::TrapStructure{<:Real},
             domain::Domain3D,
             reservoir_properties::ReservoirProperties,
@@ -175,6 +196,11 @@ function fill_layer(tstruct::TrapStructure{<:Real},
             (wix == length(weather_events)) ? Inf : weather_events[wix+1].timestamp
 
         @assert(all([ca.time == cur_time for ca ∈ cur_amounts]))
+
+        # Update source tracker with new injection sources from this weather event
+        # This is important for multi-layer simulations where leakage from upper layers
+        # creates new injection points in lower layers
+        update_injection_sources!(source_tracker, tstruct, we.rain_rate)
 
         # compute inflow/runoff/infiltration rates corresponding to the fill
         # graph and new rain rate
