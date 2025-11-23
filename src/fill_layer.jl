@@ -13,6 +13,7 @@ struct LeakageEvent
     trap_id::Int                # Trap that leaked
     height_at_detection::Float64  # Height when leakage was detected (>= threshold)
     volume_in_trap::Float64     # Volume in trap at detection (swim units)
+    source_regions::Set{Int}    # Regions whose injection contributed to this leakage
 end
 
 mutable struct LeakageState
@@ -389,6 +390,9 @@ function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
         leakage_state.first_leakage_time = cur_time
     end
 
+    # Find which injection sources contributed to this leakage
+    contributing_sources = find_regions_to_stop(source_tracker, trap_id)
+
     # First, record the leakage event for the trap that triggered it
     # This is the only volume we count as "leaked"
     if !leakage_state.leaked_traps[trap_id]
@@ -398,7 +402,7 @@ function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
         leakage_state.leaked_traps[trap_id] = true
 
         push!(leakage_state.leakage_events,
-              LeakageEvent(cur_time, trap_id, height_at_detection, volume_in_trap))
+              LeakageEvent(cur_time, trap_id, height_at_detection, volume_in_trap, copy(contributing_sources)))
     end
 
     # Now mark all affected traps as leaked
@@ -411,10 +415,6 @@ function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
         # Mark trap as leaked (but don't count volume again)
         leakage_state.leaked_traps[affected_trap] = true
     end
-
-    # Use source tracker to find which injection sources contributed to this leakage
-    # and turn off injection only in those source regions
-    contributing_sources = find_regions_to_stop(source_tracker, trap_id)
 
     if verbose
         println("  Turning off injection in source regions: $contributing_sources")

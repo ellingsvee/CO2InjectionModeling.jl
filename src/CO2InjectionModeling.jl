@@ -1,4 +1,4 @@
-module CO2InjectionSimulator
+module CO2InjectionModeling
 
 # Load subfiles
 include("types.jl")
