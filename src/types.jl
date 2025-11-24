@@ -1,5 +1,5 @@
 using SurfaceWaterIntegratedModeling
-export Domain3D, CellProperties, SimulationLayerSnapshot, ReservoirProperties
+export Domain3D, CellProperties, SimulationLayerSnapshot, SimulationSnapshot, ReservoirProperties
 
 struct Domain3D
     nx::Int
