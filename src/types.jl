@@ -42,20 +42,6 @@ struct ReservoirProperties
     shale_pressure_threshold::Float64
     brine_co2_density_difference::Float64
     residual_leakage_time::Float64
-
-    function ReservoirProperties(sand_porosity::Float64 = 0.4,
-                                 sand_residual_co2_saturation::Float64 = 0.2,
-                                 sand_irreducible_water_saturation::Float64 = 0.3,
-                                 shale_pressure_threshold::Float64 = 98000.0,
-                                 brine_co2_density_difference::Float64 = 400.0,
-                                 residual_leakage_time::Float64 = 1.0)
-        new(sand_porosity,
-            sand_residual_co2_saturation,
-            sand_irreducible_water_saturation,
-            shale_pressure_threshold,
-            brine_co2_density_difference,
-            residual_leakage_time)
-    end
 end
 
 struct SimulationLayerSnapshot

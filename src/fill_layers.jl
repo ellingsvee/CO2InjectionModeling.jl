@@ -9,7 +9,7 @@ export fill_layers
 function fill_layers(
         layers::Vector{Layer},
         domain::Domain3D,
-        reservoir_properties::ReservoirProperties,
+        reservoir_properties::Union{ReservoirProperties, Vector{ReservoirProperties}},
         injection_events::Vector{Vector{InjectionEvent}};
         num_snapshots::Int=10,
         start_time::Float64=0.0,
@@ -18,10 +18,17 @@ function fill_layers(
 
 )
     n_layers = length(layers)
+
+    # If a single ReservoirProperties is provided, replicate it for all layers
+    if reservoir_properties isa ReservoirProperties
+        reservoir_properties = fill(reservoir_properties, n_layers)
+    end
+
+
     seqs = Vector{Vector{SpillEvent}}(undef, n_layers)
     leakage_states = Vector{LeakageState}(undef, n_layers)
 
-    weather_events_layer = convert_injection_event_to_weather_event(injection_events[1], reservoir_properties, domain)
+    weather_events_layer = convert_injection_event_to_weather_event(injection_events[1], reservoir_properties[1], domain)
     for layer_idx in 1:n_layers
         if verbose
             println("Filling layer $layer_idx / $n_layers")
@@ -32,7 +39,7 @@ function fill_layers(
         seq, leakage_state = fill_layer(
             tstruct,
             domain,
-            reservoir_properties,
+            reservoir_properties[layer_idx],
             weather_events_layer;
             verbose=verbose
         )
@@ -41,7 +48,7 @@ function fill_layers(
         leakage_states[layer_idx] = leakage_state
 
         if layer_idx < n_layers
-            weather_events_next_layer = convert_injection_event_to_weather_event(injection_events[layer_idx + 1], reservoir_properties, domain)
+            weather_events_next_layer = convert_injection_event_to_weather_event(injection_events[layer_idx + 1], reservoir_properties[layer_idx + 1], domain)
             weather_events_layer = create_next_layer_weather_events(
                 leakage_state,
                 layers[layer_idx].trap_structure,
@@ -205,29 +212,28 @@ function generate_multi_level_snapshots(
         layers::Vector{Layer},
         seqs::Vector{Vector{SpillEvent}},
         domain::Domain3D,
-        reservoir_properties::ReservoirProperties,
+        reservoir_properties::Vector{ReservoirProperties},
         num_snapshots::Int,
         start_time::Float64,
         end_time::Float64
     )
-    n_layers = length(layers)
-    layer_snapshots = Vector{Vector{SimulationLayerSnapshot}}(undef, n_layers)
+    n_layers = length(layers);
+    layer_snapshots = Vector{Vector{SimulationLayerSnapshot}}(undef, n_layers);
 
-    
 
     for layer_idx in 1:n_layers
-        tstruct = layers[layer_idx].trap_structure
-        seq = seqs[layer_idx]
+        tstruct = layers[layer_idx].trap_structure;
+        seq = seqs[layer_idx];
 
         layer_snapshots[layer_idx] = simulation_layer_snapshots_from_spill_events(
             layers[layer_idx],
             seq,
             domain,
-            reservoir_properties,
+            reservoir_properties[layer_idx],
             num_snapshots=num_snapshots,
             start_time=start_time,
             end_time=end_time
-        )
+        );
     end
 
     # Combine layer snapshots into multi-level snapshots
