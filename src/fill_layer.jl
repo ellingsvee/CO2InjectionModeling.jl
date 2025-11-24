@@ -234,101 +234,6 @@ end
 
 
 
-# """
-# Compute per-trap leakage volumes for injection into the next layer.
-
-# Returns a dictionary mapping trap_id -> total volume leaked from that trap (in swim units).
-# This computes how much CO2 leaked through each trap after it exceeded the threshold.
-
-# For each leaked trap, the leaked volume includes:
-# - Injection directly into the leaked trap's footprint
-# - Injection into any parent traps that contain this leaked trap
-
-# This accounts for the fact that CO2 injected into a parent trap will drain down through
-# its child traps and leak through whichever child reaches the threshold first.
-
-# Parameters:
-# - leakage_state: LeakageState from the simulation
-# - injection_events: Vector of injection events used in the simulation
-# - reservoir_properties: ReservoirProperties used in the simulation
-# - domain: Domain3D used in the simulation
-# - tstruct: TrapStructure for the layer
-# - final_time: End time of the simulation (used to compute total leaked volume)
-
-# Returns:
-# - Dict{Int, Float64}: Maps trap_id to leaked volume in swim units
-# """
-# function compute_per_trap_leaked_volumes(leakage_state::LeakageState,
-#                                          injection_events::Vector{InjectionEvent},
-#                                          reservoir_properties::ReservoirProperties,
-#                                          domain::Domain3D,
-#                                          tstruct::TrapStructure,
-#                                          final_time::Float64)
-#     # If no leakage, return empty dictionary
-#     if isnothing(leakage_state.first_leakage_time)
-#         return Dict{Int, Float64}()
-#     end
-
-#     # Get trap-to-footprint mapping
-#     nx, ny = size(tstruct.topography)
-
-#     # Initialize result dictionary
-#     leaked_volumes_per_trap = Dict{Int, Float64}()
-
-#     # For each leaked trap, compute volume that leaked
-#     for leakage_event in leakage_state.leakage_events
-#         trap_id = leakage_event.trap_id
-#         leak_time = leakage_event.timestamp
-
-#         # Get all traps whose injection drains through this leaked trap
-#         # This includes the trap itself AND all parent traps containing it
-#         relevant_traps = _identify_all_parent_traps(trap_id, tstruct)
-#         push!(relevant_traps, trap_id)
-
-#         # Combine footprints from the leaked trap and all its parent traps
-#         # The footprint of a trap represents all cells that drain into it
-#         combined_footprint = Set{Int}()
-#         for relevant_trap in relevant_traps
-#             union!(combined_footprint, tstruct.footprints[relevant_trap])
-#         end
-
-#         # Sum injection into the combined footprint after leakage
-#         total_leaked = 0.0
-
-#         for (i, ie) in enumerate(injection_events)
-#             start_time = ie.timestamp
-#             end_time = (i < length(injection_events)) ? injection_events[i+1].timestamp : final_time
-
-#             # If this injection period overlaps with post-leakage time
-#             if end_time > leak_time
-#                 # Compute how much time was spent injecting after leakage
-#                 effective_start = max(start_time, leak_time)
-#                 effective_duration = end_time - effective_start
-
-#                 if effective_duration > 0
-#                     # Convert injection rate to swim units
-#                     rain_rate_swim = physical_volume_to_swim_volume(ie.injection_rate, reservoir_properties, domain)
-
-#                     # Sum injection into the combined footprint
-#                     footprint_injection = 0.0
-#                     for linear_idx in combined_footprint
-#                         cart_idx = CartesianIndices((nx, ny))[linear_idx]
-#                         i_coord, j_coord = cart_idx.I
-#                         footprint_injection += rain_rate_swim[i_coord, j_coord]
-#                     end
-
-#                     total_leaked += footprint_injection * effective_duration
-#                 end
-#             end
-#         end
-
-#         # Store the leaked volume for this trap
-#         leaked_volumes_per_trap[trap_id] = total_leaked
-#     end
-
-#     return leaked_volumes_per_trap
-# end
-
 """
 Get total leaked volume (sum across all traps).
 
@@ -524,7 +429,7 @@ function _check_and_trigger_leakage!(leakage_state::LeakageState, cur_amounts::V
                                      rain_rate::Matrix{Float64}, z_vol_tables, tstruct,
                                      cur_time::Float64, source_tracker::SourceTracker,
                                      filled_traps::Vector{Bool}, reservoir_properties::ReservoirProperties,
-                                     verbose::Bool)
+                                     verbose::Bool, rate_info=nothing)
     leakage_occurred = false
     num_traps = length(cur_amounts)
 
@@ -542,6 +447,10 @@ function _check_and_trigger_leakage!(leakage_state::LeakageState, cur_amounts::V
             if verbose
                 println("Leakage detected in trap $trap_id at time $cur_time (height: $height m)")
             end
+
+            # TODO:
+            # As we know we have reached the height by now, we should be able to compute the exact time when we reached the target height.
+
 
             _trigger_leakage!(trap_id, leakage_state, cur_amounts, rain_rate,
                             z_vol_tables, tstruct, cur_time, source_tracker,
