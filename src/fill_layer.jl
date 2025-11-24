@@ -215,6 +215,11 @@ function fill_layer(tstruct::TrapStructure{<:Real},
         # Make a mutable copy of rain_rate for leakage handling
         rain_rate = copy(we.rain_rate)
 
+        # Apply leakage state to zero out injection in regions that have already leaked
+        # This ensures that once injection is stopped due to leakage, it stays stopped
+        # across weather event boundaries
+        _apply_leakage_to_rain_rate!(rain_rate, leakage_state, tstruct)
+
         # register the start of this weather event as a new, fully computed, spill event
         push!(seq, SurfaceWaterIntegratedModeling.SpillEvent(cur_time, copy(cur_amounts), copy(filled_traps),
                               copy(rateinfo.trap_inflow), copy(rain_rate),
@@ -317,6 +322,23 @@ function _find_connected_filled_parents(trap_id::Int, filled_traps::Vector{Bool}
     end
 
     return connected
+end
+
+"""
+Apply leakage state to rain_rate, zeroing out injection in regions that have already leaked.
+
+This function is called at the start of each weather event to ensure that regions
+which had their injection stopped due to leakage remain stopped across weather event boundaries.
+"""
+function _apply_leakage_to_rain_rate!(rain_rate::Matrix{Float64}, leakage_state::LeakageState,
+                                      tstruct::TrapStructure)
+    # For each leakage event, turn off injection in the contributing source regions
+    for event in leakage_state.leakage_events
+        for source_region in event.source_regions
+            region_mask = tstruct.regions .== source_region
+            rain_rate[region_mask] .= 0.0
+        end
+    end
 end
 
 """
