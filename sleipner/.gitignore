@@ -1,12 +1,11 @@
-# Project related
 plots
 velocities_trends_surfaces
-*.npy
+# *.npy
 *.npz
 !sleipner_depth_surfaces.npz
+!sleipner_depth_surfaces/*
 *.zip
 *.pdf
 *.gif
 *.py
-
 __pycache__
