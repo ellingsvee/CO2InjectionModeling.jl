@@ -352,19 +352,18 @@ function animate_trap_filling_birdseye(
     fps::Int = 2,
     value_colormap::Symbol = :thermal
 )
-    # Get the topography dimensions from the trap structure
-    trap_topo = layer.trap_structure.topography
-    nx_topo, ny_topo = size(trap_topo)
+    pad = layer.boundary_padding
 
+    # Use original domain dimensions for visualization
     # Create coordinate ranges for the heatmap
-    x_coords = range(0, domain.nx * domain.dx, length=nx_topo)
-    y_coords = range(0, domain.ny * domain.dy, length=ny_topo)
+    x_coords = range(0, domain.nx * domain.dx, length=domain.nx)
+    y_coords = range(0, domain.ny * domain.dy, length=domain.ny)
 
     # Set up the figure and axis
     fig = Figure(size = (1200, 1000))
 
     # Create observable for the CO2 saturation data
-    co2_data = Observable(zeros(Float64, nx_topo, ny_topo))
+    co2_data = Observable(zeros(Float64, domain.nx, domain.ny))
     time_text = Observable("Bird's Eye View - Time: 0.0")
 
     ax = Axis(fig[1, 1],
@@ -390,14 +389,17 @@ function animate_trap_filling_birdseye(
         # The height matrix is already 2D and shows CO2 heights at each location
         height_matrix = snapshot.heights
 
+        # Remove padding for visualization
+        unpadded_height = remove_boundary_padding(height_matrix, pad)
+
         # Create a 2D map of CO2 saturation based on height
         # Non-zero heights indicate presence of CO2
-        co2_map = zeros(Float64, nx_topo, ny_topo)
-        co2_map[height_matrix .> 0.0] .= 0.6
+        co2_map = zeros(Float64, domain.nx, domain.ny)
+        co2_map[unpadded_height .> 0.0] .= 0.6
 
         # Get max height for display
-        max_height = maximum(height_matrix)
-        num_filled_locations = count(height_matrix .> 0.0)
+        max_height = maximum(unpadded_height)
+        num_filled_locations = count(unpadded_height .> 0.0)
 
         # Update the observable
         co2_data[] = co2_map
@@ -581,13 +583,11 @@ function animate_trap_filling_birdseye_multilayer(
         row = div(layer_idx - 1, n_cols) + 1
         col = mod(layer_idx - 1, n_cols) + 1
 
-        trap_topo = layers[layer_idx].trap_structure.topography
-        nx_topo, ny_topo = size(trap_topo)
+        # Use original domain dimensions (without padding) for visualization
+        x_coords = range(0, domain.nx * domain.dx, length=domain.nx)
+        y_coords = range(0, domain.ny * domain.dy, length=domain.ny)
 
-        x_coords = range(0, domain.nx * domain.dx, length=nx_topo)
-        y_coords = range(0, domain.ny * domain.dy, length=ny_topo)
-
-        co2_observables[layer_idx] = Observable(zeros(Float64, nx_topo, ny_topo))
+        co2_observables[layer_idx] = Observable(zeros(Float64, domain.nx, domain.ny))
 
         axes[layer_idx] = Axis(fig[row, col],
                                xlabel = "X (m)",
@@ -616,17 +616,30 @@ function animate_trap_filling_birdseye_multilayer(
         for layer_idx in 1:n_layers
             layer_snapshot = snapshot.layer_snapshots[layer_idx]
             height_matrix = layer_snapshot.heights
+            pad = layers[layer_idx].boundary_padding
 
-            trap_topo = layers[layer_idx].trap_structure.topography
-            nx_topo, ny_topo = size(trap_topo)
+            # Remove padding from height matrix for visualization
+            unpadded_height = remove_boundary_padding(height_matrix, pad)
 
             # Create a 2D map of CO2 saturation based on height
-            co2_map = zeros(Float64, nx_topo, ny_topo)
-            co2_map[height_matrix .> 0.0] .= 0.6
+            co2_map = zeros(Float64, domain.nx, domain.ny)
 
-            # Update stats
-            total_filled_cells += count(height_matrix .> 0.0)
-            max_height_all = max(max_height_all, maximum(height_matrix))
+            # For cells with CO2, show presence (use 0.6 for consistency with colormap)
+            has_co2 = unpadded_height .> 0.0
+            co2_map[has_co2] .= 0.6
+
+            # Update stats (count on unpadded data)
+            num_filled = count(has_co2)
+            total_filled_cells += num_filled
+            max_height_layer = maximum(unpadded_height)
+            max_height_all = max(max_height_all, max_height_layer)
+
+            # Debug: print layer info for first and last frames
+            if frame_idx == 1 || frame_idx == length(snapshots)
+                if num_filled > 0
+                    println("  Layer $layer_idx ($(layers[layer_idx].name)): $num_filled cells filled, max height: $(round(max_height_layer, digits=2))m, CO2 volume: $(round(layer_snapshot.co2_volume, digits=2)) m³")
+                end
+            end
 
             # Update the observable
             co2_observables[layer_idx][] = co2_map

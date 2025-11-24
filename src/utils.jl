@@ -179,6 +179,19 @@ function simulation_layer_snapshots_from_spill_events(
     tstruct = layer.trap_structure
     timepoints = collect(range(start_time, stop=end_time, length=num_snapshots))
 
+    # FIX: Slightly change timepoint to correspond to the closest times in the seq
+    # seq_timepoints = [
+    #     s.timestamp for s in seq
+    # ]
+    # timepoints = [seq_timepoints[argmin(abs.(seq_timepoints .- t))] for t in timepoints]
+    # seq_timepoints = [s.timestamp for s in seq]
+    # timepoints = [
+    #     let idx = findfirst(x -> x ≥ t, seq_timepoints)
+    #         isnothing(idx) ? seq_timepoints[end] : seq_timepoints[idx]
+    #     end
+    #     for t in timepoints
+    # ]
+
     # tpoints = [seq[seq_idx].timestamp]
     tstates = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
     water_content = [e[2] for e in tstates]

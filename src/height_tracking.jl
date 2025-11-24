@@ -1,7 +1,7 @@
 import SurfaceWaterIntegratedModeling
 import Interpolations
 
-export compute_co2_height_matrix, create_co2_mask_3d_from_heights
+export compute_co2_height_matrix, create_co2_mask_3d_from_heights, remove_boundary_padding
 
 """
 Compute a 2D matrix (or vector of matrices) of CO2 height above the layer at given time(s).
@@ -230,8 +230,9 @@ Parameters:
                 above the layer base at each (x,y) location. Note: If computed with
                 use_layer_base=false, the heights represent CO2 in trap volumes only.
                 For total column height from base, use use_layer_base=true when computing.
+                The height_matrix may be padded if the layer uses closed boundary conditions.
 - layer: Layer struct containing the trap_structure with topography information
-- domain: Domain3D struct defining the 3D grid
+- domain: Domain3D struct defining the 3D grid (original unpadded dimensions)
 
 Returns:
 - mask_3d: 3D boolean array (nx, ny, nz) where true indicates cells filled with CO2
@@ -263,30 +264,37 @@ function create_co2_mask_3d_from_heights(
     dz = domain.dz
     depth_max = domain.depth_max
 
-    # Validate dimensions
-    @assert size(height_matrix) == (nx, ny) "height_matrix dimensions must match domain (nx, ny)"
-
-    # Initialize 3D mask
-    mask_3d = falses(nx, ny, nz)
-
-    # Get the layer topography (base elevation)
+    # Get the layer topography (base elevation) - may be padded
     topography_2d = layer.trap_structure.topography
+    pad = layer.boundary_padding
+
+    # Validate dimensions accounting for padding
+    expected_nx = nx + 2 * pad
+    expected_ny = ny + 2 * pad
+    @assert size(height_matrix) == (expected_nx, expected_ny) "height_matrix dimensions ($(size(height_matrix))) must match padded domain ($expected_nx, $expected_ny) for pad=$pad"
+
+    # Initialize 3D mask (unpadded domain size)
+    mask_3d = falses(nx, ny, nz)
 
     # Create depth array for all k indices (k=1 is deepest, k=nz is shallowest)
     depths = depth_max .- (0.5:nz) .* dz
 
-    # For each horizontal location
+    # For each horizontal location in the unpadded domain
     for i in 1:nx
         for j in 1:ny
-            co2_height = height_matrix[i, j]
+            # Map to padded coordinates
+            i_padded = i + pad
+            j_padded = j + pad
+
+            co2_height = height_matrix[i_padded, j_padded]
 
             # Skip if no CO2 at this location
             if co2_height <= 0.0
                 continue
             end
 
-            # Determine the base elevation for this location
-            base_elevation = topography_2d[i, j]
+            # Determine the base elevation for this location (in padded coordinates)
+            base_elevation = topography_2d[i_padded, j_padded]
 
             # Top elevation of CO2 column at this location
             top_elevation = base_elevation + co2_height
@@ -305,4 +313,36 @@ function create_co2_mask_3d_from_heights(
     end
 
     return mask_3d
+end
+
+"""
+Remove boundary padding from a 2D matrix (e.g., height matrix or topography).
+
+This is useful for visualization and analysis after simulation with closed boundary conditions.
+
+Parameters:
+- matrix: 2D array with padding
+- pad_width: Number of cells padded on each side
+
+Returns:
+- Unpadded matrix with boundary cells removed
+"""
+function remove_boundary_padding(matrix::Matrix{T}, pad_width::Int) where T
+    if pad_width == 0
+        return matrix
+    end
+
+    nx, ny = size(matrix)
+    return matrix[pad_width+1:nx-pad_width, pad_width+1:ny-pad_width]
+end
+
+"""
+Remove boundary padding from a vector of 2D matrices.
+"""
+function remove_boundary_padding(matrices::Vector{Matrix{T}}, pad_width::Int) where T
+    if pad_width == 0
+        return matrices
+    end
+
+    return [remove_boundary_padding(m, pad_width) for m in matrices]
 end
