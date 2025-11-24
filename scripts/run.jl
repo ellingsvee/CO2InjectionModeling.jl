@@ -13,20 +13,8 @@ reservoir_properties = generate_reservoir_properties_for_sleipner_layers()
 
 # Define injection events
 # Make xy in the center of the domain
-trap_topo = layers[layer].trap_structure.topography
+trap_topo = layers[1].trap_structure.topography
 xy = CartesianIndex(div(size(trap_topo, 1), 2), div(size(trap_topo, 2), 4))
-
-# injection_rate = fill(0.0, size(layers[layer].trap_structure.topography))
-# injection_rate[xy] = 1e6
-# injection_event_bottom_layer = [InjectionEvent(0.0, injection_rate)]
-# injection_event_remaining_layers = [InjectionEvent(0.0, zeros(size(layers[layer].trap_structure.topography)))]
-
-# injection_events = Vector{Vector{InjectionEvent}}(undef, length(layers))
-# injection_events[1] = injection_event_bottom_layer
-# for i in 2:length(layers)
-#     injection_events[i] = injection_event_remaining_layers
-# end
-
 injection_events = generate_sleipner_injection_events(layers, xy)
 
 # Run simulation
@@ -40,6 +28,9 @@ seqs, leakage_states, snapshots = fill_layers(
     end_time=15.0,
     verbose=false
 );
+
+
+
 
 println("Simulation completed with ", length(snapshots), " snapshots")
 

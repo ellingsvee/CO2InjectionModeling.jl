@@ -125,13 +125,13 @@ result <- julia_call("configure_reservoir",
                      layer_specific = TRUE)
 ```
 """
-function configure_reservoir(
+function configure_reservoir(;
     porosity::Union{Float64, Vector{Float64}},
     residual_co2_sat::Union{Float64, Vector{Float64}},
     irreducible_water_sat::Union{Float64, Vector{Float64}},
     shale_pressure_threshold::Union{Float64, Vector{Float64}},
     brine_co2_density_diff::Union{Float64, Vector{Float64}},
-    residual_leakage_time::Union{Float64, Vector{Float64}};
+    residual_leakage_time::Union{Float64, Vector{Float64}},
     layer_specific::Bool=false
 )
     try
@@ -244,7 +244,7 @@ print(result\$timepoints)
 print(result\$total_co2_volumes)
 ```
 """
-function run_simulation(
+function run_simulation(;
     start_time::Float64,
     end_time::Float64,
     time_step::Float64,
@@ -252,7 +252,7 @@ function run_simulation(
     injection_locations_i::Vector{Int},
     injection_locations_j::Vector{Int},
     injection_amounts::Vector{Float64},
-    injection_layer_indices::Vector{Int};
+    injection_layer_indices::Vector{Int},
     num_snapshots::Union{Nothing, Int}=nothing,
     verbose::Bool=false
 )
