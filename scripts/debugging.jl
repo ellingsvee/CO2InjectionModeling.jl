@@ -50,9 +50,12 @@ println(length(leakage_state.leakage_events)) # 5
 # Amount at first leakage time
 tstates = trap_states_at_timepoints(tstruct, seq, [leakage_state.first_leakage_time])
 amounts_at_leakage = [e[2] for e in tstates]
-tota_amounts_at_leakage = sum(amounts_at_leakage[1]) # 1675.5283999999801
+total_amounts_at_leakage = sum(amounts_at_leakage[1])
 
 # Amount 5 time units after first leakage
 tstates = trap_states_at_timepoints(tstruct, seq, [leakage_state.first_leakage_time + 5])
 amounts_time_after_leakage_leakage = [e[2] for e in tstates]
-total_amounts_time_after_leakage_leakage = sum(amounts_time_after_leakage_leakage[1]) # 11348.475617240714
+total_amounts_time_after_leakage_leakage = sum(amounts_time_after_leakage_leakage[1])
+
+println("Total amount at leakage time: ", total_amounts_at_leakage)
+println("Total amount 5 time units after leakage: ", total_amounts_time_after_leakage_leakage)

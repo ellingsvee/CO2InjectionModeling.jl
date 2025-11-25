@@ -197,21 +197,6 @@ function fill_layer(tstruct::TrapStructure{<:Real},
 
         @assert(all([ca.time == cur_time for ca ∈ cur_amounts]))
 
-        # Update source tracker with new injection sources from this weather event
-        # This is important for multi-layer simulations where leakage from upper layers
-        # creates new injection points in lower layers
-        update_injection_sources!(source_tracker, tstruct, we.rain_rate)
-
-        # compute inflow/runoff/infiltration rates corresponding to the fill
-        # graph and new rain rate
-        rateinfo = SurfaceWaterIntegratedModeling.compute_flow(sgraph, we.rain_rate, infiltration, tstruct, verbose)
-
-        # compute initial time estimates for when a trap become filled, or split
-        # into subtraps
-        changetimeest = SurfaceWaterIntegratedModeling._set_initial_changetime_estimates(rateinfo, cur_amounts,
-                                                          cur_time, filled_traps,
-                                                          tstruct)
-
         # Make a mutable copy of rain_rate for leakage handling
         rain_rate = copy(we.rain_rate)
 
@@ -219,6 +204,25 @@ function fill_layer(tstruct::TrapStructure{<:Real},
         # This ensures that once injection is stopped due to leakage, it stays stopped
         # across weather event boundaries
         _apply_leakage_to_rain_rate!(rain_rate, leakage_state, tstruct)
+
+        # Update source tracker with new injection sources from this weather event
+        # This is important for multi-layer simulations where leakage from upper layers
+        # creates new injection points in lower layers
+        # NOTE: Use the modified rain_rate (after applying leakage) to avoid tracking
+        # sources that have been shut off due to leakage
+        update_injection_sources!(source_tracker, tstruct, rain_rate)
+
+        # compute inflow/runoff/infiltration rates corresponding to the fill
+        # graph and new rain rate
+        # IMPORTANT: Use the modified rain_rate (after applying leakage) so that
+        # injection in leaked regions is not included in flow computation
+        rateinfo = SurfaceWaterIntegratedModeling.compute_flow(sgraph, rain_rate, infiltration, tstruct, verbose)
+
+        # compute initial time estimates for when a trap become filled, or split
+        # into subtraps
+        changetimeest = SurfaceWaterIntegratedModeling._set_initial_changetime_estimates(rateinfo, cur_amounts,
+                                                          cur_time, filled_traps,
+                                                          tstruct)
 
         # register the start of this weather event as a new, fully computed, spill event
         push!(seq, SurfaceWaterIntegratedModeling.SpillEvent(cur_time, copy(cur_amounts), copy(filled_traps),
