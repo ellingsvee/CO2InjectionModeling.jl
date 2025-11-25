@@ -22,7 +22,7 @@ cat("=== Example 1: Simple Simulation with Sleipner Defaults ===\n\n")
 
 # Step 1: Setup simulator
 cat("Setting up simulator...\n")
-setup_result <- julia_call("setup_simulator", boundary_condition = "open")
+setup_result <- julia_call("setup_simulator", boundary_condition = "open") # Alternatively "closed" for closed BCs
 print(setup_result)
 
 nx <- setup_result$nx
