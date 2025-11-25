@@ -171,7 +171,8 @@ function simulation_layer_snapshots_from_spill_events(
     layer::Layer,
     seq::Vector{SpillEvent},
     domain::Domain3D,
-    reservoir_properties::ReservoirProperties;
+    reservoir_properties::ReservoirProperties,
+    injection_events::Vector{InjectionEvent};
     num_snapshots::Int,
     start_time::Float64,
     end_time::Float64
@@ -179,20 +180,6 @@ function simulation_layer_snapshots_from_spill_events(
     tstruct = layer.trap_structure
     timepoints = collect(range(start_time, stop=end_time, length=num_snapshots))
 
-    # FIX: Slightly change timepoint to correspond to the closest times in the seq
-    # seq_timepoints = [
-    #     s.timestamp for s in seq
-    # ]
-    # timepoints = [seq_timepoints[argmin(abs.(seq_timepoints .- t))] for t in timepoints]
-    # seq_timepoints = [s.timestamp for s in seq]
-    # timepoints = [
-    #     let idx = findfirst(x -> x ≥ t, seq_timepoints)
-    #         isnothing(idx) ? seq_timepoints[end] : seq_timepoints[idx]
-    #     end
-    #     for t in timepoints
-    # ]
-
-    # tpoints = [seq[seq_idx].timestamp]
     tstates = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
     water_content = [e[2] for e in tstates]
 
@@ -240,21 +227,15 @@ function simulation_layer_snapshots_from_spill_events(
 
         total_co2_volume = swim_volume_to_physical_volume(total_contents[time_ix], reservoir_properties, domain)
 
+        injected_volume = compute_total_injected_amount(injection_events, tp)
 
-    # timestamp::Float64
-    # spill_event::SpillEvent
-    # heights::Array{Float64, 2}
-    # filled_traps::Vector{Bool}
-    # co2_volume::Float64
-    # mobile_co2_volume::Float64
-    # residual_trapped_co2_volume::Float64
-    # residual_trapped::Vector{Bool}
 
         push!(snapshots, SimulationLayerSnapshot(
             timepoints[time_ix],
             spill_event,
             height_matrices[time_ix],
             tstates[time_ix][1],
+            injected_volume,
             total_co2_volume,
             total_co2_volume,  # Placeholder: all CO2 is mobile for now
             residual_trapped_co2_volume, # Placeholder
@@ -264,4 +245,31 @@ function simulation_layer_snapshots_from_spill_events(
     end
 
     return snapshots
+end
+
+function compute_total_injected_amount(injection_events::Vector{InjectionEvent}, time::Float64)
+    total = 0.0
+    for event_idx in 1:length(injection_events)
+        event = injection_events[event_idx]
+        t_start = event.timestamp
+        t_end = event_idx < length(injection_events) ? injection_events[event_idx + 1].timestamp : time
+
+        # If the interval is entirely after the requested time, skip
+        if time < t_start
+            continue
+        end
+
+        # Only integrate up to 'time'
+        interval_end = min(t_end, time)
+        dt = interval_end - t_start
+        if dt > 0
+            total += sum(event.injection_rate) * dt
+        end
+
+        # If we've reached or passed 'time', stop
+        if time <= t_end
+            break
+        end
+    end
+    return total
 end

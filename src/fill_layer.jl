@@ -3,21 +3,6 @@ import Interpolations
 using DifferentialEquations: solve, ODEProblem, VectorContinuousCallback, terminate!
 export fill_layer, InjectionEvent, LeakageState, LeakageEvent, compute_per_trap_leaked_volumes, get_total_leaked_volume
 
-struct InjectionEvent
-    timestamp::Float64
-    injection_rate::Union{Matrix{Float64}, Float64} 
-end
-
-struct LeakageEvent
-    timestamp::Float64           # Time when leakage was detected (at spill event)
-    trap_id::Int                # Trap that leaked
-    height_at_detection::Float64  # Height when leakage was detected (>= threshold)
-    volume_in_trap::Float64     # Volume in trap at detection (swim units)
-    source_regions::Set{Int}    # Regions whose injection contributed to this leakage
-    connected_filled_traps::Vector{Int}  # Trap IDs that are filled and connected (will leak)
-    total_leakable_volume::Float64       # Total volume that will leak (after residual trapping)
-    residual_trapped_volume::Float64     # Volume that stays trapped (residual)
-end
 
 mutable struct LeakageState
     leaked_traps::Vector{Bool}              # Which traps have leaked

@@ -23,6 +23,23 @@ struct Domain3D
     end
 end
 
+
+struct InjectionEvent
+    timestamp::Float64
+    injection_rate::Union{Matrix{Float64}, Float64} 
+end
+
+struct LeakageEvent
+    timestamp::Float64           # Time when leakage was detected (at spill event)
+    trap_id::Int                # Trap that leaked
+    height_at_detection::Float64  # Height when leakage was detected (>= threshold)
+    volume_in_trap::Float64     # Volume in trap at detection (swim units)
+    source_regions::Set{Int}    # Regions whose injection contributed to this leakage
+    connected_filled_traps::Vector{Int}  # Trap IDs that are filled and connected (will leak)
+    total_leakable_volume::Float64       # Total volume that will leak (after residual trapping)
+    residual_trapped_volume::Float64     # Volume that stays trapped (residual)
+end
+
 struct CellProperties
     porosity::Array{Float64, 3}
     pressure_threshold::Array{Float64, 3}
@@ -49,6 +66,7 @@ struct SimulationLayerSnapshot
     spill_event::SpillEvent
     heights::Array{Float64, 2}
     filled_traps::Vector{Bool}
+    injected_volume::Float64
     co2_volume::Float64
     mobile_co2_volume::Float64
     residual_trapped_co2_volume::Float64
@@ -57,6 +75,7 @@ end
 
 struct SimulationSnapshot
     timestamp::Float64
+    total_injected_volume::Float64
     total_co2_volume::Float64
     total_mobile_co2_volume::Float64
     total_residual_trapped_co2_volume::Float64

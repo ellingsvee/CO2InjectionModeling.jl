@@ -1,6 +1,6 @@
 using SurfaceWaterIntegratedModeling
 
-export fill_layers
+export fill_layers, convert_injection_event_to_weather_event, create_next_layer_weather_events, generate_multi_level_snapshots
 
 
 
@@ -71,6 +71,7 @@ function fill_layers(
         seqs,
         domain,
         reservoir_properties,
+        injection_events,
         num_snapshots,
         start_time,
         end_time
@@ -213,6 +214,7 @@ function generate_multi_level_snapshots(
         seqs::Vector{Vector{SpillEvent}},
         domain::Domain3D,
         reservoir_properties::Vector{ReservoirProperties},
+        injection_events::Vector{Vector{InjectionEvent}},
         num_snapshots::Int,
         start_time::Float64,
         end_time::Float64
@@ -230,6 +232,7 @@ function generate_multi_level_snapshots(
             seq,
             domain,
             reservoir_properties[layer_idx],
+            injection_events[layer_idx];
             num_snapshots=num_snapshots,
             start_time=start_time,
             end_time=end_time
@@ -243,8 +246,10 @@ function generate_multi_level_snapshots(
         for layer_idx in 1:n_layers
             layer_snaps[layer_idx] = layer_snapshots[layer_idx][snapshot_idx]
         end
+
         multi_level_snapshots[snapshot_idx] = SimulationSnapshot(
             layer_snaps[1].timestamp,
+            sum(ls.injected_volume for ls in layer_snaps),
             sum(ls.co2_volume for ls in layer_snaps),
             sum(ls.mobile_co2_volume for ls in layer_snaps),
             sum(ls.residual_trapped_co2_volume for ls in layer_snaps),
