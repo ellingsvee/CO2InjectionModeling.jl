@@ -22,6 +22,6 @@ export load_sleipner_topography, SleipnerTopography, reconstruct_3d_lithology, p
 include("CO2RInterface.jl")
 
 using .CO2RInterface
-export setup_simulator, configure_reservoir, run_simulation
+export setup_simulator, configure_reservoir, setup_sleipner_reservoir, run_simulation
 
 end # module

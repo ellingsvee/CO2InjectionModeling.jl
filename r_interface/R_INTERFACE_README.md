@@ -29,7 +29,7 @@ julia_command('using Pkg; Pkg.activate(".")')
 julia_command('using CO2InjectionModeling')
 ```
 
-#### Option B: Install as a package 
+#### Option B: Install as a package
 
 Install the package globally so you can use it from any directory:
 
@@ -44,79 +44,237 @@ Then in R:
 library(JuliaCall)
 julia_setup()
 julia_command('using CO2InjectionModeling')
-julia_command('using .CO2RInterface')
 ```
 
+## Quick Start
 
-## Basic usage
+The simplest way to run a simulation with Sleipner defaults:
 
 ```R
 # 1. Setup simulator
-julia_call("setup_simulator", boundary_condition = "open")
+setup <- julia_call("setup_simulator", boundary_condition = "open")
+nx <- setup$nx
+ny <- setup$ny
 
-# 2. Configure reservoir
+# 2. Use Sleipner default properties
+julia_call("setup_sleipner_reservoir")
+
+# 3. Create injection scenario
+# Injection matrix dimensions: n_times × nx × ny
+n_times <- 15
+layer1_injection <- array(0, dim = c(n_times, nx, ny))
+
+# Inject at location (32, 59) with historical Sleipner rates
+rates_mt <- c(0.07, 0.67, 0.85, 0.94, 0.94, 1.02,
+              0.96, 0.92, 0.76, 0.87, 0.83, 0.93,
+              0.82, 0.86, 0.76)  # Mt/year
+rates_m3 <- rates_mt * 1e9 / 570  # Convert to m³/year
+
+for (i in 1:n_times) {
+  layer1_injection[i, 32, 59] <- rates_m3[i]
+}
+
+# Zero injection for other layers
+zero_injection <- array(0, dim = c(1, nx, ny))
+
+# List of injection matrices (one per layer)
+injection_matrices <- list(
+  layer1_injection,  # Layer 1 (bottom)
+  zero_injection, zero_injection, zero_injection,
+  zero_injection, zero_injection, zero_injection,
+  zero_injection, zero_injection  # Layer 9 (top)
+)
+
+# 4. Run simulation
+result <- julia_call("run_simulation",
+                     start_time = 0.0,
+                     end_time = 15.0,
+                     time_step = 1.0,
+                     injection_rate_matrices = injection_matrices,
+                     verbose = TRUE)
+
+# 5. Access results
+print(result$timepoints)
+print(result$total_co2_volumes)
+```
+
+## API Reference
+
+### `setup_simulator()`
+
+Setup the simulator and load topography data.
+
+**Parameters:**
+- `data_path`: Path to depth surfaces (default: `"sleipner/depth_surfaces/"`)
+- `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
+
+**Returns:** Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`
+
+---
+
+### `setup_sleipner_reservoir()`
+
+Configure reservoir properties using Sleipner field default values. This is a convenience function that automatically sets:
+- Porosity: 0.4
+- Residual CO2 saturation: 0.2
+- Irreducible water saturation: 0.3
+- Shale pressure threshold: 98000.0 Pa
+- Brine-CO2 density difference: Layer-specific values (450-670 kg/m³)
+- Residual leakage time: 1.0 years
+
+**Parameters:** None (must call `setup_simulator()` first)
+
+**Returns:** Dictionary with `status`, `n_layers`, `message`
+
+**Example:**
+```R
+julia_call("setup_simulator", boundary_condition = "open")
+julia_call("setup_sleipner_reservoir")
+```
+
+---
+
+### `configure_reservoir()`
+
+Configure custom reservoir properties.
+
+**Parameters:**
+- `porosity`: Sand porosity (0-1). Scalar or vector of length n_layers
+- `residual_co2_sat`: Residual CO2 saturation (0-1). Scalar or vector
+- `irreducible_water_sat`: Irreducible water saturation (0-1). Scalar or vector
+- `shale_pressure_threshold`: Shale pressure threshold (Pa). Scalar or vector
+- `brine_co2_density_diff`: Density difference between brine and CO2 (kg/m³). Scalar or vector
+- `residual_leakage_time`: Residual leakage time (years). Scalar or vector
+- `layer_specific`: Set to `TRUE` to provide vectors for layer-specific properties (default: `FALSE`)
+
+**Returns:** Dictionary with `status`, `n_layers`
+
+**Example (uniform properties):**
+```R
 julia_call("configure_reservoir",
-           porosity = 0.4,
+           porosity = 0.35,
            residual_co2_sat = 0.2,
            irreducible_water_sat = 0.3,
            shale_pressure_threshold = 98000.0,
            brine_co2_density_diff = 450.0,
            residual_leakage_time = 1.0,
            layer_specific = FALSE)
-
-# 3. Run simulation
-result <- julia_call("run_simulation",
-                     start_time = 0.0,
-                     end_time = 5.0,
-                     time_step = 1.0,
-                     injection_times = c(0, 1, 2, 3, 4),
-                     injection_locations_i = rep(32L, 5),
-                     injection_locations_j = rep(59L, 5),
-                     injection_amounts = rep(1e6, 5),
-                     injection_layer_indices = rep(1L, 5),
-                     num_snapshots = 5L,
-                     verbose = TRUE)
-
-# 4. Access results
-print(result$timepoints)
-print(result$total_co2_volumes)
 ```
 
-## Key parameters
+**Example (layer-specific properties):**
+```R
+# Different density differences for each of 9 layers
+density_diffs <- c(450, 477.5, 505, 532.5, 560, 587.5, 615, 642.5, 670)
 
-### `setup_simulator()`
-- `data_path`: Path to depth surfaces (default: `"sleipner/depth_surfaces/"`)
-- `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
+julia_call("configure_reservoir",
+           porosity = rep(0.4, 9),
+           residual_co2_sat = rep(0.2, 9),
+           irreducible_water_sat = rep(0.3, 9),
+           shale_pressure_threshold = rep(98000.0, 9),
+           brine_co2_density_diff = density_diffs,
+           residual_leakage_time = rep(1.0, 9),
+           layer_specific = TRUE)
+```
 
-### `configure_reservoir()`
-- `porosity`: Sand porosity (0-1)
-- `residual_co2_sat`: Residual CO2 saturation (0-1)
-- `irreducible_water_sat`: Irreducible water saturation (0-1)
-- `shale_pressure_threshold`: Shale pressure threshold (Pa)
-- `brine_co2_density_diff`: Density difference (kg/m³)
-- `residual_leakage_time`: Residual leakage time (years)
-- `layer_specific`: Set to `TRUE` to provide vectors for each layer
+---
 
 ### `run_simulation()`
-- `start_time`, `end_time`: Simulation time range (years)
-- `time_step`: Time between snapshots (years)
-- `injection_times`: Vector of injection times (years)
-- `injection_locations_i`, `injection_locations_j`: Grid indices (1-based)
-- `injection_amounts`: Injection rates (m³/year)
-- `injection_layer_indices`: Layer indices (1-based, 1=bottom)
-- `num_snapshots`: Number of snapshots to save
-- `verbose`: Print progress
 
-## Result structure
+Run a CO2 injection simulation.
 
-- `timepoints`: Vector of snapshot times
+**Parameters:**
+- `start_time`: Simulation start time (years)
+- `end_time`: Simulation end time (years)
+- `time_step`: Time step for output snapshots (years)
+- `injection_rate_matrices`: List of 3D arrays (one per layer), each with dimensions `(n_times × nx × ny)`. Each array specifies injection rates (m³/year) at each grid cell for each time point. For layers without injection, provide a `(1 × nx × ny)` array of zeros.
+- `verbose`: Print progress messages (default: `FALSE`)
+
+**Returns:** Dictionary containing:
+- `status`: "success" or "error"
+- `timepoints`: Vector of snapshot times (years)
 - `total_co2_volumes`: Total CO2 volume at each timepoint (m³)
-- `layer_co2_volumes`: Matrix (timepoints × layers) of volumes per layer
-- `trap_co2_volumes`: List of matrices for trap volumes
-- `trap_co2_percentages`: List of matrices for trap percentages
+- `layer_co2_volumes`: Matrix (timepoints × layers) of volumes per layer (m³)
+- `trap_co2_volumes`: List of matrices for trap volumes in each layer
+- `trap_co2_percentages`: List of matrices for trap percentages in each layer
+- `num_layers`: Number of layers
+- `num_traps_per_layer`: Vector of trap counts per layer
+
+**Example (single injection well):**
+```R
+# Create injection for bottom layer
+n_times <- 10
+layer1_injection <- array(0, dim = c(n_times, nx, ny))
+
+# Inject at (32, 59)
+rates <- rep(0.8, n_times) * 1e9 / 570  # 0.8 Mt/year constant
+for (i in 1:n_times) {
+  layer1_injection[i, 32, 59] <- rates[i]
+}
+
+# Zero injection for other layers
+zero_injection <- array(0, dim = c(1, nx, ny))
+
+injection_matrices <- list(
+  layer1_injection,
+  zero_injection, zero_injection, zero_injection,
+  zero_injection, zero_injection, zero_injection,
+  zero_injection, zero_injection
+)
+
+result <- julia_call("run_simulation",
+                     start_time = 0.0,
+                     end_time = 10.0,
+                     time_step = 1.0,
+                     injection_rate_matrices = injection_matrices,
+                     verbose = TRUE)
+```
+
+**Example (multiple injection wells with time-varying rates):**
+```R
+n_times <- 10
+layer1_injection <- array(0, dim = c(n_times, nx, ny))
+
+# Well 1: Ramping up from 0.5 to 1.0 Mt/year
+well1_rates <- seq(0.5, 1.0, length.out = n_times) * 1e9 / 570
+
+# Well 2: Constant 0.8 Mt/year
+well2_rates <- rep(0.8, n_times) * 1e9 / 570
+
+for (i in 1:n_times) {
+  layer1_injection[i, 32, 59] <- well1_rates[i]  # Well 1
+  layer1_injection[i, 35, 62] <- well2_rates[i]  # Well 2
+}
+```
+
+---
+
+## Result Structure
+
+All functions return a dictionary with a `status` field:
+- `"success"`: Operation completed successfully
+- `"error"`: Operation failed (check `message` field for details)
+
+Simulation results include:
+- `timepoints`: Times when snapshots were taken
+- `total_co2_volumes`: Total CO2 in the system at each timepoint
+- `layer_co2_volumes`: CO2 volume breakdown by layer
+- `trap_co2_volumes`: Detailed trap-level information
+- `trap_co2_percentages`: Percentage of CO2 in each trap
 
 ## Examples
 
-See example scripts:
-- [r_interface_simple.R](r_interface_simple.R): Minimal example
-- [r_interface_example.R](r_interface_example.R): Complete example with visualization
+See [r_interface_example.R](r_interface_example.R) for complete examples demonstrating:
+1. Simple simulation with Sleipner defaults
+2. Custom reservoir properties with multiple injection wells
+
+## Notes
+
+- **Grid indexing**: R uses 1-based indexing, which matches the Julia interface
+- **Array dimensions**: Injection matrices use dimension order `(n_times × nx × ny)`
+- **Units**:
+  - Injection rates: m³/year
+  - Volumes: m³
+  - Time: years
+  - Pressure: Pa
+  - Density: kg/m³
+- **Performance**: First simulation run will be slower due to Julia JIT compilation. Subsequent runs are much faster.

@@ -4,7 +4,7 @@ using CO2InjectionModeling
 using SurfaceWaterIntegratedModeling
 using Interpolations
 
-export setup_simulator, configure_reservoir, run_simulation
+export setup_simulator, configure_reservoir, setup_sleipner_reservoir, run_simulation
 
 # Global state to hold simulator configuration
 mutable struct SimulatorState
@@ -193,23 +193,68 @@ function configure_reservoir(;
 end
 
 """
-    run_simulation(start_time, end_time, time_step, injection_times,
-                  injection_locations_i, injection_locations_j,
-                  injection_amounts, injection_layer_indices;
-                  num_snapshots=nothing, verbose=false)
+    setup_sleipner_reservoir()
+
+Configure reservoir properties using default Sleipner field values.
+This is a convenience function that sets up standard Sleipner parameters:
+- Porosity: 0.4
+- Residual CO2 saturation: 0.2
+- Irreducible water saturation: 0.3
+- Shale pressure threshold: 98000.0 Pa
+- Brine CO2 density difference: Layer-specific values from 450 to 670 kg/m³
+- Residual leakage time: 1.0 years
+
+# Returns
+- Dictionary with configuration status
+
+# Example (R)
+```
+# Setup simulator first
+julia_call("setup_simulator", boundary_condition = "open")
+
+# Then use Sleipner defaults
+result <- julia_call("setup_sleipner_reservoir")
+print(result)
+```
+"""
+function setup_sleipner_reservoir()
+    try
+        if isnothing(SIMULATOR.layers)
+            return Dict(
+                "status" => "error",
+                "message" => "Must call setup_simulator first"
+            )
+        end
+
+        # Use the standard Sleipner configuration
+        SIMULATOR.reservoir_properties = generate_reservoir_properties_for_sleipner_layers()
+
+        return Dict(
+            "status" => "success",
+            "n_layers" => length(SIMULATOR.layers),
+            "message" => "Configured with Sleipner default properties"
+        )
+    catch e
+        return Dict(
+            "status" => "error",
+            "message" => string(e)
+        )
+    end
+end
+
+"""
+    run_simulation(start_time, end_time, time_step, injection_rate_matrices;
+                  verbose=false)
 
 Run a CO2 injection simulation with specified parameters.
 
 # Arguments
 - `start_time`: Simulation start time (years)
 - `end_time`: Simulation end time (years)
-- `time_step`: Time step between injection events (years)
-- `injection_times`: Vector of injection event times (years)
-- `injection_locations_i`: Vector of i-indices for injection locations (1-based)
-- `injection_locations_j`: Vector of j-indices for injection locations (1-based)
-- `injection_amounts`: Vector of injection amounts (m³/year at each location/time)
-- `injection_layer_indices`: Vector of layer indices for each injection (1-based, 1=bottom)
-- `num_snapshots`: Number of snapshots to save (default: auto-calculated from time_step)
+- `time_step`: Time step for snapshots (years)
+- `injection_rate_matrices`: List of matrices (one per layer) where each matrix has dimensions (n_times × nx × ny).
+  Each matrix specifies injection rates (m³/year) at each grid cell for each time point.
+  For layers with no injection, provide a matrix of zeros with shape (1 × nx × ny).
 - `verbose`: Print progress messages (default: false)
 
 # Returns
@@ -223,20 +268,52 @@ Run a CO2 injection simulation with specified parameters.
   - `num_traps_per_layer`: Vector of trap counts per layer
 
 # Example (R)
-```
-# Simple example: inject at one location in bottom layer
+```r
+# Get grid dimensions
+result <- julia_call("setup_simulator", boundary_condition = "open")
+nx <- result\$nx
+ny <- result\$ny
+
+# Create injection rate matrix for bottom layer (15 years of injection)
+# Inject at location (32, 59) with varying rates
+injection_times <- seq(0, 14)
+n_times <- length(injection_times)
+
+# Initialize injection matrix for layer 1 (bottom): n_times × nx × ny
+layer1_injection <- array(0, dim = c(n_times, nx, ny))
+
+# Set injection rates at location (32, 59)
+rates_mt <- c(0.07, 0.67, 0.85, 0.94, 0.94, 1.02,
+              0.96, 0.92, 0.76, 0.87, 0.83, 0.93,
+              0.82, 0.86, 0.76)  # Mt/year
+rates_m3 <- rates_mt * 1e9 / 570  # Convert to m³/year
+
+for (i in 1:n_times) {
+  layer1_injection[i, 32, 59] <- rates_m3[i]
+}
+
+# Create zero injection for other layers
+zero_injection <- array(0, dim = c(1, nx, ny))
+
+# Combine into list (one matrix per layer, 9 layers total)
+injection_matrices <- list(
+  layer1_injection,  # Layer 1 (bottom)
+  zero_injection,    # Layer 2
+  zero_injection,    # Layer 3
+  zero_injection,    # Layer 4
+  zero_injection,    # Layer 5
+  zero_injection,    # Layer 6
+  zero_injection,    # Layer 7
+  zero_injection,    # Layer 8
+  zero_injection     # Layer 9
+)
+
+# Run simulation
 result <- julia_call("run_simulation",
                      start_time = 0.0,
                      end_time = 15.0,
                      time_step = 1.0,
-                     injection_times = c(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14),
-                     injection_locations_i = rep(32L, 15),
-                     injection_locations_j = rep(59L, 15),
-                     injection_amounts = c(0.07, 0.67, 0.85, 0.94, 0.94, 1.02,
-                                          0.96, 0.92, 0.76, 0.87, 0.83, 0.93,
-                                          0.82, 0.86, 0.76) * 1e9 / 570,
-                     injection_layer_indices = rep(1L, 15),
-                     num_snapshots = 14L,
+                     injection_rate_matrices = injection_matrices,
                      verbose = TRUE)
 
 # Access results
@@ -248,12 +325,7 @@ function run_simulation(;
     start_time::Float64,
     end_time::Float64,
     time_step::Float64,
-    injection_times::Vector{Float64},
-    injection_locations_i::Vector{Int},
-    injection_locations_j::Vector{Int},
-    injection_amounts::Vector{Float64},
-    injection_layer_indices::Vector{Int},
-    num_snapshots::Union{Nothing, Int}=nothing,
+    injection_rate_matrices::Vector,
     verbose::Bool=false
 )
     try
@@ -265,61 +337,61 @@ function run_simulation(;
         end
 
         # Validate inputs
-        n_injections = length(injection_times)
-        if length(injection_locations_i) != n_injections ||
-           length(injection_locations_j) != n_injections ||
-           length(injection_amounts) != n_injections ||
-           length(injection_layer_indices) != n_injections
-            return Dict(
-                "status" => "error",
-                "message" => "All injection vectors must have the same length"
-            )
-        end
-
-        # Calculate num_snapshots if not provided
-        if isnothing(num_snapshots)
-            num_snapshots = Int(ceil((end_time - start_time) / time_step))
-        end
-
-        # Create injection events for each layer
         n_layers = length(SIMULATOR.layers)
         grid_size = size(SIMULATOR.layers[1].trap_structure.topography)
 
-        # Group injections by layer and time
+        if length(injection_rate_matrices) != n_layers
+            return Dict(
+                "status" => "error",
+                "message" => "Must provide injection_rate_matrices with length $n_layers (one per layer)"
+            )
+        end
+
+        # Auto-calculate num_snapshots from time parameters
+        num_snapshots = Int(ceil((end_time - start_time) / time_step))
+
+        # Convert R arrays to Julia format and create injection events for each layer
         injection_events = Vector{Vector{InjectionEvent}}(undef, n_layers)
 
         for layer_idx in 1:n_layers
-            # Find all injections for this layer
-            layer_mask = injection_layer_indices .== layer_idx
-            layer_times = injection_times[layer_mask]
-            layer_i = injection_locations_i[layer_mask]
-            layer_j = injection_locations_j[layer_mask]
-            layer_amounts = injection_amounts[layer_mask]
+            rate_matrix = injection_rate_matrices[layer_idx]
 
-            if isempty(layer_times)
-                # No injection in this layer
+            # Check dimensions
+            if ndims(rate_matrix) != 3
+                return Dict(
+                    "status" => "error",
+                    "message" => "Layer $layer_idx: injection_rate_matrix must be 3D (n_times × nx × ny)"
+                )
+            end
+
+            n_times = size(rate_matrix, 1)
+            nx = size(rate_matrix, 2)
+            ny = size(rate_matrix, 3)
+
+            if (nx, ny) != grid_size
+                return Dict(
+                    "status" => "error",
+                    "message" => "Layer $layer_idx: grid dimensions ($nx, $ny) don't match expected $grid_size"
+                )
+            end
+
+            # Create injection events from the matrix
+            layer_events = InjectionEvent[]
+
+            for t_idx in 1:n_times
+                # Extract the 2D slice for this time point
+                injection_rate = rate_matrix[t_idx, :, :]
+
+                # Calculate the time for this event
+                time = start_time + (t_idx - 1) * time_step
+
+                push!(layer_events, InjectionEvent(time, injection_rate))
+            end
+
+            # If no injection events, add a zero event
+            if isempty(layer_events)
                 injection_events[layer_idx] = [InjectionEvent(0.0, zeros(grid_size))]
             else
-                # Create injection events for this layer
-                unique_times = unique(layer_times)
-                sort!(unique_times)
-
-                layer_events = InjectionEvent[]
-                for t in unique_times
-                    time_mask = layer_times .== t
-                    injection_rate = zeros(grid_size)
-
-                    # Add all injections at this time
-                    for idx in findall(time_mask)
-                        i = layer_i[idx]
-                        j = layer_j[idx]
-                        amount = layer_amounts[idx]
-                        injection_rate[i, j] += amount
-                    end
-
-                    push!(layer_events, InjectionEvent(t, injection_rate))
-                end
-
                 injection_events[layer_idx] = layer_events
             end
         end
