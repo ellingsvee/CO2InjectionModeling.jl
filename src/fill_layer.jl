@@ -365,7 +365,9 @@ function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
     # First, record the leakage event for the trap that triggered it
     if !leakage_state.leaked_traps[trap_id]
         volume_in_trap = cur_amounts[trap_id].amount
-        height_at_detection = _compute_trap_height(trap_id, cur_amounts, z_vol_tables, tstruct)
+        # Since cur_time is the exact time when the threshold was reached,
+        # the height at that time should be exactly the threshold
+        height_at_detection = leakage_state.leakage_threshold
 
         # Find connected filled traps (these will contribute to leakage)
         connected_filled_traps = _find_connected_filled_parents(trap_id, filled_traps, tstruct)
@@ -433,6 +435,79 @@ end
 
 
 """
+Helper function to compute the exact time when a trap reaches a specific height threshold.
+
+This function uses the trap's inflow rate and volume-height relationship to determine
+precisely when the height threshold is crossed, rather than detecting it at discrete
+trap fill events.
+
+Returns:
+- exact_time: The time when the threshold is reached (or nothing if not reached)
+"""
+function _compute_time_to_height_threshold(trap_id::Int, threshold_height::Float64,
+                                           cur_amounts::Vector, z_vol_tables, tstruct,
+                                           rateinfo, cur_time::Float64)
+    # Get current volume and time
+    current_volume = cur_amounts[trap_id].amount
+    last_update_time = cur_amounts[trap_id].time
+
+    # Compute current height
+    current_height = _compute_trap_height(trap_id, cur_amounts, z_vol_tables, tstruct)
+
+    # If already above threshold, return current time
+    if current_height >= threshold_height
+        return cur_time
+    end
+
+    # Get the minimum base elevation of the trap
+    min_base_elevation = minimum(tstruct.topography[tstruct.footprints[trap_id]])
+
+    # Adjust for parent trap geometry if needed
+    distance_from_spillpoint_to_trap_bottom = 0.0
+    children = SurfaceWaterIntegratedModeling.subtrapsof(tstruct, trap_id)
+    if !isempty(children)
+        distance_from_spillpoint_to_trap_bottom = max(distance_from_spillpoint_to_trap_bottom,
+                                                       tstruct.spillpoints[children[1]].elevation - min_base_elevation)
+    end
+
+    # Compute target elevation from target height
+    target_elevation = min_base_elevation + threshold_height - distance_from_spillpoint_to_trap_bottom
+
+    # Convert target elevation to target volume using inverse interpolation
+    z_vol_table = z_vol_tables[trap_id]
+    zvals = z_vol_table[1]
+    vvals = z_vol_table[2]
+
+    # Check if target elevation is reachable
+    if target_elevation < minimum(zvals) || target_elevation > maximum(zvals)
+        return nothing  # Height not reachable in this trap
+    end
+
+    # Interpolate to find target volume
+    target_volume = Interpolations.linear_interpolation(zvals, vvals, extrapolation_bc=Interpolations.Flat())(target_elevation)
+
+    # If target volume is less than current, threshold was already passed
+    if target_volume <= current_volume
+        return cur_time
+    end
+
+    # Get inflow rate for this trap
+    inflow_rate = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap_id)
+
+    # If inflow is zero or negative, height won't be reached
+    if inflow_rate <= 0.0
+        return nothing
+    end
+
+    # Compute time needed to reach target volume from last update
+    volume_needed = target_volume - current_volume
+    time_from_last_update = volume_needed / inflow_rate
+
+    # Return exact time when threshold is reached
+    return last_update_time + time_from_last_update
+end
+
+"""
 Check all traps for leakage condition and trigger leakage if needed.
 Returns true if any leakage was detected and triggered.
 """
@@ -455,16 +530,23 @@ function _check_and_trigger_leakage!(leakage_state::LeakageState, cur_amounts::V
 
         # Check if exceeds threshold
         if height > leakage_state.leakage_threshold
-            if verbose
-                println("Leakage detected in trap $trap_id at time $cur_time (height: $height m)")
+            # Compute exact time when threshold was reached
+            exact_leakage_time = cur_time
+            if !isnothing(rate_info)
+                computed_time = _compute_time_to_height_threshold(
+                    trap_id, leakage_state.leakage_threshold,
+                    cur_amounts, z_vol_tables, tstruct, rate_info, cur_time)
+                if !isnothing(computed_time)
+                    exact_leakage_time = computed_time
+                end
             end
 
-            # TODO:
-            # As we know we have reached the height by now, we should be able to compute the exact time when we reached the target height.
-
+            if verbose
+                println("Leakage detected in trap $trap_id at time $exact_leakage_time (height: $height m at detection, threshold: $(leakage_state.leakage_threshold) m)")
+            end
 
             _trigger_leakage!(trap_id, leakage_state, cur_amounts, rain_rate,
-                            z_vol_tables, tstruct, cur_time, source_tracker,
+                            z_vol_tables, tstruct, exact_leakage_time, source_tracker,
                             filled_traps, reservoir_properties, verbose)
             leakage_occurred = true
         end
@@ -535,7 +617,7 @@ function _fill_sequence_for_weather_event_with_leakage!(seq, sgraph, rateinfo, c
         leakage_occurred = _check_and_trigger_leakage!(leakage_state, cur_amounts,
                                                        rain_rate, z_vol_tables,
                                                        tstruct, cur_time, source_tracker,
-                                                       filled_traps, reservoir_properties, verbose)
+                                                       filled_traps, reservoir_properties, verbose, rateinfo)
 
         # If leakage occurred, we need to recompute flow rates with modified injection
         if leakage_occurred
