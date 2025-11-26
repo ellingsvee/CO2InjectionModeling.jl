@@ -1,6 +1,6 @@
 import Graphs
 
-export reconstruct_3d_lithology, create_trap_mask_3d, scale_unit_volume_to_physical
+export reconstruct_3d_lithology, create_trap_mask_3d, scale_unit_volume_to_physical, get_all_parents
 
 """
 Reconstruct 3D lithology grid from topography surfaces.
@@ -272,4 +272,19 @@ function compute_total_injected_amount(injection_events::Vector{InjectionEvent},
         end
     end
     return total
+end
+
+function get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
+    parents = Int[]
+    current_id = trap_id
+    while true
+        parent_id = parentof(tstruct, current_id)
+
+        if isnothing(parent_id)
+            break
+        end
+        push!(parents, parent_id)
+        current_id = parent_id
+    end
+    return parents
 end
