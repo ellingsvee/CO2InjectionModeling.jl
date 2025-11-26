@@ -29,16 +29,6 @@ struct InjectionEvent
     injection_rate::Union{Matrix{Float64}, Float64} 
 end
 
-struct LeakageEvent
-    timestamp::Float64           # Time when leakage was detected (at spill event)
-    trap_id::Int                # Trap that leaked
-    height_at_detection::Float64  # Height when leakage was detected (>= threshold)
-    volume_in_trap::Float64     # Volume in trap at detection (swim units)
-    source_regions::Set{Int}    # Regions whose injection contributed to this leakage
-    connected_filled_traps::Vector{Int}  # Trap IDs that are filled and connected (will leak)
-    total_leakable_volume::Float64       # Total volume that will leak (after residual trapping)
-    residual_trapped_volume::Float64     # Volume that stays trapped (residual)
-end
 
 struct CellProperties
     porosity::Array{Float64, 3}

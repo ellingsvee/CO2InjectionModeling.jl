@@ -1,4 +1,5 @@
 using SurfaceWaterIntegratedModeling
+export Layer, add_boundary_wall, analyze_base_surfaces
 
 struct Layer
     name::String
