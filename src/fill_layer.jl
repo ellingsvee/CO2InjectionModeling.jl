@@ -12,9 +12,6 @@ function fill_layer(tstruct::TrapStructure{<:Real},
             infiltration::Union{Matrix{<:Real}, Nothing} = nothing,
             verbose::Bool=false)
     @assert !isempty(weather_events)
-    # # Convert injection events to weather events
-    # weather_events = [WeatherEvent(ie.timestamp, physical_volume_to_swim_volume(ie.injection_rate, reservoir_properties, domain)) for ie in injection_events]
-
 
     num_traps = SurfaceWaterIntegratedModeling.numtraps(tstruct)
     (num_traps == 0) && return # if the terrain has no traps, there is nothing to do
@@ -217,6 +214,13 @@ function _fill_sequence_for_weather_event_with_leakage!(seq, sgraph, rateinfo, c
             SurfaceWaterIntegratedModeling.setsavepoint!(rateinfo)
             rateinfo = SurfaceWaterIntegratedModeling.compute_flow(sgraph, rain_rate,
                                                                    infiltration, tstruct, verbose)
+
+            # Add a new SpillEvent to record the state after leakage
+            # This is critical for correct interpolation in trap_states_at_timepoints
+            # Without this event, interpolation will use stale flow rates from before leakage
+            push!(seq, SurfaceWaterIntegratedModeling.SpillEvent(cur_time, copy(cur_amounts), copy(filled_traps),
+                                  copy(rateinfo.trap_inflow), copy(rain_rate),
+                                  copy(rateinfo.runoff)))
 
             # Recompute time estimates with new flow rates
             changetimeest = SurfaceWaterIntegratedModeling._set_initial_changetime_estimates(
