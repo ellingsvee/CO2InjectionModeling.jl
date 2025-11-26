@@ -134,7 +134,9 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
 
     # From L1 up to L9. Using values from paper.
     brine_density = 1020
-    co2_density = [570.0, 542.5, 515.0, 487.5, 460.0, 432.5, 405.0, 377.5, 350.0]
+    # co2_density = [570.0, 542.5, 515.0, 487.5, 460.0, 432.5, 405.0, 377.5, 350.0]
+    co2_density = fill(460.0, n_layers) # Think it does not make sense with the current implementation of the mass-tracking to use different densities.
+
     brine_co2_density_difference = brine_density .- co2_density
 
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
