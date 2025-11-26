@@ -2,7 +2,7 @@ module CO2InjectionModeling
 
 # Load subfiles
 include("sleipner_setup.jl")
-include("types.jl")
+include("structs.jl")
 include("layer_analysis.jl")
 include("volume_conversion.jl")
 include("utils.jl")
