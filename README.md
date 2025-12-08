@@ -40,3 +40,5 @@ julia --project=. scripts/run.jl
 ```
 
 This will execute the example simulation to verify everything is working correctly.
+
+### TEST THAT FORK WORKS
