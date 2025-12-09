@@ -211,9 +211,7 @@ function generate_sleipner_injection_events(
     ]
 
     # Convert Mt/year to m³/year
-    # 1 Mt = 1e9 kg
-    # CO₂ density at L1 (bottom layer) = 570 kg/m³
-    co2_density_l1 = 570.0  # kg/m³
+    co2_density_l1 = 425.0  # The same as used in reservoir properties
     annual_rates_m3_per_year = annual_rates_mt .* 1e9 ./ co2_density_l1
 
     # Create injection events for bottom layer (L1)
