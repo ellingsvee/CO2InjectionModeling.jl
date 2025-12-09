@@ -132,22 +132,35 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
 
     n_layers = 9
 
+    # Common reservoir properties for all layers
+    sand_porosity::Float64 = 0.4
+    sand_residual_co2_saturation::Float64 = 0.2
+    sand_irreducible_water_saturation::Float64 = 0.3
+    shale_pressure_threshold::Float64 = 98000.0
+    residual_leakage_time::Float64 = 1.0 # years
+
     # From L1 up to L9. Using values from paper.
     brine_density = 1020
-    # co2_density = [570.0, 542.5, 515.0, 487.5, 460.0, 432.5, 405.0, 377.5, 350.0]
-    co2_density = fill(460.0, n_layers) # Think it does not make sense with the current implementation of the mass-tracking to use different densities.
+    co2_densites = fill(425, n_layers) # Think it does not make sense with the current implementation of the mass-tracking to use different densities.
+    brine_co2_density_differences = brine_density .- co2_densites
 
-    brine_co2_density_difference = brine_density .- co2_density
+    # Compute leakage heights for each layer
+    g = 9.81 # m/s^2
+    leakage_heights = shale_pressure_threshold ./ (brine_co2_density_differences .* g)
 
+    # Simulate impermeable caprock by setting very high leakage height at top layer
+    leakage_heights[end] = Inf
+
+    # Create ReservoirProperties for each layer
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
     for i in 1:n_layers
         reservoir_properties[i] = ReservoirProperties(
-            0.4,
-            0.2,
-            0.3,
-            98000.0,
-            brine_co2_density_difference[i],
-            1.0
+            sand_porosity,
+            sand_residual_co2_saturation,
+            sand_irreducible_water_saturation,
+            shale_pressure_threshold,
+            leakage_heights[i],
+            residual_leakage_time
         )
     end
     return reservoir_properties

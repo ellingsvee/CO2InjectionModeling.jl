@@ -48,15 +48,15 @@ function _compute_trap_height(trap_id::Int, cur_amounts::Vector, z_vol_tables, t
     return max(0.0, water_elevation - min_base_elevation)
 end
 
-"""
-Compute the leakage height based on the reservoir properties.
-Uses the relation: cappilary_pressure_threshold = density_difference_between_brine_and_co2 * g * column_height
-"""
-function compute_leakage_height(reservoir_properties::ReservoirProperties) 
-    g = 9.81 # m/s^2
-    height = reservoir_properties.shale_pressure_threshold / (reservoir_properties.brine_co2_density_difference * g)
-    return height
-end
+# """
+# Compute the leakage height based on the reservoir properties.
+# Uses the relation: cappilary_pressure_threshold = density_difference_between_brine_and_co2 * g * column_height
+# """
+# function compute_leakage_height(reservoir_properties::ReservoirProperties) 
+#     g = 9.81 # m/s^2
+#     height = reservoir_properties.shale_pressure_threshold / (reservoir_properties.brine_co2_density_difference * g)
+#     return height
+# end
 
 """
 Apply leakage state to rain_rate, zeroing out injection in regions that have already leaked.

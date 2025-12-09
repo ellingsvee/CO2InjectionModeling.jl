@@ -10,6 +10,7 @@ function fill_layer(tstruct::TrapStructure{<:Real},
             weather_events::Vector{WeatherEvent};
             time_slack::Float64=0.0, # NOT USED. Included for legacy
             infiltration::Union{Matrix{<:Real}, Nothing} = nothing,
+            no_leakage::Bool=false,
             verbose::Bool=false)
     @assert !isempty(weather_events)
 
@@ -32,7 +33,7 @@ function fill_layer(tstruct::TrapStructure{<:Real},
     sgraph = SurfaceWaterIntegratedModeling.compute_complete_spillgraph(tstruct, filled_traps)
 
     # Initialize leakage state
-    leakage_threshold = compute_leakage_height(reservoir_properties)
+    leakage_threshold = reservoir_properties.leakage_height
     leakage_state = LeakageState(
         falses(num_traps),              # leaked_traps
         Vector{LeakageEvent}(),         # leakage_events
