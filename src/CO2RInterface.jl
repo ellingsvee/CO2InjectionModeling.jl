@@ -99,7 +99,7 @@ end
 
 """
     configure_reservoir(porosity, residual_co2_sat, irreducible_water_sat,
-                       shale_pressure_threshold, brine_co2_density_diff,
+                       shale_pressure_threshold, leakage_height,
                        residual_leakage_time; layer_specific=false)
 
 Configure reservoir properties for the simulation.
@@ -109,7 +109,7 @@ Configure reservoir properties for the simulation.
 - `residual_co2_sat`: Residual CO2 saturation (0-1). Can be single value or vector
 - `irreducible_water_sat`: Irreducible water saturation (0-1). Can be single value or vector
 - `shale_pressure_threshold`: Shale pressure threshold (Pa). Can be single value or vector
-- `brine_co2_density_diff`: Density difference between brine and CO2 (kg/m³). Can be single value or vector
+- `leakage_height`: Critical CO2 height for leakage through shale (m). Can be single value or vector. Use Inf for impermeable caprock
 - `residual_leakage_time`: Residual leakage time (years). Can be single value or vector
 - `layer_specific`: If true, expects vectors for layer-specific properties (default: false)
 
@@ -117,24 +117,32 @@ Configure reservoir properties for the simulation.
 - Dictionary with configuration status
 
 # Example (R)
-```
+```r
 # Use same properties for all layers
 result <- julia_call("configure_reservoir",
-                     porosity = 0.35,
+                     porosity = 0.4,
                      residual_co2_sat = 0.2,
                      irreducible_water_sat = 0.3,
                      shale_pressure_threshold = 98000.0,
-                     brine_co2_density_diff = 450.0,
+                     leakage_height = 17.0,
                      residual_leakage_time = 1.0,
                      layer_specific = FALSE)
 
 # Or specify different properties for each layer (9 layers for Sleipner)
+# Example: compute leakage heights from density differences
+brine_density <- 1020
+co2_densities <- rep(425, 9)
+density_diffs <- brine_density - co2_densities
+g <- 9.81
+leakage_heights <- 98000.0 / (density_diffs * g)
+leakage_heights[9] <- Inf  # Impermeable caprock at top
+
 result <- julia_call("configure_reservoir",
-                     porosity = c(0.35, 0.36, 0.37, 0.35, 0.36, 0.37, 0.35, 0.36, 0.37),
+                     porosity = rep(0.4, 9),
                      residual_co2_sat = rep(0.2, 9),
                      irreducible_water_sat = rep(0.3, 9),
                      shale_pressure_threshold = rep(98000.0, 9),
-                     brine_co2_density_diff = c(450, 477.5, 505, 532.5, 560, 587.5, 615, 642.5, 670),
+                     leakage_height = leakage_heights,
                      residual_leakage_time = rep(1.0, 9),
                      layer_specific = TRUE)
 ```
@@ -144,7 +152,7 @@ function configure_reservoir(;
     residual_co2_sat::Union{Float64, Vector{Float64}},
     irreducible_water_sat::Union{Float64, Vector{Float64}},
     shale_pressure_threshold::Union{Float64, Vector{Float64}},
-    brine_co2_density_diff::Union{Float64, Vector{Float64}},
+    leakage_height::Union{Float64, Vector{Float64}},
     residual_leakage_time::Union{Float64, Vector{Float64}},
     layer_specific::Bool=false
 )
@@ -164,7 +172,7 @@ function configure_reservoir(;
             residual_co2_sat = fill(Float64(residual_co2_sat), n_layers)
             irreducible_water_sat = fill(Float64(irreducible_water_sat), n_layers)
             shale_pressure_threshold = fill(Float64(shale_pressure_threshold), n_layers)
-            brine_co2_density_diff = fill(Float64(brine_co2_density_diff), n_layers)
+            leakage_height = fill(Float64(leakage_height), n_layers)
             residual_leakage_time = fill(Float64(residual_leakage_time), n_layers)
         end
 
@@ -173,7 +181,7 @@ function configure_reservoir(;
            length(residual_co2_sat) != n_layers ||
            length(irreducible_water_sat) != n_layers ||
            length(shale_pressure_threshold) != n_layers ||
-           length(brine_co2_density_diff) != n_layers ||
+           length(leakage_height) != n_layers ||
            length(residual_leakage_time) != n_layers
             return Dict(
                 "status" => "error",
@@ -188,7 +196,7 @@ function configure_reservoir(;
                 residual_co2_sat[i],
                 irreducible_water_sat[i],
                 shale_pressure_threshold[i],
-                brine_co2_density_diff[i],
+                leakage_height[i],
                 residual_leakage_time[i]
             )
             for i in 1:n_layers
@@ -215,14 +223,16 @@ This is a convenience function that sets up standard Sleipner parameters:
 - Residual CO2 saturation: 0.2
 - Irreducible water saturation: 0.3
 - Shale pressure threshold: 98000.0 Pa
-- Brine CO2 density difference: Layer-specific values from 450 to 670 kg/m³
+- Leakage heights: Computed from density differences (brine: 1020 kg/m³, CO2: 425 kg/m³)
+  - Approximately 16.8 m for all layers
+  - Top layer (L9): Inf (impermeable caprock)
 - Residual leakage time: 1.0 years
 
 # Returns
 - Dictionary with configuration status
 
 # Example (R)
-```
+```r
 # Setup simulator first
 julia_call("setup_simulator", boundary_condition = "open")
 

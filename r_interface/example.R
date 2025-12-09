@@ -152,5 +152,4 @@ if (birdseye_result$status == "success") {
   }
 }
 
-cat("\n=== End of Example 1 ===\n")
 
