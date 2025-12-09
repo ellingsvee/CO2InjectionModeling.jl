@@ -5,6 +5,7 @@ using SurfaceWaterIntegratedModeling
 using Interpolations
 
 export setup_simulator, configure_reservoir, setup_sleipner_reservoir, run_simulation
+export generate_cross_section_animation, generate_birdseye_animation
 
 # Global state to hold simulator configuration
 mutable struct SimulatorState
@@ -13,9 +14,11 @@ mutable struct SimulatorState
     layers::Union{Nothing, Vector{Layer}}
     reservoir_properties::Union{Nothing, Vector{ReservoirProperties}}
     boundary_condition::Symbol
+    last_snapshots::Union{Nothing, Vector{SimulationSnapshot}}
+    last_lithology::Union{Nothing, Array{Int,3}}
 end
 
-const SIMULATOR = SimulatorState(nothing, nothing, nothing, nothing, :open)
+const SIMULATOR = SimulatorState(nothing, nothing, nothing, nothing, :open, nothing, nothing)
 
 """
     setup_simulator(; data_path="sleipner/depth_surfaces/", boundary_condition="open")
@@ -429,6 +432,10 @@ function run_simulation(;
 
         summary = generate_simulation_summary(snapshots, SIMULATOR.layers, seqs)
 
+        # Store snapshots and lithology for visualization
+        SIMULATOR.last_snapshots = snapshots
+        SIMULATOR.last_lithology = reconstruct_3d_lithology(SIMULATOR.topography, SIMULATOR.domain)
+
         # Convert summary to Dict for R
         result = Dict(
             "status" => "success",
@@ -444,6 +451,153 @@ function run_simulation(;
         end
 
         return result
+    catch e
+        return Dict(
+            "status" => "error",
+            "message" => string(e),
+            "stacktrace" => sprint(showerror, e, catch_backtrace())
+        )
+    end
+end
+
+"""
+    generate_cross_section_animation(; output_file="trap_filling_multilayer.gif",
+                                      direction="x", slice_index=nothing,
+                                      fps=2, value_colormap="thermal", alpha=0.7)
+
+Generate a cross-section animation of CO2 trap filling from the last simulation.
+
+Must be called after `run_simulation`.
+
+# Arguments
+- `output_file`: Path where to save the animation (default: "trap_filling_multilayer.gif")
+- `direction`: "x" or "y" for slice direction (default: "x")
+- `slice_index`: Position along slice direction, or nothing for middle (default: nothing)
+- `fps`: Frames per second (default: 2)
+- `value_colormap`: Colormap name for CO2 saturation (default: "thermal")
+- `alpha`: Transparency for CO2 overlay (default: 0.7)
+
+# Returns
+- Dictionary with status and output file path
+
+# Example (R)
+```r
+# After running simulation
+result <- julia_call("generate_cross_section_animation",
+                     output_file = "co2_cross_section.gif",
+                     direction = "x",
+                     fps = 2)
+print(result)
+```
+"""
+function generate_cross_section_animation(;
+    output_file::String = "trap_filling_multilayer.gif",
+    direction::String = "x",
+    slice_index::Union{Int,Nothing} = nothing,
+    fps::Int = 2,
+    value_colormap::String = "thermal",
+    alpha::Float64 = 0.7
+)
+    try
+        if isnothing(SIMULATOR.last_snapshots) || isnothing(SIMULATOR.last_lithology)
+            return Dict(
+                "status" => "error",
+                "message" => "Must call run_simulation first"
+            )
+        end
+
+        # Validate direction
+        direction_symbol = Symbol(direction)
+        if !(direction_symbol in [:x, :y])
+            return Dict(
+                "status" => "error",
+                "message" => "direction must be 'x' or 'y'"
+            )
+        end
+
+        # Call the visualization function
+        animate_trap_filling_multilayer(
+            SIMULATOR.last_snapshots,
+            SIMULATOR.layers,
+            SIMULATOR.last_lithology,
+            SIMULATOR.domain;
+            output_file = output_file,
+            direction = direction_symbol,
+            slice_index = slice_index,
+            fps = fps,
+            value_colormap = Symbol(value_colormap),
+            alpha = alpha
+        )
+
+        return Dict(
+            "status" => "success",
+            "output_file" => output_file,
+            "message" => "Animation saved successfully"
+        )
+    catch e
+        return Dict(
+            "status" => "error",
+            "message" => string(e),
+            "stacktrace" => sprint(showerror, e, catch_backtrace())
+        )
+    end
+end
+
+"""
+    generate_birdseye_animation(; output_file="trap_filling_birdseye_multilayer.gif",
+                                fps=2, value_colormap="thermal")
+
+Generate a bird's eye view animation of CO2 trap filling from the last simulation.
+
+Shows all layers in a 3x3 grid from above, with CO2 distribution over time.
+
+Must be called after `run_simulation`.
+
+# Arguments
+- `output_file`: Path where to save the animation (default: "trap_filling_birdseye_multilayer.gif")
+- `fps`: Frames per second (default: 2)
+- `value_colormap`: Colormap name for CO2 saturation (default: "thermal")
+
+# Returns
+- Dictionary with status and output file path
+
+# Example (R)
+```r
+# After running simulation
+result <- julia_call("generate_birdseye_animation",
+                     output_file = "co2_birdseye.gif",
+                     fps = 2)
+print(result)
+```
+"""
+function generate_birdseye_animation(;
+    output_file::String = "trap_filling_birdseye_multilayer.gif",
+    fps::Int = 2,
+    value_colormap::String = "thermal"
+)
+    try
+        if isnothing(SIMULATOR.last_snapshots)
+            return Dict(
+                "status" => "error",
+                "message" => "Must call run_simulation first"
+            )
+        end
+
+        # Call the visualization function
+        animate_trap_filling_birdseye_multilayer(
+            SIMULATOR.last_snapshots,
+            SIMULATOR.layers,
+            SIMULATOR.domain;
+            output_file = output_file,
+            fps = fps,
+            value_colormap = Symbol(value_colormap)
+        )
+
+        return Dict(
+            "status" => "success",
+            "output_file" => output_file,
+            "message" => "Animation saved successfully"
+        )
     catch e
         return Dict(
             "status" => "error",
