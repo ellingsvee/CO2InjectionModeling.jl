@@ -46,7 +46,7 @@ animate_trap_filling_birdseye_multilayer(snapshots, layers, domain,
     output_file="multilayer_birdseye.gif")
 
 # Plot total CO2 volume over time
-plot_total_co2_volume(summary, output_file="co2_volume.png")
+plot_total_co2_volume(summary, output_file="co2_volume.pdf")
 
 # Plot layer-wise CO2 volumes over time
-plot_layer_co2_volumes(summary, output_file="layerwise_co2_volumes.png")
+plot_layer_co2_volumes(summary, output_file="layerwise_co2_volumes.pdf")
