@@ -164,22 +164,23 @@ function create_next_layer_weather_events(
             end
         end
 
-        # Add leakage contributions
+        # Add leakage contributions from the current layer to the next layer
+        # This includes:
+        # 1. Ongoing injection in the leaked regions that is now redirected through the leak
+        #    (the injection that was stopped in the current layer must continue to the next layer)
         for le in leakage_state.leakage_events
             # Skip if this timestamp is before the leakage started
             if timestamp < le.timestamp
                 continue
             end
 
-            # Find the leakage location in the current layer
+            # Find the leakage location in the current layer (where CO2 exits to next layer)
             leakage_location = find_leakage_location(le.trap_id, current_tstruct)
             injection_i, injection_j = leakage_location.I
 
-            
-            # Have to find the injection-rate from the corresponding location in layer above
-
-
-            # Find the weather-event in current_layer_weather corresponding to this timestamp
+            # Find the weather event active at the current timestamp
+            # NOTE: current_layer_weather contains the ORIGINAL injection rates (not modified by leakage)
+            # because fill_layer makes copies before applying leakage
             current_layer_weather_event = nothing
             for we in reverse(current_layer_weather)
                 if we.timestamp <= timestamp
@@ -189,18 +190,21 @@ function create_next_layer_weather_events(
             end
             @assert !isnothing(current_layer_weather_event) "No weather event found for current layer at time $timestamp"
 
-            leakage_rate = 0.0
+            # Calculate the injection rate that should be redirected to the next layer
+            # This is the injection that was happening in the source regions at this timestamp
+            redirected_injection_rate = 0.0
             if !isempty(le.source_regions)
-                # Use source regions (regions that have active injection)
                 for source_region in le.source_regions
                     region_mask = current_tstruct.regions .== source_region
-
-                    # Get the injection rate at the leakage location
-                    leakage_rate += sum(current_layer_weather_event.rain_rate[region_mask])
+                    # Get the injection rate in this source region at the current time
+                    # This injection was stopped in the current layer (due to leakage) and
+                    # must be redirected to the next layer
+                    redirected_injection_rate += sum(current_layer_weather_event.rain_rate[region_mask])
                 end
             end
 
-            rain_rate[injection_i, injection_j] += leakage_rate
+            # Add the redirected injection to the leakage point in the next layer
+            rain_rate[injection_i, injection_j] += redirected_injection_rate
         end
 
         push!(weather_events, WeatherEvent(timestamp, rain_rate))
