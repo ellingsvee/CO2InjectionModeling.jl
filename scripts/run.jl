@@ -14,7 +14,7 @@ reservoir_properties = generate_reservoir_properties_for_sleipner_layers()
 # Define injection events
 # Make xy in the center of the domain
 trap_topo = layers[1].trap_structure.topography
-xy = CartesianIndex(div(size(trap_topo, 1), 2), div(size(trap_topo, 2), 4))
+xy = CartesianIndex(div(size(trap_topo, 1), 2), div(size(trap_topo, 2), 2))
 injection_events = generate_sleipner_injection_events(layers, xy)
 
 # Run simulation
@@ -30,19 +30,11 @@ seqs, leakage_states, snapshots = fill_layers(
 );
 
 
-
-
 println("Simulation completed with ", length(snapshots), " snapshots")
 
 # Generate summary
 println("\nGenerating simulation summary...")
 summary = generate_simulation_summary(snapshots, layers, seqs);
-
-println("\n=== Simulation Summary ===")
-println("Number of layers: ", summary.num_layers)
-println("Number of traps per layer: ", summary.num_traps_per_layer)
-println("\nTimepoints: ", summary.timepoints)
-println("\nTotal CO2 volumes: ", summary.total_co2_volumes)
 
 # Generate animations
 # Cross-section animation (all layers combined)
@@ -53,3 +45,8 @@ animate_trap_filling_multilayer(snapshots, layers, lithology, domain,
 animate_trap_filling_birdseye_multilayer(snapshots, layers, domain,
     output_file="multilayer_birdseye.gif")
 
+# Plot total CO2 volume over time
+plot_total_co2_volume(summary, output_file="co2_volume.png")
+
+# Plot layer-wise CO2 volumes over time
+plot_layer_co2_volumes(summary, output_file="layerwise_co2_volumes.png")

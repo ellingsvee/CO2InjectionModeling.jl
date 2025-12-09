@@ -1,5 +1,7 @@
 using CairoMakie
+using Statistics
 export animate_trap_filling_multilayer, animate_trap_filling_birdseye_multilayer
+export plot_total_co2_volume, plot_layer_co2_volumes
 
 """
 Animate trap filling over time for a multi-layer system.
@@ -241,4 +243,257 @@ function animate_trap_filling_birdseye_multilayer(
     println("Bird's eye view multi-layer animation saved to: $(output_file)")
 
     return nothing
+end
+
+"""
+    plot_total_co2_volume(summary::SimulationSummary; kwargs...)
+    plot_total_co2_volume(summaries::Vector{SimulationSummary}; kwargs...)
+
+Plot the total CO2 volume over time.
+
+For a single summary, plots the time series of total CO2 volume.
+For multiple summaries, plots the mean with a shaded region showing ± one standard deviation.
+
+# Arguments
+- `summary::SimulationSummary` or `summaries::Vector{SimulationSummary}`: Simulation summary data
+- `output_file::Union{String,Nothing}`: Path to save the figure (optional, displays if nothing)
+- `title::String`: Plot title (default: "Total CO2 Volume Over Time")
+- `xlabel::String`: X-axis label (default: "Time (years)")
+- `ylabel::String`: Y-axis label (default: "CO2 Volume (m³)")
+- `linecolor`: Color for the line plot (default: :blue)
+- `bandcolor`: Color for the std dev band (default: (:blue, 0.3))
+- `figsize::Tuple{Int,Int}`: Figure size in pixels (default: (800, 500))
+
+# Returns
+- `Figure`: The Makie figure object
+
+# Examples
+```julia
+# Single simulation
+fig = plot_total_co2_volume(summary)
+
+# Multiple simulations with custom styling
+fig = plot_total_co2_volume(summaries, title="CO2 Storage", linecolor=:red)
+
+# Save to file
+plot_total_co2_volume(summary, output_file="co2_volume.png")
+```
+"""
+function plot_total_co2_volume(
+    summary::SimulationSummary;
+    output_file::Union{String,Nothing} = nothing,
+    title::String = "Total CO2 Volume Over Time",
+    xlabel::String = "Time (years)",
+    ylabel::String = "CO2 Volume (m³)",
+    linecolor = :blue,
+    bandcolor = (:blue, 0.3),
+    figsize::Tuple{Int,Int} = (800, 500)
+)
+    fig = Figure(size = figsize)
+    ax = Axis(fig[1, 1],
+              xlabel = xlabel,
+              ylabel = ylabel,
+              title = title)
+
+    lines!(ax, summary.timepoints, summary.total_co2_volumes,
+           color = linecolor, linewidth = 2)
+
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+function plot_total_co2_volume(
+    summaries::Vector{SimulationSummary};
+    output_file::Union{String,Nothing} = nothing,
+    title::String = "Total CO2 Volume Over Time",
+    xlabel::String = "Time (years)",
+    ylabel::String = "CO2 Volume (m³)",
+    linecolor = :blue,
+    bandcolor = (:blue, 0.3),
+    figsize::Tuple{Int,Int} = (800, 500)
+)
+    # Ensure all summaries have the same timepoints
+    timepoints = summaries[1].timepoints
+    n_points = length(timepoints)
+    n_sims = length(summaries)
+
+    # Collect volumes from all simulations
+    volumes_matrix = zeros(Float64, n_points, n_sims)
+    for (i, summary) in enumerate(summaries)
+        volumes_matrix[:, i] = summary.total_co2_volumes
+    end
+
+    # Compute mean and std dev
+    mean_volumes = mean(volumes_matrix, dims=2)[:, 1]
+    std_volumes = std(volumes_matrix, dims=2)[:, 1]
+
+    # Create figure
+    fig = Figure(size = figsize)
+    ax = Axis(fig[1, 1],
+              xlabel = xlabel,
+              ylabel = ylabel,
+              title = title)
+
+    # Plot shaded region for ± 1 std dev
+    band!(ax, timepoints,
+          mean_volumes .- std_volumes,
+          mean_volumes .+ std_volumes,
+          color = bandcolor)
+
+    # Plot mean line
+    lines!(ax, timepoints, mean_volumes,
+           color = linecolor, linewidth = 2, label = "Mean")
+
+    # Add legend
+    axislegend(ax, position = :lt)
+
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+"""
+    plot_layer_co2_volumes(summary::SimulationSummary; kwargs...)
+    plot_layer_co2_volumes(summaries::Vector{SimulationSummary}; kwargs...)
+
+Plot CO2 volumes in different layers over time.
+
+For a single summary, plots time series for each layer.
+For multiple summaries, plots mean values with shaded regions showing ± one standard deviation.
+
+# Arguments
+- `summary::SimulationSummary` or `summaries::Vector{SimulationSummary}`: Simulation summary data
+- `output_file::Union{String,Nothing}`: Path to save the figure (optional, displays if nothing)
+- `title::String`: Plot title (default: "Layer CO2 Volumes Over Time")
+- `xlabel::String`: X-axis label (default: "Time (years)")
+- `ylabel::String`: Y-axis label (default: "CO2 Volume (m³)")
+- `layer_names::Union{Vector{String},Nothing}`: Custom layer names (default: "Layer 1", "Layer 2", etc.)
+- `colors`: Color scheme for layers (default: automatic cycling)
+- `figsize::Tuple{Int,Int}`: Figure size in pixels (default: (800, 500))
+
+# Returns
+- `Figure`: The Makie figure object
+
+# Examples
+```julia
+# Single simulation
+fig = plot_layer_co2_volumes(summary)
+
+# Multiple simulations with custom layer names
+fig = plot_layer_co2_volumes(summaries, layer_names=["Utsira", "Shale", "Lower"])
+
+# Save to file
+plot_layer_co2_volumes(summary, output_file="layer_volumes.png")
+```
+"""
+function plot_layer_co2_volumes(
+    summary::SimulationSummary;
+    output_file::Union{String,Nothing} = nothing,
+    title::String = "Layer CO2 Volumes Over Time",
+    xlabel::String = "Time (years)",
+    ylabel::String = "CO2 Volume (m³)",
+    layer_names::Union{Vector{String},Nothing} = nothing,
+    colors = Makie.wong_colors(),
+    figsize::Tuple{Int,Int} = (800, 500)
+)
+    fig = Figure(size = figsize)
+    ax = Axis(fig[1, 1],
+              xlabel = xlabel,
+              ylabel = ylabel,
+              title = title)
+
+    # Default layer names if not provided
+    if isnothing(layer_names)
+        layer_names = ["Layer $i" for i in 1:summary.num_layers]
+    end
+
+    # Plot each layer
+    for layer_idx in 1:summary.num_layers
+        color = colors[mod1(layer_idx, length(colors))]
+        lines!(ax, summary.timepoints, summary.layer_co2_volumes[:, layer_idx],
+               color = color, linewidth = 2, label = layer_names[layer_idx])
+    end
+
+    # Add legend
+    axislegend(ax, position = :lt)
+
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+function plot_layer_co2_volumes(
+    summaries::Vector{SimulationSummary};
+    output_file::Union{String,Nothing} = nothing,
+    title::String = "Layer CO2 Volumes Over Time",
+    xlabel::String = "Time (years)",
+    ylabel::String = "CO2 Volume (m³)",
+    layer_names::Union{Vector{String},Nothing} = nothing,
+    colors = Makie.wong_colors(),
+    figsize::Tuple{Int,Int} = (800, 500)
+)
+    # Ensure all summaries have the same structure
+    timepoints = summaries[1].timepoints
+    n_points = length(timepoints)
+    n_sims = length(summaries)
+    n_layers = summaries[1].num_layers
+
+    # Default layer names if not provided
+    if isnothing(layer_names)
+        layer_names = ["Layer $i" for i in 1:n_layers]
+    end
+
+    # Create figure
+    fig = Figure(size = figsize)
+    ax = Axis(fig[1, 1],
+              xlabel = xlabel,
+              ylabel = ylabel,
+              title = title)
+
+    # Process each layer
+    for layer_idx in 1:n_layers
+        # Collect volumes from all simulations for this layer
+        layer_volumes_matrix = zeros(Float64, n_points, n_sims)
+        for (i, summary) in enumerate(summaries)
+            layer_volumes_matrix[:, i] = summary.layer_co2_volumes[:, layer_idx]
+        end
+
+        # Compute mean and std dev
+        mean_volumes = mean(layer_volumes_matrix, dims=2)[:, 1]
+        std_volumes = std(layer_volumes_matrix, dims=2)[:, 1]
+
+        # Select color
+        color = colors[mod1(layer_idx, length(colors))]
+        band_color = (color, 0.3)
+
+        # Plot shaded region for ± 1 std dev
+        band!(ax, timepoints,
+              mean_volumes .- std_volumes,
+              mean_volumes .+ std_volumes,
+              color = band_color)
+
+        # Plot mean line
+        lines!(ax, timepoints, mean_volumes,
+               color = color, linewidth = 2, label = layer_names[layer_idx])
+    end
+
+    # Add legend
+    axislegend(ax, position = :lt)
+
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
 end

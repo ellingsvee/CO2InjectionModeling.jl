@@ -11,6 +11,8 @@ old
 swim
 papers
 *.gif
+*.pdf
+*.png
 
 # Mac
 .DS_Store
