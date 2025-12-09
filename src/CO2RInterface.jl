@@ -68,12 +68,23 @@ function setup_simulator(;
         # Initialize with default reservoir properties
         SIMULATOR.reservoir_properties = generate_reservoir_properties_for_sleipner_layers()
 
+        # nx_after_bc, ny_after_bc
+        if boundary_condition == "open"
+            nx_after_bc = SIMULATOR.topography.nx
+            ny_after_bc = SIMULATOR.topography.ny
+        else
+            nx_after_bc = SIMULATOR.topography.nx + 2
+            ny_after_bc = SIMULATOR.topography.ny + 2
+        end
+
         return Dict(
             "status" => "success",
             "n_layers" => length(SIMULATOR.layers),
             "nx" => SIMULATOR.topography.nx,
             "ny" => SIMULATOR.topography.ny,
-            "boundary_condition" => boundary_condition
+            "boundary_condition" => boundary_condition,
+            "nx_after_bc" => nx_after_bc,
+            "ny_after_bc" => ny_after_bc
         )
     catch e
         return Dict(
@@ -424,8 +435,6 @@ function run_simulation(;
             "timepoints" => summary.timepoints,
             "total_co2_volumes" => summary.total_co2_volumes,
             "layer_co2_volumes" => summary.layer_co2_volumes,
-            "trap_co2_volumes" => summary.trap_co2_volumes,
-            "trap_co2_percentages" => summary.trap_co2_percentages,
             "num_layers" => summary.num_layers,
             "num_traps_per_layer" => summary.num_traps_per_layer
         )
