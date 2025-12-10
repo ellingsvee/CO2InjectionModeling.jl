@@ -45,17 +45,19 @@ function fill_layers(
         )
 
         seqs[layer_idx] = seq
-        leakage_states[layer_idx] = leakage_state
+        # leakage_states[layer_idx] = leakage_state
 
         if layer_idx < n_layers
             weather_events_next_layer = convert_injection_event_to_weather_event(injection_events[layer_idx + 1], reservoir_properties[layer_idx + 1], domain)
-            weather_events_layer = create_next_layer_weather_events(
-                leakage_state,
-                layers[layer_idx].trap_structure,
-                layers[layer_idx + 1].trap_structure,
-                weather_events_next_layer,
-                weather_events_layer
-            )
+            # weather_events_layer = create_next_layer_weather_events(
+            #     leakage_state,
+            #     layers[layer_idx].trap_structure,
+            #     layers[layer_idx + 1].trap_structure,
+            #     weather_events_next_layer,
+            #     weather_events_layer
+            # )
+            weather_events_layer = weather_events_next_layer
+            
 
         end
     end
