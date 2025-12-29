@@ -1,5 +1,6 @@
 using SurfaceWaterIntegratedModeling
 export Domain3D, CellProperties, SimulationLayerSnapshot, SimulationSnapshot, ReservoirProperties
+export LeakageRecord, LeakageState
 
 struct Domain3D
     nx::Int
@@ -47,7 +48,6 @@ struct ReservoirProperties
     sand_residual_co2_saturation::Float64
     sand_irreducible_water_saturation::Float64
     shale_pressure_threshold::Float64
-    # brine_co2_density_difference::Float64
     leakage_height::Float64
     residual_leakage_time::Float64
 end
@@ -55,20 +55,52 @@ end
 struct SimulationLayerSnapshot
     timestamp::Float64
     spill_event::SpillEvent
-    heights::Array{Float64, 2}
     filled_traps::Vector{Bool}
     injected_volume::Float64
     co2_volume::Float64
-    mobile_co2_volume::Float64
-    residual_trapped_co2_volume::Float64
-    residual_trapped::Vector{Bool}
 end
 
+"""
+    SimulationSnapshot
+
+Represents the state of the entire simulation at a point in time.
+Contains snapshots from all layers.
+"""
 struct SimulationSnapshot
     timestamp::Float64
     total_injected_volume::Float64
     total_co2_volume::Float64
-    total_mobile_co2_volume::Float64
-    total_residual_trapped_co2_volume::Float64
     layer_snapshots::Vector{SimulationLayerSnapshot}
+end
+
+"""
+    LeakageRecord
+
+Records a leakage event for generating WeatherEvents in the overlying layer.
+- `start_time`: When leakage started
+- `trap_id`: The trap that is leaking
+- `leakage_location`: Grid cell (CartesianIndex) where leakage occurs (trap's lowest point)
+"""
+struct LeakageRecord
+    start_time::Float64
+    trap_id::Int
+    leakage_location::CartesianIndex{2}
+end
+
+"""
+    LeakageState
+
+Tracks the leakage state for all traps in a layer during simulation.
+- `leaking`: Boolean vector indicating if each trap is currently leaking
+- `leakage_volume`: Volume at which leakage starts for each trap (precomputed from leakage_height)
+- `leakage_start_time`: When leakage started for each trap (Inf if not yet leaking)
+- `leakage_records`: Vector of LeakageRecord for generating upstream WeatherEvents
+- `leakage_height`: The threshold height for leakage (from ReservoirProperties)
+"""
+mutable struct LeakageState
+    leaking::Vector{Bool}
+    leakage_volume::Vector{Float64}
+    leakage_start_time::Vector{Float64}
+    leakage_records::Vector{LeakageRecord}
+    leakage_height::Float64
 end

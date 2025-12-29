@@ -2,6 +2,7 @@ module CO2RInterface
 
 using CO2InjectionModeling
 using SurfaceWaterIntegratedModeling
+using SurfaceWaterIntegratedModeling: SpillEvent, numtraps
 using Interpolations
 
 export setup_simulator, configure_reservoir, setup_sleipner_reservoir, run_simulation
@@ -14,11 +15,12 @@ mutable struct SimulatorState
     layers::Union{Nothing, Vector{Layer}}
     reservoir_properties::Union{Nothing, Vector{ReservoirProperties}}
     boundary_condition::Symbol
-    last_snapshots::Union{Nothing, Vector{SimulationSnapshot}}
+    last_snapshots::Union{Nothing, Vector{ReservoirSnapshot}}
+    last_seqs::Union{Nothing, Vector{Vector{SpillEvent}}}
     last_lithology::Union{Nothing, Array{Int,3}}
 end
 
-const SIMULATOR = SimulatorState(nothing, nothing, nothing, nothing, :open, nothing, nothing)
+const SIMULATOR = SimulatorState(nothing, nothing, nothing, nothing, :open, nothing, nothing, nothing)
 
 """
     setup_simulator(; data_path="sleipner/depth_surfaces/", boundary_condition="open")
@@ -422,11 +424,25 @@ function run_simulation(;
 
         # Run simulation
         if verbose
-            println("Running simulation from $start_time to $end_time years with $num_snapshots snapshots")
+            println("Running simulation from $start_time to $end_time years")
         end
 
-        seqs, leakage_states, snapshots = fill_layers(
+        seqs, leakage_states = fill_layers(
             SIMULATOR.layers,
+            SIMULATOR.domain,
+            SIMULATOR.reservoir_properties,
+            injection_events;
+            verbose=verbose
+        )
+
+        if verbose
+            println("Generating reservoir snapshots...")
+        end
+
+        snapshots = generate_reservoir_snapshots(
+            SIMULATOR.layers,
+            seqs,
+            leakage_states,
             SIMULATOR.domain,
             SIMULATOR.reservoir_properties,
             injection_events;
@@ -437,23 +453,29 @@ function run_simulation(;
         )
 
         if verbose
-            println("Generating simulation summary...")
+            println("Creating simulation summary...")
         end
 
-        summary = generate_simulation_summary(snapshots, SIMULATOR.layers, seqs)
+        # Extract summary data from snapshots
+        timepoints = [s.timestamp for s in snapshots]
+        total_co2_volumes = [s.total_stored_m3 for s in snapshots]
+        layer_co2_volumes = hcat([s.stored_by_layer_m3 for s in snapshots]...)'  # timepoints × layers
+        num_layers = length(SIMULATOR.layers)
+        num_traps_per_layer = [numtraps(layer.trap_structure) for layer in SIMULATOR.layers]
 
-        # Store snapshots and lithology for visualization
+        # Store snapshots, seqs, and lithology for visualization
         SIMULATOR.last_snapshots = snapshots
+        SIMULATOR.last_seqs = seqs
         SIMULATOR.last_lithology = reconstruct_3d_lithology(SIMULATOR.topography, SIMULATOR.domain)
 
         # Convert summary to Dict for R
         result = Dict(
             "status" => "success",
-            "timepoints" => summary.timepoints,
-            "total_co2_volumes" => summary.total_co2_volumes,
-            "layer_co2_volumes" => summary.layer_co2_volumes,
-            "num_layers" => summary.num_layers,
-            "num_traps_per_layer" => summary.num_traps_per_layer
+            "timepoints" => timepoints,
+            "total_co2_volumes" => total_co2_volumes,
+            "layer_co2_volumes" => layer_co2_volumes,
+            "num_layers" => num_layers,
+            "num_traps_per_layer" => num_traps_per_layer
         )
 
         if verbose
@@ -471,21 +493,25 @@ function run_simulation(;
 end
 
 """
-    generate_cross_section_animation(; output_file="trap_filling_multilayer.gif",
-                                      direction="x", slice_index=nothing,
-                                      fps=2, value_colormap="thermal", alpha=0.7)
+    generate_cross_section_animation(; output_file="multi_layer_filling.gif",
+                                      num_frames=30, start_time=0.0, end_time=nothing,
+                                      fps=2, colormap="thermal", max_CO2_height=20.0)
 
-Generate a cross-section animation of CO2 trap filling from the last simulation.
+Generate a multi-layer animation of CO2 trap filling from the last simulation.
+
+Note: Cross-section view is not currently available. This generates a bird's eye view
+animation showing all layers in a grid layout.
 
 Must be called after `run_simulation`.
 
 # Arguments
-- `output_file`: Path where to save the animation (default: "trap_filling_multilayer.gif")
-- `direction`: "x" or "y" for slice direction (default: "x")
-- `slice_index`: Position along slice direction, or nothing for middle (default: nothing)
+- `output_file`: Path where to save the animation (default: "multi_layer_filling.gif")
+- `num_frames`: Number of frames in animation (default: 30)
+- `start_time`: Start time for animation in years (default: 0.0)
+- `end_time`: End time for animation in years, or nothing for auto-detect (default: nothing)
 - `fps`: Frames per second (default: 2)
-- `value_colormap`: Colormap name for CO2 saturation (default: "thermal")
-- `alpha`: Transparency for CO2 overlay (default: 0.7)
+- `colormap`: Colormap name for CO2 heights (default: "thermal")
+- `max_CO2_height`: Maximum CO2 height for colorscale in meters (default: 20.0)
 
 # Returns
 - Dictionary with status and output file path
@@ -494,49 +520,41 @@ Must be called after `run_simulation`.
 ```r
 # After running simulation
 result <- julia_call("generate_cross_section_animation",
-                     output_file = "co2_cross_section.gif",
-                     direction = "x",
+                     output_file = "co2_animation.gif",
+                     num_frames = 30,
                      fps = 2)
 print(result)
 ```
 """
 function generate_cross_section_animation(;
-    output_file::String = "trap_filling_multilayer.gif",
-    direction::String = "x",
-    slice_index::Union{Int,Nothing} = nothing,
+    output_file::String = "multi_layer_filling.gif",
+    num_frames::Int = 30,
+    start_time::Float64 = 0.0,
+    end_time::Union{Float64,Nothing} = nothing,
     fps::Int = 2,
-    value_colormap::String = "thermal",
-    alpha::Float64 = 0.7
+    colormap::String = "thermal",
+    max_CO2_height::Float64 = 20.0
 )
     try
-        if isnothing(SIMULATOR.last_snapshots) || isnothing(SIMULATOR.last_lithology)
+        if isnothing(SIMULATOR.last_seqs)
             return Dict(
                 "status" => "error",
                 "message" => "Must call run_simulation first"
             )
         end
 
-        # Validate direction
-        direction_symbol = Symbol(direction)
-        if !(direction_symbol in [:x, :y])
-            return Dict(
-                "status" => "error",
-                "message" => "direction must be 'x' or 'y'"
-            )
-        end
-
         # Call the visualization function
-        animate_trap_filling_multilayer(
-            SIMULATOR.last_snapshots,
+        animate_multi_layer_filling(
             SIMULATOR.layers,
-            SIMULATOR.last_lithology,
+            SIMULATOR.last_seqs,
             SIMULATOR.domain;
             output_file = output_file,
-            direction = direction_symbol,
-            slice_index = slice_index,
+            num_frames = num_frames,
+            start_time = start_time,
+            end_time = end_time,
             fps = fps,
-            value_colormap = Symbol(value_colormap),
-            alpha = alpha
+            colormap = Symbol(colormap),
+            max_CO2_height = max_CO2_height
         )
 
         return Dict(
@@ -554,19 +572,24 @@ function generate_cross_section_animation(;
 end
 
 """
-    generate_birdseye_animation(; output_file="trap_filling_birdseye_multilayer.gif",
-                                fps=2, value_colormap="thermal")
+    generate_birdseye_animation(; output_file="multi_layer_filling.gif",
+                                num_frames=30, start_time=0.0, end_time=nothing,
+                                fps=2, colormap="thermal", max_CO2_height=20.0)
 
 Generate a bird's eye view animation of CO2 trap filling from the last simulation.
 
-Shows all layers in a 3x3 grid from above, with CO2 distribution over time.
+Shows all layers in a grid layout from above, with CO2 distribution over time.
 
 Must be called after `run_simulation`.
 
 # Arguments
-- `output_file`: Path where to save the animation (default: "trap_filling_birdseye_multilayer.gif")
+- `output_file`: Path where to save the animation (default: "multi_layer_filling.gif")
+- `num_frames`: Number of frames in animation (default: 30)
+- `start_time`: Start time for animation in years (default: 0.0)
+- `end_time`: End time for animation in years, or nothing for auto-detect (default: nothing)
 - `fps`: Frames per second (default: 2)
-- `value_colormap`: Colormap name for CO2 saturation (default: "thermal")
+- `colormap`: Colormap name for CO2 heights (default: "thermal")
+- `max_CO2_height`: Maximum CO2 height for colorscale in meters (default: 20.0)
 
 # Returns
 - Dictionary with status and output file path
@@ -576,17 +599,22 @@ Must be called after `run_simulation`.
 # After running simulation
 result <- julia_call("generate_birdseye_animation",
                      output_file = "co2_birdseye.gif",
+                     num_frames = 30,
                      fps = 2)
 print(result)
 ```
 """
 function generate_birdseye_animation(;
-    output_file::String = "trap_filling_birdseye_multilayer.gif",
+    output_file::String = "multi_layer_filling.gif",
+    num_frames::Int = 30,
+    start_time::Float64 = 0.0,
+    end_time::Union{Float64,Nothing} = nothing,
     fps::Int = 2,
-    value_colormap::String = "thermal"
+    colormap::String = "thermal",
+    max_CO2_height::Float64 = 20.0
 )
     try
-        if isnothing(SIMULATOR.last_snapshots)
+        if isnothing(SIMULATOR.last_seqs)
             return Dict(
                 "status" => "error",
                 "message" => "Must call run_simulation first"
@@ -594,13 +622,17 @@ function generate_birdseye_animation(;
         end
 
         # Call the visualization function
-        animate_trap_filling_birdseye_multilayer(
-            SIMULATOR.last_snapshots,
+        animate_multi_layer_filling(
             SIMULATOR.layers,
+            SIMULATOR.last_seqs,
             SIMULATOR.domain;
             output_file = output_file,
+            num_frames = num_frames,
+            start_time = start_time,
+            end_time = end_time,
             fps = fps,
-            value_colormap = Symbol(value_colormap)
+            colormap = Symbol(colormap),
+            max_CO2_height = max_CO2_height
         )
 
         return Dict(

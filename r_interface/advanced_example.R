@@ -178,15 +178,20 @@ legend("topright",
        col = c("red", "blue", "green", "purple"), lwd = 2, cex = 0.8)
 grid()
 
-# Step 5: Generate animations
-cat("\nGenerating cross-section animation (this may take a moment)...\n")
-anim_result <- julia_call("generate_cross_section_animation",
-                          output_file = "co2_advanced_cross_section.gif",
-                          direction = "x",
-                          fps = 2L)  # Use 2L to ensure integer type
+# Step 6: Generate animations
+cat("\nGenerating animation (this may take a moment)...\n")
+anim_result <- julia_call("generate_birdseye_animation",
+                          output_file = "co2_advanced_animation.gif",
+                          num_frames = 30L,
+                          fps = 2L,
+                          max_CO2_height = 20.0)
 
-cat("\nGenerating bird's eye view animation (this may take a moment)...\n")
-birdseye_result <- julia_call("generate_birdseye_animation",
-                               output_file = "co2_advanced_birdseye.gif",
-                               fps = 2L)  # Use 2L to ensure integer type
+if (anim_result$status == "success") {
+  cat("Animation saved to:", anim_result$output_file, "\n")
+} else {
+  cat("Animation failed:", anim_result$message, "\n")
+  if (!is.null(anim_result$stacktrace)) {
+    cat("Stacktrace:\n", anim_result$stacktrace, "\n")
+  }
+}
 

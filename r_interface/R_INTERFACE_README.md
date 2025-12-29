@@ -119,7 +119,9 @@ Configure reservoir properties using Sleipner field default values. This is a co
 - Residual CO2 saturation: 0.2
 - Irreducible water saturation: 0.3
 - Shale pressure threshold: 98000.0 Pa
-- Brine-CO2 density difference: Layer-specific values (450-670 kg/m³)
+- Leakage heights: Computed from density differences (brine: 1020 kg/m³, CO2: 425 kg/m³)
+  - Approximately 16.8 m for all layers except top
+  - Top layer (L9): Inf (impermeable caprock)
 - Residual leakage time: 1.0 years
 
 **Parameters:** None (must call `setup_simulator()` first)
@@ -143,7 +145,7 @@ Configure custom reservoir properties.
 - `residual_co2_sat`: Residual CO2 saturation (0-1). Scalar or vector
 - `irreducible_water_sat`: Irreducible water saturation (0-1). Scalar or vector
 - `shale_pressure_threshold`: Shale pressure threshold (Pa). Scalar or vector
-- `brine_co2_density_diff`: Density difference between brine and CO2 (kg/m³). Scalar or vector
+- `leakage_height`: Critical CO2 height for leakage through shale (m). Scalar or vector. Use `Inf` for impermeable caprock
 - `residual_leakage_time`: Residual leakage time (years). Scalar or vector
 - `layer_specific`: Set to `TRUE` to provide vectors for layer-specific properties (default: `FALSE`)
 
@@ -156,22 +158,32 @@ julia_call("configure_reservoir",
            residual_co2_sat = 0.2,
            irreducible_water_sat = 0.3,
            shale_pressure_threshold = 98000.0,
-           brine_co2_density_diff = 450.0,
+           leakage_height = 17.0,
            residual_leakage_time = 1.0,
            layer_specific = FALSE)
 ```
 
 **Example (layer-specific properties):**
 ```R
-# Different density differences for each of 9 layers
-density_diffs <- c(450, 477.5, 505, 532.5, 560, 587.5, 615, 642.5, 670)
+# Compute layer-specific leakage heights from density differences
+brine_density <- 1020  # kg/m³
+co2_densities <- rep(425, 9)  # kg/m³
+density_diffs <- brine_density - co2_densities
+g <- 9.81  # m/s²
+shale_threshold <- 98000.0  # Pa
+
+# Calculate leakage heights: h = P_threshold / (Δρ * g)
+leakage_heights <- shale_threshold / (density_diffs * g)
+
+# Make top layer impermeable (represents caprock)
+leakage_heights[9] <- Inf
 
 julia_call("configure_reservoir",
            porosity = rep(0.4, 9),
            residual_co2_sat = rep(0.2, 9),
            irreducible_water_sat = rep(0.3, 9),
            shale_pressure_threshold = rep(98000.0, 9),
-           brine_co2_density_diff = density_diffs,
+           leakage_height = leakage_heights,
            residual_leakage_time = rep(1.0, 9),
            layer_specific = TRUE)
 ```
@@ -192,10 +204,8 @@ Run a CO2 injection simulation.
 **Returns:** Dictionary containing:
 - `status`: "success" or "error"
 - `timepoints`: Vector of snapshot times (years)
-- `total_co2_volumes`: Total CO2 volume at each timepoint (m³)
+- `total_co2_volumes`: Total CO2 stored in the reservoir at each timepoint (m³)
 - `layer_co2_volumes`: Matrix (timepoints × layers) of volumes per layer (m³)
-- `trap_co2_volumes`: List of matrices for trap volumes in each layer
-- `trap_co2_percentages`: List of matrices for trap percentages in each layer
 - `num_layers`: Number of layers
 - `num_traps_per_layer`: Vector of trap counts per layer
 
@@ -248,6 +258,35 @@ for (i in 1:n_times) {
 
 ---
 
+### `generate_birdseye_animation()`
+
+Generate a bird's eye view animation showing CO2 distribution across all layers over time.
+
+**Parameters:**
+- `output_file`: Path where to save the animation (default: `"multi_layer_filling.gif"`)
+- `num_frames`: Number of frames in animation (default: `30L`)
+- `start_time`: Start time for animation in years (default: `0.0`)
+- `end_time`: End time for animation in years, or `NULL` for auto-detect (default: `NULL`)
+- `fps`: Frames per second (default: `2L`)
+- `colormap`: Colormap name for CO2 heights (default: `"thermal"`)
+- `max_CO2_height`: Maximum CO2 height for colorscale in meters (default: `20.0`)
+
+**Returns:** Dictionary with `status`, `output_file`, `message`
+
+**Example:**
+```R
+# Must call run_simulation() first
+julia_call("generate_birdseye_animation",
+           output_file = "co2_animation.gif",
+           num_frames = 30L,
+           fps = 2L,
+           max_CO2_height = 20.0)
+```
+
+**Note:** Both `generate_cross_section_animation()` and `generate_birdseye_animation()` currently generate the same bird's eye view animation. Cross-section views are not yet available.
+
+---
+
 ## Result Structure
 
 All functions return a dictionary with a `status` field:
@@ -256,10 +295,10 @@ All functions return a dictionary with a `status` field:
 
 Simulation results include:
 - `timepoints`: Times when snapshots were taken
-- `total_co2_volumes`: Total CO2 in the system at each timepoint
-- `layer_co2_volumes`: CO2 volume breakdown by layer
-- `trap_co2_volumes`: Detailed trap-level information
-- `trap_co2_percentages`: Percentage of CO2 in each trap
+- `total_co2_volumes`: Total CO2 stored in the reservoir at each timepoint
+- `layer_co2_volumes`: CO2 volume breakdown by layer (timepoints × layers matrix)
+- `num_layers`: Number of layers in the simulation
+- `num_traps_per_layer`: Number of traps in each layer
 
 ## Examples
 

@@ -123,32 +123,19 @@ grid()
 # dev.off()
 
 # Step 6: Generate animations
-cat("\nGenerating cross-section animation (this may take a moment)...\n")
-anim_result <- julia_call("generate_cross_section_animation",
-                          output_file = "co2_cross_section.gif",
-                          direction = "x",
-                          fps = 2L)  # Use 2L to ensure integer type
+cat("\nGenerating animation (this may take a moment)...\n")
+anim_result <- julia_call("generate_birdseye_animation",
+                          output_file = "co2_animation.gif",
+                          num_frames = 30L,
+                          fps = 2L,
+                          max_CO2_height = 20.0)
 
 if (anim_result$status == "success") {
-  cat("Cross-section animation saved to:", anim_result$output_file, "\n")
+  cat("Animation saved to:", anim_result$output_file, "\n")
 } else {
   cat("Animation failed:", anim_result$message, "\n")
   if (!is.null(anim_result$stacktrace)) {
     cat("Stacktrace:\n", anim_result$stacktrace, "\n")
-  }
-}
-
-cat("\nGenerating bird's eye view animation (this may take a moment)...\n")
-birdseye_result <- julia_call("generate_birdseye_animation",
-                               output_file = "co2_birdseye.gif",
-                               fps = 2L)  # Use 2L to ensure integer type
-
-if (birdseye_result$status == "success") {
-  cat("Bird's eye view animation saved to:", birdseye_result$output_file, "\n")
-} else {
-  cat("Animation failed:", birdseye_result$message, "\n")
-  if (!is.null(birdseye_result$stacktrace)) {
-    cat("Stacktrace:\n", birdseye_result$stacktrace, "\n")
   }
 }
 

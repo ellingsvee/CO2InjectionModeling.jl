@@ -1,314 +1,623 @@
-export LeakageState, LeakageEvent
-export compute_leakage_height, _compute_trap_height, compute_per_trap_leaked_volumes,  get_total_leaked_volume
+"""
+Leakage modeling for CO2 injection simulations.
 
+This module provides functions to detect and track leakage of CO2 from reservoir traps
+when the CO2 column height exceeds a threshold (leakage_height).
+"""
 
-struct LeakageEvent
-    timestamp::Float64           # Time when leakage was detected (at spill event)
-    trap_id::Int                # Trap that leaked
-    height_at_detection::Float64  # Height when leakage was detected (>= threshold)
-    volume_in_trap::Float64     # Volume in trap at detection (swim units)
-    source_regions::Set{Int}    # Regions whose injection contributed to this leakage
-    connected_filled_traps::Vector{Int}  # Trap IDs that are filled and connected (will leak)
-    total_leakable_volume::Float64       # Total volume that will leak (after residual trapping)
-    residual_trapped_volume::Float64     # Volume that stays trapped (residual)
-end
+import Interpolations
+using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, FilledAmount
 
-mutable struct LeakageState
-    leaked_traps::Vector{Bool}              # Which traps have leaked
-    leakage_events::Vector{LeakageEvent}    # Detailed leakage events
-    leakage_threshold::Float64              # Height threshold (meters)
-    first_leakage_time::Union{Float64, Nothing}  # Time of first leakage (Nothing if no leakage yet)
-end
+export compute_leakage_volume, initialize_leakage_state, find_leakage_location
+export volume_to_height, compute_leakage_time_estimate, generate_leakage_weather_events
+export get_true_topography_bottom, get_trap_bottom_elevation
+
 
 """
-Helper function to compute the height of CO2 in a specific trap at the current state.
-Returns the maximum height within the trap's footprint.
+    find_leakage_location(trap_id::Int, tstruct::TrapStructure) -> CartesianIndex{2}
+
+Find the grid cell where leakage occurs for a trap.
+This is the lowest point (minimum topography elevation) in the trap footprint,
+where the CO2 column is thickest.
 """
-function _compute_trap_height(trap_id::Int, cur_amounts::Vector, z_vol_tables, tstruct)
-    water_volume = cur_amounts[trap_id].amount
+function find_leakage_location(trap_id::Int, tstruct::TrapStructure)::CartesianIndex{2}
+    footprint = tstruct.footprints[trap_id]
+    topo_vals = tstruct.topography[footprint]
+    min_idx = argmin(topo_vals)
+    linear_idx = footprint[min_idx]
+    return CartesianIndices(size(tstruct.topography))[linear_idx]
+end
 
-    # If trap is empty, height is zero
-    if water_volume <= 0.0
-        return 0.0
-    end
 
-    # Get water elevation from volume
-    water_elevation = _volume_to_elevation(water_volume, z_vol_tables[trap_id])
+"""
+    get_true_topography_bottom(trap_id::Int, tstruct::TrapStructure) -> Float64
 
-    min_base_elevation = minimum(tstruct.topography[tstruct.footprints[trap_id]])
-    distance_from_spillpoint_to_trap_bottom = 0.0
+Get the TRUE minimum topography elevation in a trap's footprint.
+This is the actual lowest point in the footprint, including the area covered by child traps.
+This is the correct elevation to use for computing CO2 column height for leakage detection.
+
+For parent traps, this includes the lowest point in all child trap footprints.
+"""
+function get_true_topography_bottom(trap_id::Int, tstruct::TrapStructure)::Float64
+    footprint = tstruct.footprints[trap_id]
+    return minimum(tstruct.topography[footprint])
+end
+
+
+"""
+    get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure) -> Float64
+
+Get the effective bottom elevation of a trap for volume interpolation purposes.
+For parent traps, this is the maximum of the topography minimum and the child spillpoint elevation.
+For leaf traps, this is simply the minimum topography elevation in the footprint.
+
+NOTE: This is used for z_vol_table interpolation, NOT for CO2 height calculation.
+For height calculation (leakage detection), use get_true_topography_bottom instead.
+"""
+function get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure)::Float64
+    footprint = tstruct.footprints[trap_id]
+    min_base_elevation = minimum(tstruct.topography[footprint])
+
+    # For parent traps, the effective bottom is above child spillpoints
     children = subtrapsof(tstruct, trap_id)
     if !isempty(children)
-        distance_from_spillpoint_to_trap_bottom = max.(distance_from_spillpoint_to_trap_bottom, tstruct.spillpoints[children[1]].elevation - min_base_elevation)
+        child_spillpoint_elev = tstruct.spillpoints[children[1]].elevation
+        min_base_elevation = max(min_base_elevation, child_spillpoint_elev)
     end
 
-    water_elevation += distance_from_spillpoint_to_trap_bottom
-
-    # Height is elevation difference
-    return max(0.0, water_elevation - min_base_elevation)
-end
-
-# """
-# Compute the leakage height based on the reservoir properties.
-# Uses the relation: cappilary_pressure_threshold = density_difference_between_brine_and_co2 * g * column_height
-# """
-# function compute_leakage_height(reservoir_properties::ReservoirProperties) 
-#     g = 9.81 # m/s^2
-#     height = reservoir_properties.shale_pressure_threshold / (reservoir_properties.brine_co2_density_difference * g)
-#     return height
-# end
-
-"""
-Apply leakage state to rain_rate, zeroing out injection in regions that have already leaked.
-
-This function is called at the start of each weather event to ensure that regions
-which had their injection stopped due to leakage remain stopped across weather event boundaries.
-"""
-function _apply_leakage_to_rain_rate!(rain_rate::Matrix{Float64}, leakage_state::LeakageState,
-                                      tstruct::TrapStructure)
-    # For each leakage event, turn off injection in the contributing source regions
-    for event in leakage_state.leakage_events
-        for source_region in event.source_regions
-            region_mask = tstruct.regions .== source_region
-            rain_rate[region_mask] .= 0.0
-        end
-    end
-end
-
-"""
-Trigger leakage for a trap and propagate to all parent traps.
-Modifies leakage_state and rain_rate in place.
-
-The leaked volume is only recorded for the trap that triggered the leakage (trap_id).
-Parent traps are marked as leaked to stop injection, but their volumes are not added
-to the total leaked amount (to avoid double counting).
-
-Uses source_tracker to determine which injection sources contributed CO2 to this trap,
-and turns off injection only in those source regions.
-
-Computes the total volume that will leak based on:
-- Only filled parent traps connected to the leaking trap contribute
-- Only (1 - sand_residual_co2_saturation) fraction of the volume leaks
-- The remaining fraction stays as residually trapped CO2
-"""
-function _trigger_leakage!(trap_id::Int, leakage_state::LeakageState,
-                          cur_amounts::Vector, rain_rate::Matrix{Float64},
-                          z_vol_tables, tstruct, cur_time::Float64,
-                          source_tracker::SourceTracker, filled_traps::Vector{Bool},
-                          reservoir_properties::ReservoirProperties, verbose::Bool)
-    # Get all traps that need to be marked as leaked (trap + all parents)
-    all_affected_traps = _identify_all_parent_traps(trap_id, tstruct)
-
-    # Record first leakage time if this is the first leakage
-    if isnothing(leakage_state.first_leakage_time)
-        leakage_state.first_leakage_time = cur_time
-    end
-
-    # Find which injection sources contributed to this leakage
-    contributing_sources = find_regions_to_stop(source_tracker, trap_id)
-
-    # First, record the leakage event for the trap that triggered it
-    if !leakage_state.leaked_traps[trap_id]
-        volume_in_trap = cur_amounts[trap_id].amount
-        # Since cur_time is the exact time when the threshold was reached,
-        # the height at that time should be exactly the threshold
-        height_at_detection = leakage_state.leakage_threshold
-
-        # Find connected filled traps (these will contribute to leakage)
-        connected_filled_traps = _find_connected_filled_parents(trap_id, filled_traps, tstruct)
-
-        # Calculate total volume in connected filled traps
-        total_connected_volume = 0.0
-        for connected_trap in connected_filled_traps
-            total_connected_volume += cur_amounts[connected_trap].amount
-        end
-
-        # Calculate leakable vs residual volumes
-        # Only (1 - sand_residual_co2_saturation) fraction leaks through
-        leakage_fraction = 1.0 - reservoir_properties.sand_residual_co2_saturation
-        total_leakable_volume = total_connected_volume * leakage_fraction
-        residual_trapped_volume = total_connected_volume * reservoir_properties.sand_residual_co2_saturation
-
-        leakage_state.leaked_traps[trap_id] = true
-
-        push!(leakage_state.leakage_events,
-              LeakageEvent(cur_time, trap_id, height_at_detection, volume_in_trap,
-                          copy(contributing_sources), connected_filled_traps,
-                          total_leakable_volume, residual_trapped_volume))
-
-        if verbose
-            println("  Connected filled traps: $connected_filled_traps")
-            println("  Total connected volume: $total_connected_volume")
-            println("  Leakable volume: $total_leakable_volume ($(leakage_fraction*100)%)")
-            println("  Residual trapped: $residual_trapped_volume ($(reservoir_properties.sand_residual_co2_saturation*100)%)")
-        end
-    end
-
-    # Now mark all affected traps as leaked
-    for affected_trap in all_affected_traps
-        # Skip if already leaked
-        if leakage_state.leaked_traps[affected_trap]
-            continue
-        end
-
-        # Mark trap as leaked (but don't count volume again)
-        leakage_state.leaked_traps[affected_trap] = true
-    end
-
-    if verbose
-        println("  Turning off injection in source regions: $contributing_sources")
-    end
-
-    # Zero out injection in all regions that contributed to this leakage
-    for source_region in contributing_sources
-        region_mask = tstruct.regions .== source_region
-        rain_rate[region_mask] .= 0.0
-    end
-end
-
-
-function find_leakage_location(trap_id::Int, tstruct::TrapStructure)
-    # Get the exact leakage location
-    # This is the location in the trap footprint with the smallest topography elevation
-    footprint = tstruct.footprints[trap_id]                # Vector of linear indices
-    topography = tstruct.topography[footprint]             # Elevations at those indices
-    min_idx = argmin(topography)                           # Index of minimum elevation within the footprint
-    leakage_linear_idx = footprint[min_idx]                # Linear index in the domain
-    leakage_cartesian_idx = CartesianIndices(size(tstruct.topography))[leakage_linear_idx]  # (i, j) coordinates
-    return leakage_cartesian_idx
+    return min_base_elevation
 end
 
 
 """
-Helper function to compute the exact time when a trap reaches a specific height threshold.
+    compute_leakage_volume(trap_id::Int, z_vol_table, tstruct::TrapStructure, leakage_height::Float64) -> Union{Float64, Nothing}
 
-This function uses the trap's inflow rate and volume-height relationship to determine
-precisely when the height threshold is crossed, rather than detecting it at discrete
-trap fill events.
+Compute the volume at which a trap reaches the leakage height threshold.
+
+The CO2 column height is measured from the TRUE topography bottom (including child traps)
+to the current water level. This correctly accounts for CO2 that fills child traps
+before spilling to parent traps.
 
 Returns:
-- exact_time: The time when the threshold is reached (or nothing if not reached)
+- Float64: The volume at which CO2 height = leakage_height
+- nothing: If the trap would spill before reaching leakage_height (leakage cannot occur)
 """
-function _compute_time_to_height_threshold(trap_id::Int, threshold_height::Float64,
-                                           cur_amounts::Vector, z_vol_tables, tstruct,
-                                           rateinfo, cur_time::Float64)
-    # Get current volume and time
-    current_volume = cur_amounts[trap_id].amount
-    last_update_time = cur_amounts[trap_id].time
+function compute_leakage_volume(
+    trap_id::Int,
+    z_vol_table::Tuple{Vector{Float64}, Vector{Float64}},
+    tstruct::TrapStructure,
+    leakage_height::Float64
+)::Union{Float64, Nothing}
 
-    # Compute current height
-    current_height = _compute_trap_height(trap_id, cur_amounts, z_vol_tables, tstruct)
+    # Get the TRUE topography bottom (not the child spillpoint!)
+    # This is the actual lowest point in the trap's footprint, including child areas
+    true_bottom = get_true_topography_bottom(trap_id, tstruct)
 
-    # If already above threshold, return current time
-    if current_height >= threshold_height
-        return cur_time
-    end
+    # Leakage occurs when water level reaches true_bottom + leakage_height
+    leakage_elevation = true_bottom + leakage_height
 
-    # Get the minimum base elevation of the trap
-    min_base_elevation = minimum(tstruct.topography[tstruct.footprints[trap_id]])
+    # Get spillpoint elevation (maximum fill level)
+    spillpoint_elevation = tstruct.spillpoints[trap_id].elevation
 
-    # Adjust for parent trap geometry if needed
-    distance_from_spillpoint_to_trap_bottom = 0.0
-    children = SurfaceWaterIntegratedModeling.subtrapsof(tstruct, trap_id)
-    if !isempty(children)
-        distance_from_spillpoint_to_trap_bottom = max(distance_from_spillpoint_to_trap_bottom,
-                                                       tstruct.spillpoints[children[1]].elevation - min_base_elevation)
-    end
-
-    # Compute target elevation from target height
-    target_elevation = min_base_elevation + threshold_height - distance_from_spillpoint_to_trap_bottom
-
-    # Convert target elevation to target volume using inverse interpolation
-    z_vol_table = z_vol_tables[trap_id]
-    zvals = z_vol_table[1]
-    vvals = z_vol_table[2]
-
-    # Check if target elevation is reachable
-    if target_elevation < minimum(zvals) || target_elevation > maximum(zvals)
-        return nothing  # Height not reachable in this trap
-    end
-
-    # Interpolate to find target volume
-    target_volume = Interpolations.linear_interpolation(zvals, vvals, extrapolation_bc=Interpolations.Flat())(target_elevation)
-
-    # If target volume is less than current, threshold was already passed
-    if target_volume <= current_volume
-        return cur_time
-    end
-
-    # Get inflow rate for this trap
-    inflow_rate = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap_id)
-
-    # If inflow is zero or negative, height won't be reached
-    if inflow_rate <= 0.0
+    # If leakage elevation is above spillpoint, trap spills before it can leak
+    if leakage_elevation >= spillpoint_elevation
         return nothing
     end
 
-    # Compute time needed to reach target volume from last update
-    volume_needed = target_volume - current_volume
-    time_from_last_update = volume_needed / inflow_rate
+    # Use z_vol_table to find volume at leakage_elevation
+    zvals, vvals = z_vol_table
 
-    # Return exact time when threshold is reached
-    return last_update_time + time_from_last_update
+    # Handle edge cases
+    if length(zvals) == 1
+        # Degenerate trap - no volume
+        return 0.0
+    end
+
+    if leakage_elevation <= zvals[1]
+        # Leakage elevation is below the trap's z_vol_table minimum.
+        # For parent traps, zvals[1] is the child spillpoint.
+        # This means leakage would occur while children are still filling,
+        # so this trap's own volume at leakage is 0.
+        # When this trap starts filling (children full), the CO2 column is already
+        # above the leakage height, so leakage starts immediately.
+        return 0.0
+    end
+
+    if leakage_elevation >= zvals[end]
+        # Leakage height is above trap capacity - shouldn't happen given check above
+        return nothing
+    end
+
+    # Create interpolation function from z to volume
+    z2v = Interpolations.linear_interpolation(zvals, vvals, extrapolation_bc=Interpolations.Line())
+
+    return z2v(leakage_elevation)
 end
 
-"""
-Check all traps for leakage condition and trigger leakage if needed.
-Returns true if any leakage was detected and triggered.
-"""
-function _check_and_trigger_leakage!(leakage_state::LeakageState, cur_amounts::Vector,
-                                     rain_rate::Matrix{Float64}, z_vol_tables, tstruct,
-                                     cur_time::Float64, source_tracker::SourceTracker,
-                                     filled_traps::Vector{Bool}, reservoir_properties::ReservoirProperties,
-                                     verbose::Bool, rate_info=nothing)
-    leakage_occurred = false
-    num_traps = length(cur_amounts)
 
+"""
+    volume_to_height(volume::Float64, trap_id::Int, z_vol_table, tstruct::TrapStructure) -> Float64
+
+Convert a volume in a trap to the CO2 column height above the TRUE topography bottom.
+
+For parent traps with filled children, the CO2 column extends from the true
+topography minimum (in the child footprints) through the children up to the
+current water level. This function correctly computes this total column height.
+"""
+function volume_to_height(
+    volume::Float64,
+    trap_id::Int,
+    z_vol_table::Tuple{Vector{Float64}, Vector{Float64}},
+    tstruct::TrapStructure
+)::Float64
+
+    # Use the TRUE topography bottom for correct CO2 column height calculation
+    true_bottom = get_true_topography_bottom(trap_id, tstruct)
+
+    zvals, vvals = z_vol_table
+
+    if length(zvals) == 1 || volume <= 0.0
+        return 0.0
+    end
+
+    # Create interpolation function from volume to z
+    v2z = Interpolations.linear_interpolation(vvals, zvals, extrapolation_bc=Interpolations.Line())
+
+    water_level = v2z(volume)
+    height = max(0.0, water_level - true_bottom)
+
+    return height
+end
+
+
+"""
+    initialize_leakage_state(tstruct::TrapStructure, z_vol_tables, leakage_height::Float64) -> LeakageState
+
+Initialize the leakage state for a layer, precomputing leakage volumes for all traps.
+"""
+function initialize_leakage_state(
+    tstruct::TrapStructure,
+    z_vol_tables::Vector{Tuple{Vector{Float64}, Vector{Float64}}},
+    leakage_height::Float64
+)::LeakageState
+
+    num_traps = numtraps(tstruct)
+
+    # Precompute leakage volumes for all traps
+    leakage_volumes = zeros(Float64, num_traps)
     for trap_id in 1:num_traps
-        # Skip if already leaked
-        if leakage_state.leaked_traps[trap_id]
-            continue
+        vol = compute_leakage_volume(trap_id, z_vol_tables[trap_id], tstruct, leakage_height)
+        # Use Inf for traps that cannot leak (spill before reaching leakage height)
+        leakage_volumes[trap_id] = isnothing(vol) ? Inf : vol
+    end
+
+    return LeakageState(
+        fill(false, num_traps),           # leaking
+        leakage_volumes,                   # leakage_volume
+        fill(Inf, num_traps),             # leakage_start_time
+        LeakageRecord[],                   # leakage_records
+        leakage_height                     # leakage_height
+    )
+end
+
+
+"""
+    LeakageTimeEstimate
+
+Stores the estimated time when a trap will reach its leakage volume.
+Similar to SWIM's ChangeTimeEstimate.
+"""
+struct LeakageTimeEstimate
+    trap_id::Int
+    min_time::Float64  # Earliest possible leakage time
+    max_time::Float64  # Latest possible leakage time
+end
+
+
+"""
+    compute_leakage_time_estimate(trap_id, cur_amounts, cur_time, rateinfo, leakage_state, filled_traps, tstruct) -> LeakageTimeEstimate
+
+Compute when a trap will reach its leakage threshold.
+"""
+function compute_leakage_time_estimate(
+    trap_id::Int,
+    cur_amounts::Vector{FilledAmount},
+    cur_time::Float64,
+    rateinfo,  # SWIM's RateInfo
+    leakage_state::LeakageState,
+    filled_traps::Vector{Bool},
+    tstruct::TrapStructure
+)::LeakageTimeEstimate
+
+    # Already leaking - no future leakage event
+    if leakage_state.leaking[trap_id]
+        return LeakageTimeEstimate(trap_id, Inf, Inf)
+    end
+
+    # Get target volume for leakage
+    target_vol = leakage_state.leakage_volume[trap_id]
+
+    # If target is Inf, trap cannot leak (spills before reaching leakage height)
+    if target_vol == Inf
+        return LeakageTimeEstimate(trap_id, Inf, Inf)
+    end
+
+    # Get current volume
+    current_vol = cur_amounts[trap_id].amount
+
+    # If trap is not accumulating (children not filled), cannot estimate leakage
+    children = subtrapsof(tstruct, trap_id)
+    if !all(filled_traps[children])
+        return LeakageTimeEstimate(trap_id, Inf, Inf)
+    end
+
+    # Check if already at or above target
+    # Special case: if target_vol is 0, we need current_vol > 0 to trigger
+    # (can't leak if there's no CO2 yet)
+    if target_vol == 0.0
+        if current_vol > 0.0
+            # Trap has CO2 and should leak immediately (already above threshold)
+            return LeakageTimeEstimate(trap_id, cur_time, cur_time)
         end
+        # target_vol = 0 but no CO2 yet - will leak as soon as it gets any CO2
+        # Continue to compute time estimate based on inflow
+    elseif current_vol >= target_vol
+        return LeakageTimeEstimate(trap_id, cur_time, cur_time)
+    end
 
-        # Compute current height
-        height = _compute_trap_height(trap_id, cur_amounts, z_vol_tables, tstruct)
+    # Compute time using inflow rate
+    # Use SWIM's RateInfo accessors
+    inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap_id)
+    smax = SurfaceWaterIntegratedModeling.getsmax(rateinfo, trap_id)
+    smin = SurfaceWaterIntegratedModeling.getsmin(rateinfo, trap_id)
 
-        # Check if exceeds threshold
-        if height > leakage_state.leakage_threshold
-            # Compute exact time when threshold was reached
-            exact_leakage_time = cur_time
-            if !isnothing(rate_info)
-                computed_time = _compute_time_to_height_threshold(
-                    trap_id, leakage_state.leakage_threshold,
-                    cur_amounts, z_vol_tables, tstruct, rate_info, cur_time)
-                if !isnothing(computed_time)
-                    exact_leakage_time = computed_time
-                end
-            end
+    # Net inflow bounds (same logic as SWIM's _compute_changetime_estimate)
+    min_net_inflow = inflow - (smax - smin)
+    max_net_inflow = inflow
 
-            if verbose
-                println("Leakage detected in trap $trap_id at time $exact_leakage_time (height: $height m at detection, threshold: $(leakage_state.leakage_threshold) m)")
-            end
+    # If inflow is zero or negative, trap won't fill to leakage level
+    if max_net_inflow <= 0
+        return LeakageTimeEstimate(trap_id, Inf, Inf)
+    end
 
-            _trigger_leakage!(trap_id, leakage_state, cur_amounts, rain_rate,
-                            z_vol_tables, tstruct, exact_leakage_time, source_tracker,
-                            filled_traps, reservoir_properties, verbose)
-            leakage_occurred = true
+    volume_needed = target_vol - current_vol
+
+    # Time estimates (min time uses max inflow, max time uses min inflow)
+    min_time = volume_needed / max_net_inflow
+    max_time = (min_net_inflow > 0) ? volume_needed / min_net_inflow : Inf
+
+    return LeakageTimeEstimate(
+        trap_id,
+        cur_time + min_time,
+        cur_time + max_time
+    )
+end
+
+
+"""
+    set_initial_leakage_time_estimates(cur_amounts, cur_time, rateinfo, leakage_state, filled_traps, tstruct) -> Vector{LeakageTimeEstimate}
+
+Initialize leakage time estimates for all traps.
+"""
+function set_initial_leakage_time_estimates(
+    cur_amounts::Vector{FilledAmount},
+    cur_time::Float64,
+    rateinfo,
+    leakage_state::LeakageState,
+    filled_traps::Vector{Bool},
+    tstruct::TrapStructure
+)::Vector{LeakageTimeEstimate}
+
+    return [
+        compute_leakage_time_estimate(trap_id, cur_amounts, cur_time, rateinfo,
+                                      leakage_state, filled_traps, tstruct)
+        for trap_id in 1:numtraps(tstruct)
+    ]
+end
+
+
+"""
+    update_leakage_time_estimates!(leakage_time_est, affected_traps, cur_amounts, cur_time, rateinfo, leakage_state, filled_traps, tstruct)
+
+Update leakage time estimates for affected traps.
+"""
+function update_leakage_time_estimates!(
+    leakage_time_est::Vector{LeakageTimeEstimate},
+    affected_traps::Vector{Int},
+    cur_amounts::Vector{FilledAmount},
+    cur_time::Float64,
+    rateinfo,
+    leakage_state::LeakageState,
+    filled_traps::Vector{Bool},
+    tstruct::TrapStructure
+)
+    for trap_id in affected_traps
+        leakage_time_est[trap_id] = compute_leakage_time_estimate(
+            trap_id, cur_amounts, cur_time, rateinfo,
+            leakage_state, filled_traps, tstruct
+        )
+    end
+end
+
+
+"""
+    find_next_leakage_event(leakage_time_est) -> Tuple{Float64, Int}
+
+Find the next leakage event (minimum leakage time).
+Returns (time, trap_id). If no leakage is pending, returns (Inf, 0).
+"""
+function find_next_leakage_event(leakage_time_est::Vector{LeakageTimeEstimate})::Tuple{Float64, Int}
+    min_time = Inf
+    min_trap = 0
+
+    for est in leakage_time_est
+        if est.min_time < min_time
+            min_time = est.min_time
+            min_trap = est.trap_id
         end
     end
 
-    return leakage_occurred
+    return (min_time, min_trap)
 end
 
-"""
-Get total leaked volume (sum across all traps).
 
-Parameters:
-- leaked_volumes_per_trap: Dictionary from compute_per_trap_leaked_volumes()
-
-Returns:
-- Total leaked volume in swim units
 """
-function get_total_leaked_volume(leaked_volumes_per_trap::Dict{Int, Float64})
-    return sum(values(leaked_volumes_per_trap))
+    generate_leakage_weather_events(leakage_state, source_weather_events, spill_events, tstruct, target_grid_size) -> Vector{WeatherEvent}
+
+Generate WeatherEvents for the overlying layer from leakage data.
+
+The leakage rate at any time t equals:
+    leakage_rate(t) = injection_rate(t) - d(stored)/dt
+
+Where d(stored)/dt is the rate at which traps are filling. This is computed by:
+1. Computing total stored volume at each spill event timestamp
+2. Computing the filling rate between consecutive events
+3. Subtracting filling rate from injection rate to get leakage rate
+
+This approach correctly handles:
+- The initial filling period (before leakage, leakage_rate = 0)
+- The transition period (some traps filling, some leaking)
+- Steady state (all contributing traps filled, leakage_rate = injection_rate)
+"""
+function generate_leakage_weather_events(
+    leakage_state::LeakageState,
+    source_weather_events::Vector{WeatherEvent},
+    spill_events::Vector{SpillEvent},
+    tstruct::TrapStructure,
+    target_grid_size::Tuple{Int, Int}
+)::Vector{WeatherEvent}
+
+    # If no leakage occurred, return empty vector
+    if isempty(leakage_state.leakage_records)
+        return WeatherEvent[]
+    end
+
+    # Get the first leakage start time
+    first_leakage_time = minimum(r.start_time for r in leakage_state.leakage_records)
+
+    # Collect all timestamps where leakage rates might change:
+    # 1. Leakage start times
+    # 2. Weather event timestamps (injection rates change)
+    # 3. Spill event timestamps (fill rates change)
+    timestamps = Set{Float64}()
+
+    for record in leakage_state.leakage_records
+        push!(timestamps, record.start_time)
+    end
+
+    for we in source_weather_events
+        if we.timestamp >= first_leakage_time
+            push!(timestamps, we.timestamp)
+        end
+    end
+
+    for se in spill_events
+        if se.timestamp >= first_leakage_time
+            push!(timestamps, se.timestamp)
+        end
+    end
+
+    # Sort timestamps
+    sorted_times = sort(collect(timestamps))
+    if isempty(sorted_times)
+        return WeatherEvent[]
+    end
+
+    # Compute stored volume at each timestamp
+    stored_at_time = Dict{Float64, Float64}()
+    for t in sorted_times
+        stored = compute_total_stored_at_time(spill_events, tstruct, t)
+        stored_at_time[t] = stored
+    end
+
+    # Get injection rate at each timestamp (sum of rain_rate)
+    function get_injection_rate_at(t::Float64)
+        # Find the weather event active at time t
+        current_we = source_weather_events[1]
+        for we in source_weather_events
+            if we.timestamp <= t
+                current_we = we
+            else
+                break
+            end
+        end
+        if current_we.rain_rate isa Matrix
+            return sum(current_we.rain_rate)
+        else
+            # Scalar rain_rate - uniform across domain
+            return current_we.rain_rate * prod(target_grid_size)
+        end
+    end
+
+    # Build WeatherEvents using mass balance: leakage = injection - d(stored)/dt
+    events = WeatherEvent[]
+
+    # Get the leakage location (use first record for single-location model)
+    leakage_loc = leakage_state.leakage_records[1].leakage_location
+
+    for i in 1:length(sorted_times)
+        t = sorted_times[i]
+
+        # Only generate events after leakage has started
+        if t < first_leakage_time
+            continue
+        end
+
+        # Compute filling rate (d(stored)/dt)
+        # Use the interval from t to the next timestamp
+        if i < length(sorted_times)
+            t_next = sorted_times[i + 1]
+            dt = t_next - t
+            if dt > 0
+                stored_now = stored_at_time[t]
+                stored_next = stored_at_time[t_next]
+                filling_rate = (stored_next - stored_now) / dt
+            else
+                filling_rate = 0.0
+            end
+        else
+            # Last timestamp - assume steady state (no more filling)
+            filling_rate = 0.0
+        end
+
+        # Leakage rate = injection rate - filling rate
+        injection_rate = get_injection_rate_at(t)
+        leakage_rate = max(0.0, injection_rate - filling_rate)
+
+        # Create rate matrix with leakage at the location
+        rate_matrix = zeros(Float64, target_grid_size)
+        if leakage_rate > 0
+            rate_matrix[leakage_loc] = leakage_rate
+        end
+
+        # Add event
+        if sum(rate_matrix) > 0
+            push!(events, WeatherEvent(t, rate_matrix))
+        end
+    end
+
+    # Remove duplicate timestamps and merge rates
+    return merge_weather_events(events)
+end
+
+
+"""
+    compute_total_stored_at_time(spill_events, tstruct, time) -> Float64
+
+Compute the total stored volume at a given time using the spill event sequence.
+"""
+function compute_total_stored_at_time(
+    spill_events::Vector{SpillEvent},
+    tstruct::TrapStructure,
+    time::Float64
+)::Float64
+    # Use trap_states_at_timepoints for accurate computation
+    tstates = trap_states_at_timepoints(tstruct, spill_events, [time]; verbose=false)
+    volumes = tstates[1][2]  # Volume in each trap
+    return sum(volumes)
+end
+
+
+"""
+    get_trap_inflow_at_time(trap_id, time, spill_events) -> Float64
+
+Get the inflow rate to a trap at a specific time from the spill event sequence.
+"""
+function get_trap_inflow_at_time(
+    trap_id::Int,
+    time::Float64,
+    spill_events::Vector{SpillEvent}
+)::Float64
+
+    # Find the spill event at or just before this time
+    se_idx = 1
+    for i in 1:length(spill_events)
+        if spill_events[i].timestamp <= time
+            se_idx = i
+        else
+            break
+        end
+    end
+
+    se = spill_events[se_idx]
+
+    # Get inflow from spill event
+    # The inflow field can be a full vector or incremental updates
+    if se.inflow isa Vector{Float64}
+        return se.inflow[trap_id]
+    else
+        # It's a vector of IncrementalUpdate - need to reconstruct
+        # For now, return 0 if we can't find it directly
+        # This case requires reconstructing full state from incremental updates
+        for update in se.inflow
+            if update.index == trap_id
+                return update.value
+            end
+        end
+        # Fall back - search earlier events
+        return _reconstruct_inflow(trap_id, se_idx, spill_events)
+    end
+end
+
+
+"""
+    _reconstruct_inflow(trap_id, end_idx, spill_events) -> Float64
+
+Reconstruct the inflow rate for a trap from spill events.
+"""
+function _reconstruct_inflow(
+    trap_id::Int,
+    end_idx::Int,
+    spill_events::Vector{SpillEvent}
+)::Float64
+
+    # Start from the beginning and apply updates
+    inflow = 0.0
+
+    for i in 1:end_idx
+        se = spill_events[i]
+        if se.inflow isa Vector{Float64}
+            inflow = se.inflow[trap_id]
+        else
+            for update in se.inflow
+                if update.index == trap_id
+                    inflow = update.value
+                end
+            end
+        end
+    end
+
+    return inflow
+end
+
+
+"""
+    merge_weather_events(events::Vector{WeatherEvent}) -> Vector{WeatherEvent}
+
+Merge WeatherEvents that have the same timestamp.
+"""
+function merge_weather_events(events::Vector{WeatherEvent})::Vector{WeatherEvent}
+    if isempty(events)
+        return events
+    end
+
+    # Sort by timestamp
+    sorted_events = sort(events, by=e -> e.timestamp)
+
+    merged = WeatherEvent[]
+    current_event = sorted_events[1]
+
+    for i in 2:length(sorted_events)
+        if sorted_events[i].timestamp == current_event.timestamp
+            # Merge rates
+            new_rate = current_event.rain_rate .+ sorted_events[i].rain_rate
+            current_event = WeatherEvent(current_event.timestamp, new_rate)
+        else
+            push!(merged, current_event)
+            current_event = sorted_events[i]
+        end
+    end
+    push!(merged, current_event)
+
+    return merged
 end
