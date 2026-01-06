@@ -1,0 +1,29 @@
+You are currently in a Julia project where I model the injection of CO2 into geological layers. It uses the SurfaceWaterIntegratedModeling.jl package for analyzing the surface, and I have added the source code for this package in the @swim/ directory.
+
+Currently, as the CO2 is injected, the level of the CO2 above the terrain increases. Then the level reaches the leakage_height spesified in the ReservoirProperties struct, the CO2 starts to "leak". The leakage is currently modeled by simply redirecting all new CO2 that is injected into the leaking plume as a WeatherEvent that is passed on the the next layer. The CO2 that has already been injected before the leakage occurred remains in the layer. The implementation of this is in the @fill_layer.jl, and is working correctly. Importantly, in the @test_single_layer.jl we test that the simulation correctly conserves mass. It is essential that the CO2 in the layer + the leaked CO2 to equal the total injected CO2. Also note that we can inject at different locations and at different rates, which means that we track multiple plumes in the same layer. Each plume can have its own leakage behavior and can potentially merge with other plumes. 
+
+I want you to help me extend this model by implementing what i call a "residual" leakage. See in the ReservoirProperties that i have added a sand_residual_co2_saturation and a residual_leakage_time. When the leakage occurs, the CO2 that is already in the layer does not just stay there. Instead, over the residual_leakage_time, a fraction of the CO2 in the layer will also leak out. The fraction that leaks out is determined by the sand_residual_co2_saturation. For example, if the sand_residual_co2_saturation is 0.2, then 20% of the CO2 in the layer will remain after the residual_leakage_time has passed, and 80% will have leaked out. This leakage should be modeled as a continuous process over the residual_leakage_time. For the next layer, this residual leakage can be treated as an additional WeatherEvent that adds to the leakage that is already occurring from new injections.
+
+Note that due to the terrain and structural trappings, not all the CO2 in the layer may be able to leak out. Some of it may be trapped in local minima or behind barriers. Therefore, the residual leakage should only apply to the CO2 that is actually able to reach the leakage point. You will need to consider how to model this behavior accurately.
+
+Please implement this "residual" leakage mechanism in the appropriate parts of the code, ensuring that mass conservation is still maintained. For now you only need to focus on the single layer implementation in @fill_layer.jl and @test_single_layer.jl. Once this is working correctly, we can extend it to multiple layers.
+
+
+
+
+You are currently in a Julia project where I model the injection of CO2 into geological layers. It uses the SurfaceWaterIntegratedModeling.jl package for analyzing the surface, and I have added the source code for this package in the @swim/ directory.
+
+
+You have previously helped me extend this model by implementing what i call a "residual" leakage. When the leakage occurs, the CO2 that is already in the layer does not just stay there. Instead, over the residual_leakage_time, a fraction of the CO2 in the layer will also leak out. The fraction that leaks out is determined by the sand_residual_co2_saturation. For example, if the sand_residual_co2_saturation is 0.2, then 20% of the CO2 in the layer will remain after the residual_leakage_time has passed, and 80% will have leaked out. This leakage should be modeled as a continuous process over the residual_leakage_time. For the next layer, this residual leakage can be treated as an additional WeatherEvent that adds to the leakage that is already occurring from new injections.
+
+When evaluating the implemention I run @scripts/test_single_layer.jl, where we see that the mass-conservation works as intended. However, looking at the animation of the saturation, I see no reductuion in the CO2 saturation over time after the leakage starts. It seems that the residual leakage is not being applied correctly to the CO2 that is already in the layer. This could be due to several reasons, such as that it is not only the leaking trap that should have residual leakage, but also all locations that feed into the leaking trap. However, I am not sure whether this is the case, or some other issue. I started making a previous agent solve this issue, but it was not completed. Please help me identify and fix the problem.
+
+
+as the residual leakage not being calculated correctly
+
+
+
+, not being applied to the existing CO2 in the layer, or not being integrated properly into the time-stepping mechanism of the simulation.
+
+
+

@@ -24,8 +24,32 @@ seqs, leakage_states = fill_layers(
     verbose=false
 );
 
-# Generate multi-layer animation
-println("\n=== Generating Multi-Layer Animation ===")
+# Print drainage statistics for each layer
+println("\n=== Leakage and Drainage Statistics ===")
+for (layer_idx, leakage_state) in enumerate(leakage_states)
+    tstruct = layers[layer_idx].trap_structure
+    num_leaking = sum(leakage_state.leaking)
+    num_draining = sum(leakage_state.draining)
+    num_records = length(leakage_state.leakage_records)
+
+    if num_records > 0
+        total_initial_vol = sum(leakage_state.initial_volume_at_leak[i] for i in 1:numtraps(tstruct) if leakage_state.draining[i]; init=0.0)
+        residual_sat = rprops[layer_idx].sand_residual_co2_saturation
+        total_residual_vol = total_initial_vol * residual_sat
+
+        println("Layer $layer_idx ($(layers[layer_idx].name)):")
+        println("  Leaking traps: $(num_leaking)")
+        println("  Draining traps: $(num_draining)")
+        println("  Initial vol in draining: $(round(total_initial_vol, digits=1)) SWIM units")
+        println("  Residual vol after drainage: $(round(total_residual_vol, digits=1)) SWIM units")
+    else
+        println("Layer $layer_idx ($(layers[layer_idx].name)): No leakage")
+    end
+end
+
+# Generate multi-layer animations
+println("\n=== Generating Multi-Layer Animations ===")
+println("Generating height-based animation...")
 animate_multi_layer_filling(
     layers,
     seqs,
@@ -35,6 +59,20 @@ animate_multi_layer_filling(
     end_time=15.0,
     fps=3,
     max_CO2_height=rprops[1].leakage_height
+)
+
+println("\nGenerating saturation-based animation...")
+animate_multi_layer_saturation(
+    layers,
+    seqs,
+    leakage_states,
+    domain,
+    rprops;
+    output_file="multi_layer_saturation.gif",
+    num_frames=30,
+    end_time=15.0,
+    fps=3,
+    colormap=:viridis
 )
 
 # Generate reservoir snapshots for analysis

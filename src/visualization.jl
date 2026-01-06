@@ -2,7 +2,7 @@ using CairoMakie
 using Statistics
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_timepoints, SpillEvent
 
-export animate_multi_layer_filling
+export animate_multi_layer_filling, animate_multi_layer_saturation
 export plot_layer_volumes_timeseries, plot_layer_fractions_timeseries
 
 
@@ -198,6 +198,239 @@ function animate_multi_layer_filling(
 
         # Update time label
         time_label[] = "Time: $(round(tp, digits=2)) years | Max height: $(round(max_height_all_layers, digits=1)) m"
+
+        if frame_idx % 10 == 0 || frame_idx == length(timepoints)
+            println("  Frame $(frame_idx)/$(length(timepoints))")
+        end
+    end
+
+    println("Animation saved to: $(output_file)")
+    return nothing
+end
+
+
+"""
+    animate_multi_layer_saturation(layers, seqs, leakage_states, domain; kwargs...)
+
+Create an animated bird's eye view of CO2 saturation in all layers simultaneously.
+Displays layers in a grid layout (3x3 for 9 layers).
+
+This visualization shows CO2 saturation (volume/capacity) instead of height,
+which makes residual drainage visible: after leakage starts, the saturation
+in draining traps decreases from 1.0 down to the residual saturation level.
+
+Parameters:
+- `layers`: Vector of Layer structs
+- `seqs`: Vector{Vector{SpillEvent}} from fill_layers
+- `leakage_states`: Vector{LeakageState} from fill_layers
+- `domain`: Domain3D struct
+- `output_file`: Path to save animation (default: "multi_layer_saturation.gif")
+- `num_frames`: Number of frames in animation (default: 30)
+- `start_time`: Start time for animation (default: 0.0)
+- `end_time`: End time for animation (default: auto-detect from seqs)
+- `fps`: Frames per second (default: 2)
+- `colormap`: Colormap for saturation (default: :viridis)
+"""
+function animate_multi_layer_saturation(
+    layers::Vector{Layer},
+    seqs::Vector{Vector{SpillEvent}},
+    leakage_states::Vector{LeakageState},
+    domain::Domain3D,
+    reservoir_properties::Vector{ReservoirProperties};
+    output_file::String = "multi_layer_saturation.gif",
+    num_frames::Int = 30,
+    start_time::Float64 = 0.0,
+    end_time::Union{Float64, Nothing} = nothing,
+    fps::Int = 2,
+    colormap::Symbol = :viridis
+)
+    n_layers = length(layers)
+    @assert n_layers == length(seqs) "Number of layers must match number of sequences"
+    @assert n_layers == length(leakage_states) "Number of layers must match number of leakage states"
+
+    # Determine grid layout (3x3 for 9 layers, or calculate appropriate layout)
+    n_cols = ceil(Int, sqrt(n_layers))
+    n_rows = ceil(Int, n_layers / n_cols)
+
+    # Determine end_time from all sequences if not provided
+    if isnothing(end_time)
+        max_times = Float64[]
+        for seq in seqs
+            if !isempty(seq)
+                max_t = maximum(se.timestamp for se in seq)
+                if isfinite(max_t)
+                    push!(max_times, max_t)
+                elseif length(seq) > 1
+                    push!(max_times, seq[end-1].timestamp + 1.0)
+                end
+            end
+        end
+        end_time = isempty(max_times) ? 15.0 : maximum(max_times)
+    end
+
+    # Generate timepoints for animation
+    timepoints = collect(range(start_time, stop=end_time, length=num_frames))
+
+    # Precompute data for each layer
+    println("Computing trap states for $(n_layers) layers × $(num_frames) frames...")
+
+    layer_data = []
+    for (layer_idx, layer) in enumerate(layers)
+        tstruct = layer.trap_structure
+        num_traps = numtraps(tstruct)
+        seq = seqs[layer_idx]
+
+        # Skip empty layers
+        if isempty(seq) || num_traps == 0
+            push!(layer_data, nothing)
+            continue
+        end
+
+        # Get trap states at each timepoint
+        tstates = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
+
+        # Compute trap capacities for saturation calculation
+        trap_capacities = [tstruct.trapvolumes[i] - tstruct.subvolumes[i] for i in 1:num_traps]
+
+        push!(layer_data, (
+            tstruct = tstruct,
+            num_traps = num_traps,
+            tstates = tstates,
+            trap_capacities = trap_capacities,
+            pad = layer.boundary_padding,
+            name = layer.name,
+            leakage_state = leakage_states[layer_idx]
+        ))
+    end
+
+    # Get grid size from first layer (assume all layers have same size after unpadding)
+    first_valid_idx = findfirst(!isnothing, layer_data)
+    if isnothing(first_valid_idx)
+        error("No valid layers found")
+    end
+
+    first_layer = layer_data[first_valid_idx]
+    pad = first_layer.pad
+    topo_size = size(first_layer.tstruct.topography)
+    nx_padded, ny_padded = topo_size
+    nx = nx_padded - 2 * pad
+    ny = ny_padded - 2 * pad
+
+    # Set up figure with grid layout
+    fig = Figure(size = (400 * n_cols, 350 * n_rows + 100))
+
+    x_coords = range(0, nx * domain.dx, length=nx)
+    y_coords = range(0, ny * domain.dy, length=ny)
+
+    # Create observables and axes for each layer
+    saturation_observables = []
+    axes = []
+
+    for layer_idx in 1:n_layers
+        row = div(layer_idx - 1, n_cols) + 1
+        col = mod(layer_idx - 1, n_cols) + 1
+
+        saturation_data = Observable(zeros(Float64, nx, ny))
+        push!(saturation_observables, saturation_data)
+
+        layer_name = isnothing(layer_data[layer_idx]) ? "Layer $layer_idx" : layer_data[layer_idx].name
+
+        ax = Axis(fig[row, col],
+                  title = layer_name,
+                  xlabel = col == 1 ? "X (m)" : "",
+                  ylabel = row == n_rows ? "Y (m)" : "",
+                  aspect = DataAspect(),
+                  xticklabelsvisible = (row == n_rows),
+                  yticklabelsvisible = (col == 1))
+
+        hm = heatmap!(ax, x_coords, y_coords, saturation_data,
+                      colormap = colormap,
+                      colorrange = (0.0, 1.0))
+
+        push!(axes, ax)
+    end
+
+    # Add a shared colorbar
+    Colorbar(fig[:, n_cols + 1], colormap = colormap, colorrange = (0.0, 1.0),
+             label = "CO2 Saturation")
+
+    # Add overall title with time
+    time_label = Observable("Time: 0.0 years")
+    Label(fig[0, :], time_label, fontsize = 20, font = :bold)
+
+    println("Creating animation...")
+
+    # Create the animation
+    record(fig, output_file, eachindex(timepoints); framerate=fps) do frame_idx
+        tp = timepoints[frame_idx]
+
+        total_draining_all_layers = 0
+        max_saturation_all_layers = 0.0
+
+        for layer_idx in 1:n_layers
+            ld = layer_data[layer_idx]
+
+            if isnothing(ld)
+                # Empty layer - just zeros
+                saturation_observables[layer_idx][] = zeros(Float64, nx, ny)
+                continue
+            end
+
+            filled, volumes, _ = ld.tstates[frame_idx]
+            leakage_state = ld.leakage_state
+
+            # Create saturation map (on padded grid, then remove padding)
+            saturation_map_padded = zeros(Float64, nx_padded, ny_padded)
+
+            max_saturation = 0.0
+            num_draining = 0
+
+            for trap_id in 1:ld.num_traps
+                volume = volumes[trap_id]
+
+                # For draining traps, compute drainage-adjusted volume
+                if leakage_state.draining[trap_id]
+                    drained_vol = compute_volume_with_drainage(trap_id, tp, leakage_state)
+                    if !isnothing(drained_vol)
+                        volume = drained_vol
+                    end
+                    num_draining += 1
+                end
+
+                # Compute saturation = volume / capacity
+                capacity = ld.trap_capacities[trap_id]
+                if capacity > 0.0
+                    saturation = min(1.0, volume / capacity)
+                else
+                    saturation = 0.0
+                end
+
+                max_saturation = max(max_saturation, saturation)
+
+                # Fill the trap footprint with this saturation
+                if saturation > 0.0
+                    footprint = ld.tstruct.footprints[trap_id]
+                    for idx in footprint
+                        saturation_map_padded[idx] = max(saturation_map_padded[idx], saturation)
+                    end
+                end
+            end
+
+            # Remove padding
+            saturation_map = saturation_map_padded[pad+1:end-pad, pad+1:end-pad]
+
+            # Rescale the saturation_map to account for the sand_irreducible_water_saturation
+            saturation_map *= 1-reservoir_properties[layer_idx].sand_irreducible_water_saturation
+
+            # Update observable
+            saturation_observables[layer_idx][] = saturation_map
+
+            total_draining_all_layers += num_draining
+            max_saturation_all_layers = max(max_saturation_all_layers, max_saturation)
+        end
+
+        # Update time label
+        time_label[] = "Time: $(round(tp, digits=2)) years"
 
         if frame_idx % 10 == 0 || frame_idx == length(timepoints)
             println("  Frame $(frame_idx)/$(length(timepoints))")

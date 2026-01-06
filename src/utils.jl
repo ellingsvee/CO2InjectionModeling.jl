@@ -1,6 +1,6 @@
 import Graphs
 
-export reconstruct_3d_lithology, create_trap_mask_3d, scale_unit_volume_to_physical, get_all_parents, convert_injection_event_to_weather_event
+export reconstruct_3d_lithology, create_trap_mask_3d, scale_unit_volume_to_physical, get_all_parents, get_all_descendants, convert_injection_event_to_weather_event
 export verify_mass_conservation, compute_total_stored_volume, compute_total_leaked_volume
 
 """
@@ -278,6 +278,24 @@ function get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
 end
 
 
+"""
+    get_all_descendants(tstruct::TrapStructure, trap_id::Int) -> Vector{Int}
+
+Get all descendants (children, grandchildren, etc.) of a trap.
+Returns a vector of trap IDs in breadth-first order.
+"""
+function get_all_descendants(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
+    descendants = Int[]
+    to_process = collect(subtrapsof(tstruct, trap_id))
+    while !isempty(to_process)
+        current = popfirst!(to_process)
+        push!(descendants, current)
+        append!(to_process, subtrapsof(tstruct, current))
+    end
+    return descendants
+end
+
+
 function convert_injection_event_to_weather_event(
         injection_event::Vector{InjectionEvent},
         reservoir_properties::ReservoirProperties,
@@ -289,20 +307,41 @@ end
 
 
 """
-    compute_total_stored_volume(spill_events, tstruct, end_time) -> Float64
+    compute_total_stored_volume(spill_events, tstruct, end_time; leakage_state=nothing) -> Float64
 
 Compute the total CO2 volume stored in all traps at a given time (in SWIM units).
+
+If leakage_state is provided, accounts for residual drainage from draining traps.
 """
 function compute_total_stored_volume(
     spill_events::Vector{SpillEvent},
     tstruct::TrapStructure,
-    end_time::Float64
+    end_time::Float64;
+    leakage_state::Union{LeakageState, Nothing}=nothing
 )::Float64
     # Get trap states at end time
     tstates = trap_states_at_timepoints(tstruct, spill_events, [end_time]; verbose=false)
     water_content = tstates[1][2]  # Volume in each trap
 
-    return sum(water_content)
+    total = 0.0
+    for trap_id in 1:numtraps(tstruct)
+        vol = water_content[trap_id]
+
+        # If this trap is draining and we have leakage state, account for drainage
+        # Note: we check 'draining' not 'leaking' because descendants of leaking traps
+        # also drain, even though they're not at the leakage threshold themselves
+        if !isnothing(leakage_state) && leakage_state.draining[trap_id]
+            # Use the drainage-adjusted volume instead
+            drained_vol = compute_volume_with_drainage(trap_id, end_time, leakage_state)
+            if !isnothing(drained_vol)
+                vol = drained_vol
+            end
+        end
+
+        total += vol
+    end
+
+    return total
 end
 
 

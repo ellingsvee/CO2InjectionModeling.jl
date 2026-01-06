@@ -219,7 +219,21 @@ function _generate_layer_snapshot(
     num_with_co2 = count(v -> v > 0, volumes)
 
     # Stored volume (convert from SWIM to physical)
-    stored_swim = sum(volumes)
+    # IMPORTANT: Account for drainage! Draining traps have reduced volumes
+    stored_swim = 0.0
+    for trap_id in 1:num_traps
+        vol = volumes[trap_id]
+
+        # Apply drainage adjustment if this trap is draining
+        if leakage_state.draining[trap_id]
+            drained_vol = compute_volume_with_drainage(trap_id, timestamp, leakage_state)
+            if !isnothing(drained_vol)
+                vol = drained_vol
+            end
+        end
+
+        stored_swim += vol
+    end
     stored_m3 = swim_volume_to_physical_volume(stored_swim, rprops, domain)
 
     # Height statistics

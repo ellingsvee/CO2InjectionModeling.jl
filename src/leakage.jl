@@ -11,6 +11,7 @@ using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, Fille
 export compute_leakage_volume, initialize_leakage_state, find_leakage_location
 export volume_to_height, compute_leakage_time_estimate, generate_leakage_weather_events
 export get_true_topography_bottom, get_trap_bottom_elevation
+export compute_drainable_volume, compute_volume_with_drainage, compute_residual_drainage_rate
 
 
 """
@@ -171,14 +172,166 @@ end
 
 
 """
-    initialize_leakage_state(tstruct::TrapStructure, z_vol_tables, leakage_height::Float64) -> LeakageState
+    compute_drainable_volume(initial_volume::Float64, residual_saturation::Float64) -> Float64
+
+Compute the volume of CO2 that can drain from a trap during residual leakage.
+
+The drainable volume is the portion that will leak out over the residual leakage time.
+The residual (non-drainable) fraction remains trapped in pore spaces.
+
+Parameters:
+- `initial_volume`: Volume at the time leakage started
+- `residual_saturation`: Fraction of CO2 that remains trapped (0 to 1)
+
+Returns:
+- Drainable volume (initial_volume * (1 - residual_saturation))
+"""
+function compute_drainable_volume(initial_volume::Float64, residual_saturation::Float64)::Float64
+    return initial_volume * (1.0 - residual_saturation)
+end
+
+
+"""
+    compute_volume_with_drainage(trap_id::Int, current_time::Float64, leakage_state::LeakageState) -> Union{Float64, Nothing}
+
+Compute the current stored volume in a draining trap, accounting for residual drainage.
+
+The volume decreases linearly from initial_volume to residual_volume over the
+residual_leakage_time period after drainage starts.
+
+A trap is "draining" if it's either:
+1. Directly leaking (reached leakage threshold, edge=0), or
+2. A filled ancestor whose CO2 flows through a leaking trap
+
+Parameters:
+- `trap_id`: ID of the trap
+- `current_time`: Current simulation time
+- `leakage_state`: Current leakage state
+
+Returns:
+- For draining traps: Current volume accounting for drainage
+- For non-draining traps: `nothing` (caller should use actual volume from SWIM)
+
+If residual_leakage_time is 0 or Inf, no drainage occurs (returns initial volume).
+"""
+function compute_volume_with_drainage(
+    trap_id::Int,
+    current_time::Float64,
+    leakage_state::LeakageState
+)::Union{Float64, Nothing}
+    # If not draining, return nothing - caller should use actual volume from SWIM
+    if !leakage_state.draining[trap_id]
+        return nothing
+    end
+
+    # Get leakage parameters
+    t_leak = leakage_state.leakage_start_time[trap_id]
+
+    # If current_time is before leakage started, the trap wasn't leaking yet
+    # Return nothing so caller uses actual volume from SWIM
+    if current_time < t_leak
+        return nothing
+    end
+
+    initial_vol = leakage_state.initial_volume_at_leak[trap_id]
+    residual_sat = leakage_state.residual_saturation
+    residual_time = leakage_state.residual_leakage_time
+
+    # If no drainage (residual_time is Inf or 0, or residual_sat is 1)
+    if !isfinite(residual_time) || residual_time <= 0.0 || residual_sat >= 1.0
+        return initial_vol
+    end
+
+    # Compute time since leakage started
+    time_since_leak = current_time - t_leak
+
+    # Compute residual volume (what remains after full drainage)
+    residual_vol = initial_vol * residual_sat
+
+    # Compute drainable volume
+    drainable_vol = initial_vol - residual_vol
+
+    # Linear drainage over residual_leakage_time
+    if time_since_leak >= residual_time
+        # Drainage complete
+        return residual_vol
+    else
+        # Partial drainage
+        fraction_drained = time_since_leak / residual_time
+        return initial_vol - drainable_vol * fraction_drained
+    end
+end
+
+
+"""
+    compute_residual_drainage_rate(trap_id::Int, current_time::Float64, leakage_state::LeakageState) -> Float64
+
+Compute the current residual drainage rate from a leaking trap.
+
+This is the rate at which CO2 is draining from the trap due to residual leakage
+(separate from the pass-through of new injections).
+
+Parameters:
+- `trap_id`: ID of the trap
+- `current_time`: Current simulation time
+- `leakage_state`: Current leakage state
+
+Returns:
+- Drainage rate (volume per time unit). Returns 0 if not draining.
+"""
+function compute_residual_drainage_rate(
+    trap_id::Int,
+    current_time::Float64,
+    leakage_state::LeakageState
+)::Float64
+    # If not leaking, no drainage
+    if !leakage_state.leaking[trap_id]
+        return 0.0
+    end
+
+    # Get leakage parameters
+    t_leak = leakage_state.leakage_start_time[trap_id]
+    initial_vol = leakage_state.initial_volume_at_leak[trap_id]
+    residual_sat = leakage_state.residual_saturation
+    residual_time = leakage_state.residual_leakage_time
+
+    # If no drainage configured
+    if !isfinite(residual_time) || residual_time <= 0.0 || residual_sat >= 1.0
+        return 0.0
+    end
+
+    # Check if we're still in the drainage period
+    time_since_leak = current_time - t_leak
+    if time_since_leak < 0.0 || time_since_leak >= residual_time
+        # Not yet started or already completed
+        return 0.0
+    end
+
+    # Constant drainage rate during the drainage period
+    drainable_vol = initial_vol * (1.0 - residual_sat)
+    return drainable_vol / residual_time
+end
+
+
+"""
+    initialize_leakage_state(tstruct::TrapStructure, z_vol_tables, leakage_height::Float64,
+                             residual_saturation::Float64, residual_leakage_time::Float64) -> LeakageState
 
 Initialize the leakage state for a layer, precomputing leakage volumes for all traps.
+
+Parameters:
+- `tstruct`: The trap structure for the layer
+- `z_vol_tables`: Volume-elevation tables for each trap
+- `leakage_height`: Height threshold at which leakage occurs
+- `residual_saturation`: Fraction of CO2 that remains after drainage (sand_residual_co2_saturation)
+- `residual_leakage_time`: Time over which residual drainage occurs
 """
 function initialize_leakage_state(
     tstruct::TrapStructure,
     z_vol_tables::Vector{Tuple{Vector{Float64}, Vector{Float64}}},
-    leakage_height::Float64
+    leakage_height::Float64,
+    residual_saturation::Float64,
+    residual_leakage_time::Float64
 )::LeakageState
 
     num_traps = numtraps(tstruct)
@@ -193,10 +346,14 @@ function initialize_leakage_state(
 
     return LeakageState(
         fill(false, num_traps),           # leaking
+        fill(false, num_traps),           # draining
         leakage_volumes,                   # leakage_volume
         fill(Inf, num_traps),             # leakage_start_time
         LeakageRecord[],                   # leakage_records
-        leakage_height                     # leakage_height
+        leakage_height,                    # leakage_height
+        fill(0.0, num_traps),             # initial_volume_at_leak (0 until leakage starts)
+        residual_saturation,               # residual_saturation
+        residual_leakage_time              # residual_leakage_time
     )
 end
 
@@ -367,17 +524,21 @@ end
 Generate WeatherEvents for the overlying layer from leakage data.
 
 The leakage rate at any time t equals:
-    leakage_rate(t) = injection_rate(t) - d(stored)/dt
+    leakage_rate(t) = injection_rate(t) - d(stored)/dt + residual_drainage_rate(t)
 
-Where d(stored)/dt is the rate at which traps are filling. This is computed by:
-1. Computing total stored volume at each spill event timestamp
-2. Computing the filling rate between consecutive events
-3. Subtracting filling rate from injection rate to get leakage rate
+Where:
+- d(stored)/dt is the rate at which non-leaking traps are filling
+- residual_drainage_rate(t) is the rate at which leaking traps are draining their existing CO2
+
+When multiple traps are leaking, the total leakage rate is distributed among all active
+leakage locations proportionally to each trap's inflow rate. This preserves mass conservation:
+the sum of rates at all leakage locations equals the total leakage rate.
 
 This approach correctly handles:
 - The initial filling period (before leakage, leakage_rate = 0)
 - The transition period (some traps filling, some leaking)
 - Steady state (all contributing traps filled, leakage_rate = injection_rate)
+- Residual drainage (existing CO2 draining from leaking traps over time)
 """
 function generate_leakage_weather_events(
     leakage_state::LeakageState,
@@ -399,10 +560,16 @@ function generate_leakage_weather_events(
     # 1. Leakage start times
     # 2. Weather event timestamps (injection rates change)
     # 3. Spill event timestamps (fill rates change)
+    # 4. Residual drainage end times (t_leak + residual_leakage_time)
     timestamps = Set{Float64}()
 
     for record in leakage_state.leakage_records
         push!(timestamps, record.start_time)
+        # Add the time when residual drainage ends for this trap
+        if isfinite(leakage_state.residual_leakage_time)
+            drainage_end_time = record.start_time + leakage_state.residual_leakage_time
+            push!(timestamps, drainage_end_time)
+        end
     end
 
     for we in source_weather_events
@@ -423,10 +590,10 @@ function generate_leakage_weather_events(
         return WeatherEvent[]
     end
 
-    # Compute stored volume at each timestamp
+    # Compute stored volume at each timestamp, accounting for drainage
     stored_at_time = Dict{Float64, Float64}()
     for t in sorted_times
-        stored = compute_total_stored_at_time(spill_events, tstruct, t)
+        stored = compute_total_stored_at_time_with_drainage(spill_events, tstruct, t, leakage_state)
         stored_at_time[t] = stored
     end
 
@@ -450,10 +617,8 @@ function generate_leakage_weather_events(
     end
 
     # Build WeatherEvents using mass balance: leakage = injection - d(stored)/dt
+    # Note: When drainage is happening, d(stored)/dt is negative, which increases leakage_rate
     events = WeatherEvent[]
-
-    # Get the leakage location (use first record for single-location model)
-    leakage_loc = leakage_state.leakage_records[1].leakage_location
 
     for i in 1:length(sorted_times)
         t = sorted_times[i]
@@ -465,6 +630,7 @@ function generate_leakage_weather_events(
 
         # Compute filling rate (d(stored)/dt)
         # Use the interval from t to the next timestamp
+        # When drainage is happening, this will be negative
         if i < length(sorted_times)
             t_next = sorted_times[i + 1]
             dt = t_next - t
@@ -476,21 +642,55 @@ function generate_leakage_weather_events(
                 filling_rate = 0.0
             end
         else
-            # Last timestamp - assume steady state (no more filling)
-            filling_rate = 0.0
+            # Last timestamp - check if we're still draining
+            total_drainage_rate = 0.0
+            for trap_id in 1:numtraps(tstruct)
+                total_drainage_rate += compute_residual_drainage_rate(trap_id, t, leakage_state)
+            end
+            # If draining, filling_rate is negative (stored is decreasing)
+            filling_rate = -total_drainage_rate
         end
 
         # Leakage rate = injection rate - filling rate
+        # If filling_rate is negative (drainage), this increases leakage_rate
         injection_rate = get_injection_rate_at(t)
-        leakage_rate = max(0.0, injection_rate - filling_rate)
+        total_leakage_rate = max(0.0, injection_rate - filling_rate)
 
-        # Create rate matrix with leakage at the location
+        # Distribute leakage among all active leakage locations
+        # Active = leakage has started (start_time <= t)
+        active_records = filter(r -> r.start_time <= t, leakage_state.leakage_records)
+
+        # Create rate matrix
         rate_matrix = zeros(Float64, target_grid_size)
-        if leakage_rate > 0
-            rate_matrix[leakage_loc] = leakage_rate
+
+        if total_leakage_rate > 0 && !isempty(active_records)
+            # Get inflow rate to each active leaking trap to determine distribution weights
+            inflow_rates = Float64[]
+            for record in active_records
+                inflow = get_trap_inflow_at_time(record.trap_id, t, spill_events)
+                push!(inflow_rates, max(0.0, inflow))
+            end
+
+            total_inflow = sum(inflow_rates)
+
+            if total_inflow > 0
+                # Distribute proportionally to inflow rates (preserves mass conservation)
+                for (j, record) in enumerate(active_records)
+                    weight = inflow_rates[j] / total_inflow
+                    loc = record.leakage_location
+                    rate_matrix[loc] += weight * total_leakage_rate
+                end
+            else
+                # Fallback: equal distribution if no inflow information
+                equal_rate = total_leakage_rate / length(active_records)
+                for record in active_records
+                    loc = record.leakage_location
+                    rate_matrix[loc] += equal_rate
+                end
+            end
         end
 
-        # Add event
+        # Add event if there's any leakage
         if sum(rate_matrix) > 0
             push!(events, WeatherEvent(t, rate_matrix))
         end
@@ -505,6 +705,7 @@ end
     compute_total_stored_at_time(spill_events, tstruct, time) -> Float64
 
 Compute the total stored volume at a given time using the spill event sequence.
+Does not account for residual drainage from leaking traps.
 """
 function compute_total_stored_at_time(
     spill_events::Vector{SpillEvent},
@@ -515,6 +716,43 @@ function compute_total_stored_at_time(
     tstates = trap_states_at_timepoints(tstruct, spill_events, [time]; verbose=false)
     volumes = tstates[1][2]  # Volume in each trap
     return sum(volumes)
+end
+
+
+"""
+    compute_total_stored_at_time_with_drainage(spill_events, tstruct, time, leakage_state) -> Float64
+
+Compute the total stored volume at a given time, accounting for residual drainage.
+
+For draining traps (leaking traps and their descendants), the stored volume decreases
+over time as CO2 drains out. This function uses compute_volume_with_drainage to get
+the correct volume for each trap.
+"""
+function compute_total_stored_at_time_with_drainage(
+    spill_events::Vector{SpillEvent},
+    tstruct::TrapStructure,
+    time::Float64,
+    leakage_state::LeakageState
+)::Float64
+    # Get base trap states
+    tstates = trap_states_at_timepoints(tstruct, spill_events, [time]; verbose=false)
+    volumes = tstates[1][2]  # Volume in each trap
+
+    total = 0.0
+    for trap_id in 1:numtraps(tstruct)
+        vol = volumes[trap_id]
+        # Check 'draining' not 'leaking' - descendants of leaking traps also drain
+        if leakage_state.draining[trap_id]
+            # Draining trap - use drainage-adjusted volume if available
+            drained_vol = compute_volume_with_drainage(trap_id, time, leakage_state)
+            if !isnothing(drained_vol)
+                vol = drained_vol
+            end
+        end
+        total += vol
+    end
+
+    return total
 end
 
 
