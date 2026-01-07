@@ -1,5 +1,6 @@
 using CO2InjectionModeling
 using SurfaceWaterIntegratedModeling
+using Printf
 
 # Setup similar to debugging_single_layer.jl
 boundary_condition = :closed
@@ -7,11 +8,14 @@ topography = load_sleipner_topography()
 domain = create_domain_from_topography(topography, 1.0)
 layers = analyze_base_surfaces(topography; boundary_condition=boundary_condition)
 
-trap_topo = layers[1].trap_structure.topography
-xy = CartesianIndex(div(size(trap_topo, 1), 2), div(size(trap_topo, 2), 2))
+# Load injection location from feeder chimney data
+xy, (utm_x, utm_y, depth) = load_feeder_location(topography)
+println("Injection location loaded from feeder data:")
+println("  Grid indices: $xy")
+println("  UTM coordinates: ($utm_x, $utm_y)")
+println("  Depth: $depth m")
 injection_events = generate_sleipner_injection_events(layers, xy)
 
-# Create reservoir properties with a VERY LOW leakage height to force leakage
 layer_idx = 1
 rprops = generate_reservoir_properties_for_sleipner_layers()
 
@@ -23,29 +27,6 @@ seqs, leakage_states = fill_layers(
     injection_events;
     verbose=false
 );
-
-# Print drainage statistics for each layer
-println("\n=== Leakage and Drainage Statistics ===")
-for (layer_idx, leakage_state) in enumerate(leakage_states)
-    tstruct = layers[layer_idx].trap_structure
-    num_leaking = sum(leakage_state.leaking)
-    num_draining = sum(leakage_state.draining)
-    num_records = length(leakage_state.leakage_records)
-
-    if num_records > 0
-        total_initial_vol = sum(leakage_state.initial_volume_at_leak[i] for i in 1:numtraps(tstruct) if leakage_state.draining[i]; init=0.0)
-        residual_sat = rprops[layer_idx].sand_residual_co2_saturation
-        total_residual_vol = total_initial_vol * residual_sat
-
-        println("Layer $layer_idx ($(layers[layer_idx].name)):")
-        println("  Leaking traps: $(num_leaking)")
-        println("  Draining traps: $(num_draining)")
-        println("  Initial vol in draining: $(round(total_initial_vol, digits=1)) SWIM units")
-        println("  Residual vol after drainage: $(round(total_residual_vol, digits=1)) SWIM units")
-    else
-        println("Layer $layer_idx ($(layers[layer_idx].name)): No leakage")
-    end
-end
 
 # Generate multi-layer animations
 println("\n=== Generating Multi-Layer Animations ===")
@@ -90,19 +71,6 @@ snapshots = generate_reservoir_snapshots(
     verbose=true
 )
 
-# Print summaries at key timepoints
-println("\n=== Snapshot Summaries ===")
-for snapshot in snapshots[1:4:end]  # Every 4th snapshot
-    print_snapshot_summary(snapshot)
-end
-
-# Print detailed layer info for final snapshot
-println("\n=== Final Snapshot - Layer Details ===")
-final_snapshot = snapshots[end]
-for layer_snapshot in final_snapshot.layer_snapshots
-    print_layer_snapshot_summary(layer_snapshot)
-end
-
 # Generate timeseries plots
 println("\n=== Generating Timeseries Plots ===")
 
@@ -121,5 +89,46 @@ plot_layer_fractions_timeseries(
     output_file="layer_fractions_timeseries.png",
     title="CO2 Distribution Across Layers Over Time"
 )
+
+# Verify mass conservation
+println("\n=== Mass Conservation Verification ===")
+println("Checking that total_injected = total_stored + total_leaked at each snapshot...\n")
+
+# Print table header
+println("Time (yr) | Injected (m³) | Stored (m³) | Leaked (m³) | Error (m³) | Error (%)")
+println("-" ^ 85)
+
+# Track maximum error
+max_error = 0.0
+max_error_percent = 0.0
+
+for snapshot in snapshots
+    error_m3 = snapshot.mass_balance_error_m3
+    error_pct = snapshot.mass_balance_error_percent
+
+    global max_error = max(max_error, abs(error_m3))
+    global max_error_percent = max(max_error_percent, error_pct)
+
+    @printf("%8.2f  | %13.2e | %11.2e | %11.2e | %10.2e | %8.4f\n",
+            snapshot.timestamp,
+            snapshot.total_injected_m3,
+            snapshot.total_stored_m3,
+            snapshot.total_leaked_m3,
+            error_m3,
+            error_pct)
+end
+
+println("-" ^ 85)
+println("\nMass Conservation Summary:")
+println("  Maximum absolute error: $(max_error) m³")
+println("  Maximum relative error: $(max_error_percent) %")
+
+# Check if mass is conserved within tolerance
+tolerance_percent = 0.01  # 0.01% tolerance
+if max_error_percent < tolerance_percent
+    println("  ✓ Mass is conserved (within $(tolerance_percent)% tolerance)")
+else
+    println("  ✗ Mass conservation violated! Error exceeds $(tolerance_percent)% tolerance")
+end
 
 println("\nTest completed!")

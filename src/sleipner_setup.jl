@@ -3,6 +3,7 @@ using Statistics
 using CairoMakie
 export SleipnerTopography, load_sleipner_topography, create_domain_from_topography
 export generate_reservoir_properties_for_sleipner_layers, generate_sleipner_injection_events
+export load_feeder_location, utm_to_grid_index
 
 struct SleipnerTopography
     surfaces::Dict{String, Any}
@@ -148,6 +149,7 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     g = 9.81 # m/s^2
     leakage_heights = shale_pressure_threshold ./ (brine_co2_density_differences .* g)
 
+
     # Simulate impermeable caprock by setting very high leakage height at top layer
     leakage_heights[end] = Inf
 
@@ -245,4 +247,200 @@ function generate_sleipner_injection_events(
     end
 
     return injection_events
+end
+
+
+"""
+    parse_zmap_polygon(filepath::String)
+
+Parse a Z-MAP format polygon file and extract the coordinates.
+
+# Arguments
+- `filepath`: Path to the Z-MAP file
+
+# Returns
+- `Vector{Tuple{Float64, Float64, Float64}}`: Vector of (x, y, z) tuples representing polygon vertices
+
+# Notes
+- The Z-MAP format has a header followed by coordinate data
+- Each data line contains: X (easting), Y (northing), Z (depth), and segment ID
+- The parser skips the header and extracts only the coordinate data
+"""
+function parse_zmap_polygon(filepath::String)::Vector{Tuple{Float64, Float64, Float64}}
+    coordinates = Tuple{Float64, Float64, Float64}[]
+
+    open(filepath, "r") do file
+        in_data_section = false
+
+        for line in eachline(file)
+            # Skip comment lines
+            if startswith(line, "!")
+                continue
+            end
+
+            # Look for the @ symbol that marks the end of header
+            if startswith(line, "@") && !startswith(line, "@FREE")
+                in_data_section = true
+                continue
+            end
+
+            # Parse data lines (after the header, before empty lines)
+            if in_data_section && !isempty(strip(line))
+                # Split by whitespace and extract X, Y, Z values
+                parts = split(line)
+                if length(parts) >= 3
+                    try
+                        x = parse(Float64, parts[1])
+                        y = parse(Float64, parts[2])
+                        z = parse(Float64, parts[3])
+                        push!(coordinates, (x, y, z))
+                    catch
+                        # Skip lines that don't parse as coordinates
+                        continue
+                    end
+                end
+            end
+        end
+    end
+
+    return coordinates
+end
+
+
+"""
+    polygon_centroid(coords::Vector{Tuple{Float64, Float64, Float64}})
+
+Calculate the centroid of a polygon defined by (x, y, z) coordinates.
+
+# Arguments
+- `coords`: Vector of (x, y, z) tuples representing polygon vertices
+
+# Returns
+- `Tuple{Float64, Float64, Float64}`: Centroid coordinates (x, y, z)
+
+# Notes
+- Uses the standard 2D centroid formula for the x,y coordinates
+- Z value is averaged across all points
+- If the polygon is closed (first point equals last point), the last point is excluded
+"""
+function polygon_centroid(coords::Vector{Tuple{Float64, Float64, Float64}})::Tuple{Float64, Float64, Float64}
+    if isempty(coords)
+        error("Cannot compute centroid of empty polygon")
+    end
+
+    # Remove last point if polygon is closed (first == last)
+    working_coords = coords
+    if length(coords) > 1 && coords[1] == coords[end]
+        working_coords = coords[1:end-1]
+    end
+
+    # Calculate centroid using simple average (works for convex polygons)
+    n = length(working_coords)
+    x_sum = sum(c[1] for c in working_coords)
+    y_sum = sum(c[2] for c in working_coords)
+    z_sum = sum(c[3] for c in working_coords)
+
+    return (x_sum / n, y_sum / n, z_sum / n)
+end
+
+
+"""
+    utm_to_grid_index(
+        utm_x::Float64,
+        utm_y::Float64,
+        topography::SleipnerTopography;
+        grid_origin_x::Float64 = 436800.0,
+        grid_origin_y::Float64 = 6468100.0
+    )
+
+Convert UTM coordinates to grid indices in the Sleipner model.
+
+# Arguments
+- `utm_x`: UTM easting coordinate (meters)
+- `utm_y`: UTM northing coordinate (meters)
+- `topography`: SleipnerTopography structure containing grid information
+- `grid_origin_x`: UTM X coordinate of the southwest corner of the grid (default: 436800.0)
+- `grid_origin_y`: UTM Y coordinate of the southwest corner of the grid (default: 6468100.0)
+
+# Returns
+- `CartesianIndex`: Grid indices (i, j) for the given UTM coordinates
+
+# Notes
+- Grid origin defaults are approximate values based on the Sleipner 2019 Benchmark model
+- The function clamps the indices to ensure they fall within the valid grid range
+- The Y-axis direction in grid coordinates may be inverted relative to UTM northing
+"""
+function utm_to_grid_index(
+    utm_x::Float64,
+    utm_y::Float64,
+    topography::SleipnerTopography;
+    grid_origin_x::Float64 = 436800.0,
+    grid_origin_y::Float64 = 6468100.0
+)::CartesianIndex
+    # Convert UTM to grid coordinates
+    grid_x = utm_x - grid_origin_x
+    grid_y = utm_y - grid_origin_y
+
+    # Convert to grid indices (1-based indexing)
+    i = round(Int, grid_x / topography.dx) + 1
+    j = round(Int, grid_y / topography.dy) + 1
+
+    # Clamp to valid grid range
+    i = clamp(i, 1, topography.nx)
+    j = clamp(j, 1, topography.ny)
+
+    return CartesianIndex(i, j)
+end
+
+
+"""
+    load_feeder_location(
+        topography::SleipnerTopography;
+        feeder_file::String = "sleipner/feeders/data/Main_feeder_chimney",
+        grid_origin_x::Float64 = 436800.0,
+        grid_origin_y::Float64 = 6468100.0
+    )
+
+Load the main feeder chimney location from the data file and convert to grid indices.
+
+# Arguments
+- `topography`: SleipnerTopography structure containing grid information
+- `feeder_file`: Path to the feeder chimney Z-MAP file (default: "sleipner/feeders/data/Main_feeder_chimney")
+- `grid_origin_x`: UTM X coordinate of the grid origin (default: 436800.0)
+- `grid_origin_y`: UTM Y coordinate of the grid origin (default: 6468100.0)
+
+# Returns
+- `CartesianIndex`: Grid indices (i, j) for the feeder centroid location
+- `Tuple{Float64, Float64, Float64}`: UTM coordinates of the centroid (x, y, z)
+
+# Example
+```julia
+topography = load_sleipner_topography()
+injection_cell, (utm_x, utm_y, depth) = load_feeder_location(topography)
+println("Feeder location: grid cell \$injection_cell at UTM (\$utm_x, \$utm_y)")
+```
+"""
+function load_feeder_location(
+    topography::SleipnerTopography;
+    feeder_file::String = "sleipner/feeders/data/Main_feeder_chimney",
+    grid_origin_x::Float64 = 436800.0,
+    grid_origin_y::Float64 = 6468100.0
+)::Tuple{CartesianIndex, Tuple{Float64, Float64, Float64}}
+    # Parse the feeder chimney polygon
+    coords = parse_zmap_polygon(feeder_file)
+
+    if isempty(coords)
+        error("Failed to parse coordinates from feeder file: $feeder_file")
+    end
+
+    # Calculate centroid
+    centroid = polygon_centroid(coords)
+    utm_x, utm_y, depth = centroid
+
+    # Convert to grid indices
+    grid_index = utm_to_grid_index(utm_x, utm_y, topography;
+                                   grid_origin_x=grid_origin_x,
+                                   grid_origin_y=grid_origin_y)
+
+    return (grid_index, centroid)
 end
