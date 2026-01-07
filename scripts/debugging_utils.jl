@@ -257,9 +257,9 @@ function generate_injection_events(layers::Vector{Layer})
         # Optionally inject at a second location (trap 9 at (64, 4)) to test multi-site injection
         # Note: (end - 3, end - 3) was outside all leaf traps - CO2 went to runoff
         # injection_rate[64, 4] = rate
-        if i > 3
-            injection_rate[end - 7, end - 3] = rate
-        end
+        # if i > 3
+        #     injection_rate[end - 7, end - 3] = rate
+        # end
 
         bottom_layer_events[i] = InjectionEvent(time, injection_rate)
     end
@@ -277,4 +277,158 @@ function generate_injection_events(layers::Vector{Layer})
     end
 
     return injection_events
+end
+
+"""
+    animate_single_layer_saturation(layer, seq, domain, leakage_state; kwargs...)
+
+Create an animated bird's eye view of CO2 saturation in a single layer.
+
+This visualization shows CO2 saturation (volume/capacity) instead of height,
+which makes residual drainage visible: after leakage starts, the saturation
+in leaking traps decreases from 1.0 down to the residual saturation level.
+
+Parameters:
+- `layer`: Layer struct containing trap_structure
+- `seq`: Vector{SpillEvent} from fill_layer
+- `domain`: Domain3D struct
+- `leakage_state`: LeakageState from fill_layer (required for drainage calculation)
+- `output_file`: Path to save animation (default: "layer_saturation.gif")
+- `num_frames`: Number of frames in animation (default: 30)
+- `start_time`: Start time for animation (default: 0.0)
+- `end_time`: End time for animation (default: auto-detect from seq)
+- `fps`: Frames per second (default: 2)
+- `colormap`: Colormap for saturation (default: :viridis)
+"""
+function animate_single_layer_saturation(
+    layer::Layer,
+    seq::Vector{SpillEvent},
+    domain::Domain3D,
+    leakage_state::LeakageState;
+    output_file::String = "layer_saturation.gif",
+    num_frames::Int = 30,
+    start_time::Float64 = 0.0,
+    end_time::Union{Float64, Nothing} = nothing,
+    fps::Int = 2,
+    colormap::Symbol = :viridis
+)
+    tstruct = layer.trap_structure
+    num_traps = numtraps(tstruct)
+
+    # Determine end_time from sequence if not provided
+    if isnothing(end_time)
+        end_time = maximum(se.timestamp for se in seq)
+        if !isfinite(end_time)
+            end_time = seq[end-1].timestamp + 1.0
+        end
+    end
+
+    # Generate timepoints for animation
+    timepoints = collect(range(start_time, stop=end_time, length=num_frames))
+
+    # Get trap states at each timepoint
+    println("Computing trap states for $(num_frames) frames...")
+    tstates = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
+
+    # Get trap capacities for saturation calculation
+    # Capacity = trapvolume - subvolume (same as fill volume)
+    trap_capacities = [tstruct.trapvolumes[i] - tstruct.subvolumes[i] for i in 1:num_traps]
+
+    # Get grid size (remove padding if present)
+    pad = layer.boundary_padding
+    topo_size = size(tstruct.topography)
+    nx_padded, ny_padded = topo_size
+    nx = nx_padded - 2 * pad
+    ny = ny_padded - 2 * pad
+
+    # Set up figure
+    fig = Figure(size = (800, 700))
+
+    x_coords = range(0, nx * domain.dx, length=nx)
+    y_coords = range(0, ny * domain.dy, length=ny)
+
+    # Create observables for animation
+    saturation_data = Observable(zeros(Float64, nx, ny))
+    time_text = Observable("Time: 0.0 years")
+
+    ax = Axis(fig[1, 1],
+              xlabel = "X (m)",
+              ylabel = "Y (m)",
+              title = time_text,
+              aspect = DataAspect())
+
+    hm = heatmap!(ax, x_coords, y_coords, saturation_data,
+                  colormap = colormap,
+                  colorrange = (0.0, 1.0))
+
+    Colorbar(fig[1, 2], hm, label = "CO2 Saturation (fraction of capacity)")
+
+    # Add layer info
+    Label(fig[0, :], "Layer: $(layer.name) - CO2 Saturation", fontsize = 16)
+
+    println("Creating animation...")
+
+    # Create the animation
+    record(fig, output_file, eachindex(timepoints); framerate=fps) do frame_idx
+        tp = timepoints[frame_idx]
+        filled, volumes, _ = tstates[frame_idx]
+
+        # Create saturation map (on padded grid, then remove padding)
+        saturation_map_padded = zeros(Float64, nx_padded, ny_padded)
+
+        max_saturation = 0.0
+        total_volume = 0.0
+        num_leaking = 0
+
+        for trap_id in 1:num_traps
+            volume = volumes[trap_id]
+
+            # For draining traps (leaking traps and their filled ancestors), compute drainage-adjusted volume
+            # Note: we check 'draining' not 'leaking' because ancestors can drain without being at the leakage threshold
+            if leakage_state.draining[trap_id]
+                drained_vol = compute_volume_with_drainage(trap_id, tp, leakage_state)
+                if !isnothing(drained_vol)
+                    volume = drained_vol
+                end
+            end
+            if leakage_state.leaking[trap_id]
+                num_leaking += 1
+            end
+
+            total_volume += volume
+
+            # Compute saturation = volume / capacity
+            capacity = trap_capacities[trap_id]
+            if capacity > 0.0
+                saturation = min(1.0, volume / capacity)
+            else
+                saturation = 0.0
+            end
+
+            max_saturation = max(max_saturation, saturation)
+
+            # Fill the trap footprint with this saturation
+            if saturation > 0.0
+                footprint = tstruct.footprints[trap_id]
+                for idx in footprint
+                    saturation_map_padded[idx] = max(saturation_map_padded[idx], saturation)
+                end
+            end
+        end
+
+        # Remove padding
+        saturation_map = saturation_map_padded[pad+1:end-pad, pad+1:end-pad]
+
+        # Update observables
+        saturation_data[] = saturation_map
+
+        time_text[] = "Time: $(round(tp, digits=2)) years | Max sat: $(round(max_saturation, digits=2)) | Leaking: $(num_leaking) traps"
+
+        if frame_idx % 10 == 0 || frame_idx == length(timepoints)
+            println("  Frame $(frame_idx)/$(length(timepoints))")
+        end
+    end
+
+    println("Animation saved to: $(output_file)")
+    return nothing
 end

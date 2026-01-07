@@ -29,7 +29,15 @@ function fill_layer(tstruct::TrapStructure{<:Real},
     num_traps = numtraps(tstruct)
     if num_traps == 0
         # No traps - return empty results
-        empty_leakage = LeakageState(Bool[], Float64[], Float64[], LeakageRecord[], reservoir_properties.leakage_height)
+        empty_leakage = LeakageState(
+            Bool[],  # leaking
+            Bool[],  # draining
+            Float64[], Float64[], LeakageRecord[],
+            reservoir_properties.leakage_height,
+            Float64[],  # initial_volume_at_leak
+            reservoir_properties.sand_residual_co2_saturation,
+            reservoir_properties.residual_leakage_time
+        )
         return Vector{SpillEvent}(), empty_leakage
     end
 
@@ -60,14 +68,22 @@ function fill_layer(tstruct::TrapStructure{<:Real},
     leakage_state = if no_leakage
         # Create a leakage state with infinite leakage volumes (no leakage possible)
         LeakageState(
-            fill(false, num_traps),
+            fill(false, num_traps),  # leaking
+            fill(false, num_traps),  # draining
             fill(Inf, num_traps),
             fill(Inf, num_traps),
             LeakageRecord[],
-            Inf
+            Inf,
+            fill(0.0, num_traps),  # initial_volume_at_leak
+            reservoir_properties.sand_residual_co2_saturation,  # residual_saturation
+            reservoir_properties.residual_leakage_time  # residual_leakage_time
         )
     else
-        initialize_leakage_state(tstruct, z_vol_tables, leakage_height)
+        initialize_leakage_state(
+            tstruct, z_vol_tables, leakage_height,
+            reservoir_properties.sand_residual_co2_saturation,
+            reservoir_properties.residual_leakage_time
+        )
     end
 
     # Compute development within the duration of each weather event
@@ -150,7 +166,14 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
             # Mark trap as leaking
             leakage_state.leaking[leak_trap] = true
-            leakage_state.leakage_start_time[leak_trap] = cur_time
+
+            # Only mark as draining if trap has actual volume (not pass-through)
+            # Pass-through traps (volume=0) just forward CO2 to the leak point
+            leakage_vol_check = leakage_state.leakage_volume[leak_trap]
+            if leakage_vol_check > 0
+                leakage_state.draining[leak_trap] = true
+                leakage_state.leakage_start_time[leak_trap] = cur_time
+            end
 
             # Record the leakage for upstream layer
             leakage_location = find_leakage_location(leak_trap, tstruct)
@@ -160,8 +183,39 @@ function _fill_sequence_for_weather_event_with_leakage!(
                 leakage_location
             ))
 
-            # Cap the trap amount at leakage volume
+            # Record the initial volume at the time leakage started (for residual drainage)
             leakage_vol = leakage_state.leakage_volume[leak_trap]
+            leakage_state.initial_volume_at_leak[leak_trap] = leakage_vol
+
+            # NOTE: We do NOT mark ancestors as draining. Ancestors are DOWNSTREAM traps
+            # (traps this trap spills into). Their CO2 does not flow through this trap.
+            # They simply stop receiving spillover from this trap.
+            #
+            # Only DESCENDANTS should drain - they are UPSTREAM traps whose CO2 flows
+            # INTO this trap and then out through the leak.
+            #
+            # IMPORTANT: Only mark descendants as draining if this trap has actual volume.
+            # Pass-through traps (volume=0) don't cause drainage - they just pass CO2 through.
+            # Drainage only happens when there's actual CO2 to drain.
+
+            # Mark all filled descendants as draining too - their CO2 flows INTO this trap
+            # and will drain out through the leak over the residual_leakage_time
+            # Only do this if the leaking trap has actual volume (not a pass-through)
+            if leakage_vol > 0
+                descendants = get_all_descendants(tstruct, leak_trap)
+                for desc_id in descendants
+                    if filled_traps[desc_id] && !leakage_state.draining[desc_id]
+                        leakage_state.draining[desc_id] = true
+                        leakage_state.leakage_start_time[desc_id] = cur_time
+                        # Get descendant's volume at leak time
+                        desc_vol = cur_amounts[desc_id].amount
+                        leakage_state.initial_volume_at_leak[desc_id] = desc_vol
+                        verbose && println("  Descendant trap $(desc_id) marked as draining (vol=$(round(desc_vol, digits=2)))")
+                    end
+                end
+            end
+
+            # Cap the trap amount at leakage volume
             cur_amounts[leak_trap] = FilledAmount(leakage_vol, cur_time)
 
             # Mark ONLY the leaking trap as filled with edge=0
@@ -241,6 +295,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
             # For traps that just filled, set their amount to full capacity
             # BUT: if they're leaking, cap at leakage volume instead
+            # Also mark newly filled traps as draining if they feed into a draining trap
             for tix in [u.index for u in fill_updates]
                 if leakage_state.leaking[tix]
                     # Leaking trap - cap at leakage volume (or 0 if pass-through)
@@ -250,6 +305,22 @@ function _fill_sequence_for_weather_event_with_leakage!(
                     # Normal trap - fill to capacity
                     fill_vol = tstruct.trapvolumes[tix] - tstruct.subvolumes[tix]
                     push!(amount_updates, IncrementalUpdate(tix, FilledAmount(fill_vol, cur_time)))
+
+                    # Check if this newly filled trap feeds into a draining chain
+                    # If any descendant (child, grandchild, etc.) is draining, this trap should too
+                    if !leakage_state.draining[tix]
+                        # Check if this trap will spill into a draining trap
+                        # Use spillgraph to find where this trap spills to
+                        spill_target = sgraph.edges[tix]
+                        # Only check if spill_target is a valid trap index (not runoff/boundary)
+                        if spill_target > 0 && spill_target <= num_traps && leakage_state.draining[spill_target]
+                            # This trap spills into a draining trap - it should also drain
+                            leakage_state.draining[tix] = true
+                            leakage_state.leakage_start_time[tix] = cur_time
+                            leakage_state.initial_volume_at_leak[tix] = fill_vol
+                            verbose && println("  Newly filled trap $(tix) marked as draining (feeds into draining trap $(spill_target))")
+                        end
+                    end
                 end
             end
 
@@ -289,20 +360,18 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
     # Make sure all amounts are exactly computed at end
     # Set all times to endtime (or keep as-is if endtime is Inf)
-    # BUT: for leaking traps, cap at leakage volume (or 0 if pass-through)
+    # BUT: for leaking traps, account for residual drainage
     final_time = isfinite(endtime) ? endtime : cur_time
 
     for (trap, cur_fill) ∈ enumerate(cur_amounts)
         if cur_fill.time < endtime
             if leakage_state.leaking[trap]
-                # Leaking trap - ensure capped at effective leakage cap
-                # This is leakage_volume for traps that started leaking themselves,
-                # or 0 for traps in pass-through mode (parent of leaking trap)
-                cap_vol = get_effective_leakage_cap(leakage_state, trap)
-                cur_amounts[trap] = FilledAmount(
-                    min(cur_fill.amount, cap_vol),
-                    final_time
-                )
+                # Leaking trap - compute volume accounting for residual drainage
+                # The stored volume decreases over time as CO2 drains out
+                drained_vol = compute_volume_with_drainage(trap, final_time, leakage_state)
+                # For leaking traps, drained_vol should never be nothing
+                final_vol = isnothing(drained_vol) ? cur_fill.amount : drained_vol
+                cur_amounts[trap] = FilledAmount(final_vol, final_time)
             else
                 cur_amounts[trap] = FilledAmount(
                     SurfaceWaterIntegratedModeling._compute_exact_fill(
@@ -350,11 +419,15 @@ function _fill_sequence_for_weather_event!(seq, sgraph, rateinfo, changetimeest,
     # Create a dummy leakage state with no leakage
     num_traps = numtraps(tstruct)
     leakage_state = LeakageState(
-        fill(false, num_traps),
+        fill(false, num_traps),  # leaking
+        fill(false, num_traps),  # draining
         fill(Inf, num_traps),
         fill(Inf, num_traps),
         LeakageRecord[],
-        Inf
+        Inf,
+        fill(0.0, num_traps),  # initial_volume_at_leak
+        0.0,  # residual_saturation (no residual drainage)
+        Inf   # residual_leakage_time (no residual drainage)
     )
     leakage_time_est = [LeakageTimeEstimate(i, Inf, Inf) for i in 1:num_traps]
 

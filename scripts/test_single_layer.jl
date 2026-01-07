@@ -44,16 +44,45 @@ seq, leakage_state = fill_layer(
 
 println("\n=== Leakage State ===")
 println("Number of leaking traps: $(sum(leakage_state.leaking))")
+println("Number of draining traps: $(sum(leakage_state.draining))")
 println("Number of leakage records: $(length(leakage_state.leakage_records))")
+println("Residual saturation: $(rprops.sand_residual_co2_saturation) ($(round(100*(1-rprops.sand_residual_co2_saturation), digits=1))% will drain)")
+println("Residual leakage time: $(rprops.residual_leakage_time) years")
+
+# Compute drainage statistics
+total_initial_vol_draining = sum(leakage_state.initial_volume_at_leak[i] for i in 1:numtraps(tstruct) if leakage_state.draining[i]; init=0.0)
+total_residual_vol = total_initial_vol_draining * rprops.sand_residual_co2_saturation
+total_drained_vol = total_initial_vol_draining * (1 - rprops.sand_residual_co2_saturation)
+println("\nDrainage statistics (SWIM units):")
+println("  Total initial volume in draining traps: $(round(total_initial_vol_draining, digits=1))")
+println("  Total residual volume (after drainage): $(round(total_residual_vol, digits=1))")
+println("  Total CO2 that will drain out: $(round(total_drained_vol, digits=1))")
 
 if !isempty(leakage_state.leakage_records)
     println("\nLeakage events:")
     for (i, record) in enumerate(leakage_state.leakage_records)
         ancestors = get_all_parents(tstruct, record.trap_id)
+        descendants = get_all_descendants(tstruct, record.trap_id)
         leaking_ancestors = filter(a -> leakage_state.leaking[a], ancestors)
-        println("  $i. Trap $(record.trap_id) started leaking at time $(round(record.start_time, digits=4)) years")
+        draining_descendants = filter(d -> leakage_state.draining[d], descendants)
+        trap_id = record.trap_id
+        initial_vol = leakage_state.initial_volume_at_leak[trap_id]
+        residual_vol = initial_vol * rprops.sand_residual_co2_saturation
+        drainage_end_time = record.start_time + rprops.residual_leakage_time
+
+        # Volume in descendants
+        desc_initial_vol = sum(leakage_state.initial_volume_at_leak[d] for d in draining_descendants; init=0.0)
+        desc_residual_vol = desc_initial_vol * rprops.sand_residual_co2_saturation
+
+        println("  $i. Trap $(trap_id) started leaking at time $(round(record.start_time, digits=4)) years")
         println("     Location: $(record.leakage_location)")
-        println("     Leaking ancestors: $(length(leaking_ancestors)) traps -> total $(1 + length(leaking_ancestors)) traps contributing to this leakage")
+        println("     Initial volume at leak (SWIM units): $(round(initial_vol, digits=2))")
+        println("     Residual volume after drainage: $(round(residual_vol, digits=2))")
+        println("     Drainage ends at: $(round(drainage_end_time, digits=4)) years")
+        println("     Leaking ancestors: $(length(leaking_ancestors)) traps")
+        println("     Draining descendants: $(length(draining_descendants)) traps")
+        println("       Descendants initial volume: $(round(desc_initial_vol, digits=2))")
+        println("       Descendants residual volume: $(round(desc_residual_vol, digits=2))")
     end
 end
 
@@ -119,7 +148,8 @@ if !isempty(leakage_state.leakage_records)
         injected = CO2InjectionModeling.compute_total_injected_amount(injection_events[layer_idx], check_time)
 
         # 2. Compute total stored in layer at check_time (SWIM units -> physical)
-        stored_swim = CO2InjectionModeling.compute_total_stored_volume(seq, tstruct, check_time)
+        # Pass leakage_state to account for residual drainage
+        stored_swim = CO2InjectionModeling.compute_total_stored_volume(seq, tstruct, check_time; leakage_state=leakage_state)
         stored = CO2InjectionModeling.swim_volume_to_physical_volume(stored_swim, rprops, domain)
 
         # 3. Compute total leaked by integrating weather event rates
@@ -164,15 +194,29 @@ end
 println("\nTest completed!")
 
 # Generate visualization
-println("\n=== Generating Animation ===")
+println("\n=== Generating Animations ===")
+println("Generating height-based animation...")
 animate_single_layer_filling(
     layers[layer_idx],
     seq,
     domain;
     output_file="leakage_forced_filling.gif",
     num_frames=30,
-    end_time=15.0,
+    end_time=20.0,
     fps=3,
     # colormap=:phase,
     max_CO2_height=leakage_height
+)
+
+println("\nGenerating saturation-based animation...")
+animate_single_layer_saturation(
+    layers[layer_idx],
+    seq,
+    domain,
+    leakage_state;
+    output_file="leakage_forced_saturation.gif",
+    num_frames=30,
+    end_time=20.0,
+    fps=3,
+    colormap=:viridis
 )

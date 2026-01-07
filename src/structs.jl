@@ -91,16 +91,26 @@ end
     LeakageState
 
 Tracks the leakage state for all traps in a layer during simulation.
-- `leaking`: Boolean vector indicating if each trap is currently leaking
+- `leaking`: Boolean vector indicating if each trap has reached leakage threshold (edge=0)
+- `draining`: Boolean vector indicating if each trap is experiencing residual drainage
+  (includes leaking traps AND their filled ancestors whose CO2 drains through)
 - `leakage_volume`: Volume at which leakage starts for each trap (precomputed from leakage_height)
-- `leakage_start_time`: When leakage started for each trap (Inf if not yet leaking)
+- `leakage_start_time`: When leakage/drainage started for each trap (Inf if not yet)
 - `leakage_records`: Vector of LeakageRecord for generating upstream WeatherEvents
 - `leakage_height`: The threshold height for leakage (from ReservoirProperties)
+- `initial_volume_at_leak`: Volume in each trap when drainage started (for residual drainage)
+- `residual_saturation`: Fraction of CO2 that remains after drainage (from ReservoirProperties)
+- `residual_leakage_time`: Time over which residual drainage occurs (from ReservoirProperties)
 """
 mutable struct LeakageState
     leaking::Vector{Bool}
+    draining::Vector{Bool}
     leakage_volume::Vector{Float64}
     leakage_start_time::Vector{Float64}
     leakage_records::Vector{LeakageRecord}
     leakage_height::Float64
+    # Residual leakage fields
+    initial_volume_at_leak::Vector{Float64}
+    residual_saturation::Float64
+    residual_leakage_time::Float64
 end
