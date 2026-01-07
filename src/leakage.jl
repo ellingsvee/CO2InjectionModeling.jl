@@ -374,10 +374,15 @@ Where d(stored)/dt is the rate at which traps are filling. This is computed by:
 2. Computing the filling rate between consecutive events
 3. Subtracting filling rate from injection rate to get leakage rate
 
+When multiple traps are leaking, the total leakage rate is distributed among all active
+leakage locations proportionally to each trap's inflow rate. This preserves mass conservation:
+the sum of rates at all leakage locations equals the total leakage rate.
+
 This approach correctly handles:
 - The initial filling period (before leakage, leakage_rate = 0)
 - The transition period (some traps filling, some leaking)
 - Steady state (all contributing traps filled, leakage_rate = injection_rate)
+- Multiple leakage locations with proper rate distribution
 """
 function generate_leakage_weather_events(
     leakage_state::LeakageState,
@@ -452,9 +457,6 @@ function generate_leakage_weather_events(
     # Build WeatherEvents using mass balance: leakage = injection - d(stored)/dt
     events = WeatherEvent[]
 
-    # Get the leakage location (use first record for single-location model)
-    leakage_loc = leakage_state.leakage_records[1].leakage_location
-
     for i in 1:length(sorted_times)
         t = sorted_times[i]
 
@@ -482,15 +484,43 @@ function generate_leakage_weather_events(
 
         # Leakage rate = injection rate - filling rate
         injection_rate = get_injection_rate_at(t)
-        leakage_rate = max(0.0, injection_rate - filling_rate)
+        total_leakage_rate = max(0.0, injection_rate - filling_rate)
 
-        # Create rate matrix with leakage at the location
+        # Distribute leakage among all active leakage locations
+        # Active = leakage has started (start_time <= t)
+        active_records = filter(r -> r.start_time <= t, leakage_state.leakage_records)
+
+        # Create rate matrix
         rate_matrix = zeros(Float64, target_grid_size)
-        if leakage_rate > 0
-            rate_matrix[leakage_loc] = leakage_rate
+
+        if total_leakage_rate > 0 && !isempty(active_records)
+            # Get inflow rate to each active leaking trap to determine distribution weights
+            inflow_rates = Float64[]
+            for record in active_records
+                inflow = get_trap_inflow_at_time(record.trap_id, t, spill_events)
+                push!(inflow_rates, max(0.0, inflow))
+            end
+
+            total_inflow = sum(inflow_rates)
+
+            if total_inflow > 0
+                # Distribute proportionally to inflow rates (preserves mass conservation)
+                for (j, record) in enumerate(active_records)
+                    weight = inflow_rates[j] / total_inflow
+                    loc = record.leakage_location
+                    rate_matrix[loc] += weight * total_leakage_rate
+                end
+            else
+                # Fallback: equal distribution if no inflow information
+                equal_rate = total_leakage_rate / length(active_records)
+                for record in active_records
+                    loc = record.leakage_location
+                    rate_matrix[loc] += equal_rate
+                end
+            end
         end
 
-        # Add event
+        # Add event if there's any leakage
         if sum(rate_matrix) > 0
             push!(events, WeatherEvent(t, rate_matrix))
         end
