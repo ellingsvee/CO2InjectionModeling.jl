@@ -137,7 +137,7 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     sand_residual_co2_saturation::Float64 = 0.2
     sand_irreducible_water_saturation::Float64 = 0.3
     shale_pressure_threshold::Float64 = 98000.0
-    residual_leakage_time::Float64 = 5.0 # years
+    residual_leakage_time::Float64 = 2.0 # years
 
     # From L1 up to L9. Using values from paper.
     brine_density = 1020
@@ -229,12 +229,6 @@ function generate_sleipner_injection_events(
         # Create injection rate field (only inject at specified cell)
         injection_rate = zeros(grid_size)
         injection_rate[injection_cell] = rate
-        # xy = CartesianIndex(2,2)
-        # injection_rate[xy] = rate ./ 2
-
-        # xy = CartesianIndex(grid_size[1] - 1,grid_size[2] - 1)
-        # injection_rate[xy] = rate ./ 2
-
         bottom_layer_events[i] = InjectionEvent(time, injection_rate)
     end
 
