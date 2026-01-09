@@ -140,31 +140,38 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     shale_pressure_threshold::Float64 = 98000.0
     residual_leakage_time::Float64 = 5.0 # years
 
-    # From L1 up to L9. Using values from paper.
-    brine_density = 1020
-    co2_densites = fill(425, n_layers) # Think it does not make sense with the current implementation of the mass-tracking to use different densities.
-    brine_co2_density_differences = brine_density .- co2_densites
-
-    # Compute leakage heights for each layer
-    g = 9.81 # m/s^2
-    leakage_heights = shale_pressure_threshold ./ (brine_co2_density_differences .* g)
-    leakage_heights = 20.0 .* ones(n_layers)
-
-
-    # Simulate impermeable caprock by setting very high leakage height at top layer
-    leakage_heights[end] = Inf
+    # Density values from L1 up to L9 (from paper)
+    brine_density = 1020.0
+    co2_density = 425.0  # Average CO2 density
 
     # Create ReservoirProperties for each layer
+    # Note: leakage_height is computed automatically from shale_pressure_threshold
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
     for i in 1:n_layers
-        reservoir_properties[i] = ReservoirProperties(
-            sand_porosity,
-            sand_residual_co2_saturation,
-            sand_irreducible_water_saturation,
-            shale_pressure_threshold,
-            leakage_heights[i],
-            residual_leakage_time
-        )
+        # Top layer has infinite leakage height (impermeable caprock)
+        if i == n_layers
+            reservoir_properties[i] = ReservoirProperties(
+                sand_porosity,
+                sand_residual_co2_saturation,
+                sand_irreducible_water_saturation,
+                shale_pressure_threshold,
+                residual_leakage_time;
+                leakage_height=Inf,  # Explicitly set to Inf for top layer
+                brine_density=brine_density,
+                co2_density=co2_density
+            )
+        else
+            reservoir_properties[i] = ReservoirProperties(
+                sand_porosity,
+                sand_residual_co2_saturation,
+                sand_irreducible_water_saturation,
+                shale_pressure_threshold,
+                residual_leakage_time;
+                # leakage_height computed automatically from pressure
+                brine_density=brine_density,
+                co2_density=co2_density
+            )
+        end
     end
     return reservoir_properties
 end

@@ -15,12 +15,14 @@ when the CO2 column height exceeds a threshold (leakage_height).
 
 import Interpolations
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, FilledAmount
+using Distributions: Normal, LogNormal, Uniform, truncated
 
 export compute_leakage_volume, initialize_leakage_state, find_leakage_location
 export volume_to_height, compute_leakage_time_estimate, generate_leakage_weather_events
 export get_true_topography_bottom, get_trap_bottom_elevation
 export compute_drainable_volume, compute_volume_with_drainage, compute_residual_drainage_rate
 export CachedInterpolations, create_cached_interpolations, volume_to_height_cached
+export sample_leakage_heights
 
 
 #==============================================================================#
@@ -77,6 +79,94 @@ function create_cached_interpolations(
     end
 
     return CachedInterpolations(v2z_funcs, z2v_funcs, true_bottoms)
+end
+
+
+"""
+    sample_leakage_heights(mean_height, num_traps; pressure_threshold, pressure_threshold_std,
+                          pressure_per_trap, brine_density, co2_density) -> Vector{Float64}
+
+Sample per-trap leakage heights using pressure-based spatial variability.
+
+# Arguments
+- `mean_height`: Mean leakage height (meters) - used for constant height case
+- `num_traps`: Number of traps in the layer
+
+# Keyword Arguments
+- `pressure_threshold`: Mean shale pressure threshold (Pa, default 0.0)
+- `pressure_threshold_std`: Standard deviation for pressure threshold (Pa, default 0.0)
+- `pressure_per_trap`: Optional pre-specified per-trap pressures (Pa, overrides sampling)
+- `brine_density`: Brine density (kg/m³, default 1020.0)
+- `co2_density`: CO2 density (kg/m³, default 460.0)
+
+# Returns
+Vector of per-trap leakage heights (meters)
+
+# Behavior
+1. **Pre-specified pressures**: If `pressure_per_trap` is provided, converts those to heights (deterministic)
+2. **Pressure-based variability**: If `pressure_threshold_std > 0`, samples per-trap pressures from Normal distribution and converts to heights using: `h = P / ((ρ_brine - ρ_CO2) * g)`
+3. **Constant pressure**: If `pressure_threshold_std == 0`, converts mean pressure to constant height
+4. **Infinite height**: If `mean_height` is Inf (top layer), returns all Inf
+5. **Constant height**: Otherwise, returns constant `mean_height` (backward compatibility)
+
+# Examples
+```julia
+# Pressure-based spatial variability (recommended)
+heights = sample_leakage_heights(20.0, 100;
+    pressure_threshold=98000.0, pressure_threshold_std=16000.0,
+    brine_density=1020.0, co2_density=460.0)
+
+# Pre-specified per-trap pressures
+pressures = [95000.0, 98000.0, 101000.0, ...]
+heights = sample_leakage_heights(20.0, 100; pressure_per_trap=pressures)
+
+# Constant height (backward compatibility)
+heights = sample_leakage_heights(20.0, 10)
+```
+"""
+function sample_leakage_heights(
+    mean_height::Float64,
+    num_traps::Int;
+    pressure_threshold::Float64=0.0,
+    pressure_threshold_std::Float64=0.0,
+    pressure_per_trap::Union{Vector{Float64}, Nothing}=nothing,
+    brine_density::Float64=1020.0,
+    co2_density::Float64=460.0
+)::Vector{Float64}
+
+    g = 9.81  # m/s²
+    density_diff = brine_density - co2_density
+
+    # Case 1: Pre-specified per-trap pressures (deterministic)
+    if !isnothing(pressure_per_trap)
+        @assert length(pressure_per_trap) == num_traps "Pre-specified pressures must match number of traps (got $(length(pressure_per_trap)), expected $num_traps)"
+        # Convert each pressure to height
+        return pressure_per_trap ./ (density_diff * g)
+    end
+
+    # Case 2: Pressure-based spatial variability
+    if pressure_threshold_std > 0.0 && isfinite(pressure_threshold_std)
+        # Sample per-trap pressure thresholds from Normal distribution
+        trap_pressures = pressure_threshold .+ pressure_threshold_std .* randn(num_traps)
+        trap_pressures = max.(trap_pressures, 0.0)  # Clamp negative values
+
+        # Convert pressure to leakage height using physical formula
+        return trap_pressures ./ (density_diff * g)
+    end
+
+    # Case 3: Constant pressure (no spatial variability)
+    if pressure_threshold > 0.0 && isfinite(pressure_threshold)
+        constant_height = pressure_threshold / (density_diff * g)
+        return fill(constant_height, num_traps)
+    end
+
+    # Case 4: Infinite height (top layer with impermeable caprock)
+    if !isfinite(mean_height)
+        return fill(Inf, num_traps)
+    end
+
+    # Case 5: Constant height fallback (backward compatibility)
+    return fill(mean_height, num_traps)
 end
 
 
@@ -417,32 +507,47 @@ end
 #==============================================================================#
 
 """
-    initialize_leakage_state(tstruct::TrapStructure, z_vol_tables, leakage_height::Float64,
+    initialize_leakage_state(tstruct::TrapStructure, z_vol_tables, reservoir_properties::ReservoirProperties,
                              residual_saturation::Float64, residual_leakage_time::Float64) -> LeakageState
 
 Initialize the leakage state for a layer, precomputing leakage volumes for all traps.
 
+NOW SUPPORTS SPATIAL VARIABILITY: Samples per-trap leakage heights from distribution
+specified in reservoir_properties.
+
 Parameters:
 - `tstruct`: The trap structure for the layer
 - `z_vol_tables`: Volume-elevation tables for each trap
-- `leakage_height`: Height threshold at which leakage occurs
+- `reservoir_properties`: Reservoir properties including leakage height distribution parameters
 - `residual_saturation`: Fraction of CO2 that remains after drainage (sand_residual_co2_saturation)
 - `residual_leakage_time`: Time over which residual drainage occurs
 """
 function initialize_leakage_state(
     tstruct::TrapStructure,
     z_vol_tables::Vector{Tuple{Vector{Float64}, Vector{Float64}}},
-    leakage_height::Float64,
+    reservoir_properties::ReservoirProperties,
     residual_saturation::Float64,
     residual_leakage_time::Float64
 )::LeakageState
 
     num_traps = numtraps(tstruct)
 
-    # Precompute leakage volumes for all traps
+    # Sample per-trap leakage heights using pressure-based spatial variability
+    trap_leakage_heights = sample_leakage_heights(
+        reservoir_properties.leakage_height,
+        num_traps;
+        pressure_threshold=reservoir_properties.shale_pressure_threshold,
+        pressure_threshold_std=reservoir_properties.shale_pressure_threshold_std,
+        pressure_per_trap=reservoir_properties.shale_pressure_threshold_per_trap,
+        brine_density=reservoir_properties.brine_density,
+        co2_density=reservoir_properties.co2_density
+    )
+
+    # Precompute leakage volumes for all traps using their specific heights
     leakage_volumes = zeros(Float64, num_traps)
     for trap_id in 1:num_traps
-        vol = compute_leakage_volume(trap_id, z_vol_tables[trap_id], tstruct, leakage_height)
+        trap_height = trap_leakage_heights[trap_id]
+        vol = compute_leakage_volume(trap_id, z_vol_tables[trap_id], tstruct, trap_height)
         # Use Inf for traps that cannot leak (spill before reaching leakage height)
         leakage_volumes[trap_id] = isnothing(vol) ? Inf : vol
     end
@@ -453,7 +558,7 @@ function initialize_leakage_state(
         leakage_volumes,                   # leakage_volume
         fill(Inf, num_traps),             # leakage_start_time
         LeakageRecord[],                   # leakage_records
-        leakage_height,                    # leakage_height
+        trap_leakage_heights,              # leakage_height (NOW PER-TRAP VECTOR)
         fill(0.0, num_traps),             # initial_volume_at_leak (0 until leakage starts)
         residual_saturation,               # residual_saturation
         residual_leakage_time              # residual_leakage_time

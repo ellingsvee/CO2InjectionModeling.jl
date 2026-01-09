@@ -1,6 +1,7 @@
 using SurfaceWaterIntegratedModeling
 import Interpolations
 using DifferentialEquations: solve, ODEProblem, VectorContinuousCallback, terminate!
+using Statistics: mean, std
 export fill_layer, InjectionEvent, get_effective_leakage_cap
 
 
@@ -58,12 +59,6 @@ function fill_layer(tstruct::TrapStructure{<:Real},
     # Start with empty sequence
     seq = Vector{SpillEvent}()
 
-    # The height at which leakage occurs
-    leakage_height = reservoir_properties.leakage_height
-    if verbose
-        println("Leakage height threshold: $(leakage_height) m")
-    end
-
     # Initialize leakage state
     leakage_state = if no_leakage
         # Create a leakage state with infinite leakage volumes (no leakage possible)
@@ -73,17 +68,23 @@ function fill_layer(tstruct::TrapStructure{<:Real},
             fill(Inf, num_traps),
             fill(Inf, num_traps),
             LeakageRecord[],
-            Inf,
+            fill(Inf, num_traps),  # leakage_height (per-trap vector)
             fill(0.0, num_traps),  # initial_volume_at_leak
             reservoir_properties.sand_residual_co2_saturation,  # residual_saturation
             reservoir_properties.residual_leakage_time  # residual_leakage_time
         )
     else
         initialize_leakage_state(
-            tstruct, z_vol_tables, leakage_height,
+            tstruct, z_vol_tables, reservoir_properties,
             reservoir_properties.sand_residual_co2_saturation,
             reservoir_properties.residual_leakage_time
         )
+    end
+
+    if verbose
+        mean_height = mean(leakage_state.leakage_height[isfinite.(leakage_state.leakage_height)])
+        std_height = std(leakage_state.leakage_height[isfinite.(leakage_state.leakage_height)])
+        println("Leakage height: mean=$(round(mean_height, digits=2)) m, std=$(round(std_height, digits=2)) m")
     end
 
     # Compute development within the duration of each weather event

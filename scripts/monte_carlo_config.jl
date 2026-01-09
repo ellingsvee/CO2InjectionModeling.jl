@@ -72,8 +72,8 @@ function create_default_monte_carlo_config(;
         :sand_irreducible_water_saturation => Uniform(0.25, 0.35),
 
         # Shale pressure threshold: normal distribution around 98000 Pa with 10% std
-        # :shale_pressure_threshold => Normal(98000.0, 9800.0),
-        :shale_pressure_threshold => Uniform(49000.0, 147000.0),
+        :shale_pressure_threshold => Normal(98000.0, 0),
+        # :shale_pressure_threshold => Uniform(49000.0, 147000.0),
 
         # Residual leakage time: uniform between 3 and 7 years (5 ± 40%)
         :residual_leakage_time => Uniform(3.0, 7.0)

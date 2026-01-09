@@ -73,9 +73,7 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
 
 
     for i in 1:n_layers
-        leakage_height = (i == n_layers) ? Inf : leakage_height
-        # leakage_height = (i == n_layers) ? Inf : sampled_params[:leakage_height]
-        # leakage_height = sampled_params[:leakage_height]
+        # leakage_height = (i == n_layers) ? Inf : leakage_height
 
 
         reservoir_properties[i] = ReservoirProperties(
