@@ -142,7 +142,7 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
 
     # Density values from L1 up to L9 (from paper)
     brine_density = 1020.0
-    co2_density = 425.0  # Average CO2 density
+    co2_density = 460.0  # Average CO2 density
 
     # Create ReservoirProperties for each layer
     # Note: leakage_height is computed automatically from shale_pressure_threshold
