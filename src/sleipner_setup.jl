@@ -138,7 +138,7 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     sand_residual_co2_saturation::Float64 = 0.2
     sand_irreducible_water_saturation::Float64 = 0.3
     shale_pressure_threshold::Float64 = 98000.0
-    residual_leakage_time::Float64 = 2.0 # years
+    residual_leakage_time::Float64 = 5.0 # years
 
     # From L1 up to L9. Using values from paper.
     brine_density = 1020
@@ -148,6 +148,7 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     # Compute leakage heights for each layer
     g = 9.81 # m/s^2
     leakage_heights = shale_pressure_threshold ./ (brine_co2_density_differences .* g)
+    leakage_heights = 20.0 .* ones(n_layers)
 
 
     # Simulate impermeable caprock by setting very high leakage height at top layer
