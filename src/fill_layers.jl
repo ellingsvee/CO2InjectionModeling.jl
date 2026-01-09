@@ -76,10 +76,7 @@ function create_next_layer_weather_events(
         return next_layer_base_weather
     end
 
-    combined_weather_events = Vector{WeatherEvent}()
-
-    # The next_layer_base_weather and leakage_weather_events must be sorted by time
-    # Then we have to set the rain_rate to the sum of both events at each timepoint
+    # Collect all unique timestamps
     all_timestamps = Set{Float64}()
     push!(all_timestamps, 0.0)
 
@@ -91,33 +88,39 @@ function create_next_layer_weather_events(
         push!(all_timestamps, we.timestamp)
     end
 
-
     sorted_timestamps = sort(collect(all_timestamps))
     nx, ny = size(next_tstruct.topography)
-    for timestamp in sorted_timestamps
-        # Start with base injection rate for this layer at this time
+
+    # Pre-allocate result
+    combined_weather_events = Vector{WeatherEvent}(undef, length(sorted_timestamps))
+
+    # Use binary search helper to find the active event at each timestamp
+    # searchsortedlast returns the index of the last event with timestamp <= target
+    base_timestamps = [we.timestamp for we in next_layer_base_weather]
+    leak_timestamps = [we.timestamp for we in leakage_weather_events]
+
+    for (i, timestamp) in enumerate(sorted_timestamps)
         rain_rate = zeros(Float64, nx, ny)
 
-        # Add base injection from next_layer_base_weather
-        for we in reverse(next_layer_base_weather)
-            if we.timestamp <= timestamp
-                if we.rain_rate isa Matrix
-                    rain_rate .+= we.rain_rate
-                end
-                break
+        # Find active base weather event using binary search
+        base_idx = searchsortedlast(base_timestamps, timestamp)
+        if base_idx > 0
+            we = next_layer_base_weather[base_idx]
+            if we.rain_rate isa Matrix
+                rain_rate .+= we.rain_rate
             end
         end
 
-        for we in reverse(leakage_weather_events)
-            if we.timestamp <= timestamp
-                if we.rain_rate isa Matrix
-                    rain_rate .+= we.rain_rate
-                end
-                break
+        # Find active leakage weather event using binary search
+        leak_idx = searchsortedlast(leak_timestamps, timestamp)
+        if leak_idx > 0
+            we = leakage_weather_events[leak_idx]
+            if we.rain_rate isa Matrix
+                rain_rate .+= we.rain_rate
             end
         end
 
-        push!(combined_weather_events, WeatherEvent(timestamp, rain_rate))
+        combined_weather_events[i] = WeatherEvent(timestamp, rain_rate)
     end
 
     return combined_weather_events

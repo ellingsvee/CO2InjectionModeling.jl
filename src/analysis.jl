@@ -115,9 +115,9 @@ function generate_reservoir_snapshots(
 
     verbose && println("Generating $(num_snapshots) reservoir snapshots from t=$(start_time) to t=$(end_time)...")
 
-    # Precompute trap states for all layers at all timepoints
-    all_tstates = Vector{Any}(undef, n_layers)
-    all_z_vol_tables = Vector{Any}(undef, n_layers)
+    # Precompute trap states and cached interpolations for all layers
+    all_tstates = Vector{Union{Nothing, Vector{Tuple{Vector{Bool}, Vector{Float64}, Int}}}}(undef, n_layers)
+    all_cached_interp = Vector{Union{Nothing, CachedInterpolations}}(undef, n_layers)
 
     for layer_idx in 1:n_layers
         tstruct = layers[layer_idx].trap_structure
@@ -125,10 +125,12 @@ function generate_reservoir_snapshots(
 
         if isempty(seq) || numtraps(tstruct) == 0
             all_tstates[layer_idx] = nothing
-            all_z_vol_tables[layer_idx] = nothing
+            all_cached_interp[layer_idx] = nothing
         else
             all_tstates[layer_idx] = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
-            all_z_vol_tables[layer_idx] = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
+            # Create cached interpolations once per layer for fast volume_to_height
+            z_vol_tables = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
+            all_cached_interp[layer_idx] = create_cached_interpolations(tstruct, z_vol_tables)
         end
     end
 
@@ -147,7 +149,7 @@ function generate_reservoir_snapshots(
 
             layer_snapshot = _generate_layer_snapshot(
                 layer_idx, layer, tstruct, seqs[layer_idx],
-                leakage_state, all_tstates[layer_idx], all_z_vol_tables[layer_idx],
+                leakage_state, all_tstates[layer_idx], all_cached_interp[layer_idx],
                 time_idx, tp, rp, domain, injection_events[layer_idx]
             )
             push!(layer_snapshots, layer_snapshot)
@@ -178,7 +180,7 @@ function _generate_layer_snapshot(
     seq::Vector{SpillEvent},
     leakage_state::LeakageState,
     tstates,
-    z_vol_tables,
+    cached_interp::Union{CachedInterpolations, Nothing},
     time_idx::Int,
     timestamp::Float64,
     rprops::ReservoirProperties,
@@ -186,10 +188,10 @@ function _generate_layer_snapshot(
     layer_injection_events::Vector{InjectionEvent}
 )::MultiLayerSnapshot
 
-    num_traps = numtraps(tstruct)
+    n_traps = numtraps(tstruct)
 
     # Handle empty layers
-    if isnothing(tstates) || num_traps == 0
+    if isnothing(tstates) || n_traps == 0
         return MultiLayerSnapshot(
             layer_idx, layer.name, timestamp,
             0, 0, 0, 0,  # trap counts
@@ -203,13 +205,11 @@ function _generate_layer_snapshot(
     # Get trap state at this timepoint
     filled, volumes, _ = tstates[time_idx]
 
-    # Compute heights for each trap
-    heights = zeros(Float64, num_traps)
-    for trap_id in 1:num_traps
+    # Compute heights for each trap using cached interpolations
+    heights = zeros(Float64, n_traps)
+    for trap_id in 1:n_traps
         if volumes[trap_id] > 0.0
-            heights[trap_id] = volume_to_height(
-                volumes[trap_id], trap_id, z_vol_tables[trap_id], tstruct
-            )
+            heights[trap_id] = volume_to_height_cached(volumes[trap_id], trap_id, cached_interp)
         end
     end
 
@@ -221,7 +221,7 @@ function _generate_layer_snapshot(
     # Stored volume (convert from SWIM to physical)
     # IMPORTANT: Account for drainage! Draining traps have reduced volumes
     stored_swim = 0.0
-    for trap_id in 1:num_traps
+    for trap_id in 1:n_traps
         vol = volumes[trap_id]
 
         # Apply drainage adjustment if this trap is draining
@@ -250,7 +250,7 @@ function _generate_layer_snapshot(
 
     return MultiLayerSnapshot(
         layer_idx, layer.name, timestamp,
-        num_traps, num_filled, num_leaking, num_with_co2,
+        n_traps, num_filled, num_leaking, num_with_co2,
         stored_m3,
         max_height, mean_height,
         leakage_rate_m3, cumulative_leaked_m3,

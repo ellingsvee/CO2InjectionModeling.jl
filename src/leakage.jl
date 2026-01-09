@@ -12,6 +12,78 @@ export compute_leakage_volume, initialize_leakage_state, find_leakage_location
 export volume_to_height, compute_leakage_time_estimate, generate_leakage_weather_events
 export get_true_topography_bottom, get_trap_bottom_elevation
 export compute_drainable_volume, compute_volume_with_drainage, compute_residual_drainage_rate
+export CachedInterpolations, create_cached_interpolations, volume_to_height_cached
+
+
+"""
+    CachedInterpolations
+
+Cache for precomputed interpolation functions to avoid repeated creation.
+Contains v2z (volume to elevation) and z2v (elevation to volume) interpolations for each trap.
+"""
+struct CachedInterpolations
+    v2z::Vector{Any}  # Volume to elevation interpolations
+    z2v::Vector{Any}  # Elevation to volume interpolations
+    true_bottoms::Vector{Float64}  # True topography bottoms for height calculation
+end
+
+
+"""
+    create_cached_interpolations(tstruct, z_vol_tables) -> CachedInterpolations
+
+Create cached interpolation functions from z_vol_tables.
+Call this once per layer and reuse for all volume_to_height/compute_leakage_volume calls.
+"""
+function create_cached_interpolations(
+    tstruct::TrapStructure,
+    z_vol_tables::Vector{Tuple{Vector{Float64}, Vector{Float64}}}
+)::CachedInterpolations
+    n = numtraps(tstruct)
+    v2z_funcs = Vector{Any}(undef, n)
+    z2v_funcs = Vector{Any}(undef, n)
+    true_bottoms = Vector{Float64}(undef, n)
+
+    for trap_id in 1:n
+        zvals, vvals = z_vol_tables[trap_id]
+        true_bottoms[trap_id] = get_true_topography_bottom(trap_id, tstruct)
+
+        if length(zvals) <= 1 || length(vvals) <= 1
+            # Degenerate case
+            v2z_funcs[trap_id] = _ -> (length(zvals) > 0 ? zvals[1] : 0.0)
+            z2v_funcs[trap_id] = _ -> 0.0
+        else
+            v2z_funcs[trap_id] = Interpolations.linear_interpolation(
+                vvals, zvals, extrapolation_bc=Interpolations.Line()
+            )
+            z2v_funcs[trap_id] = Interpolations.linear_interpolation(
+                zvals, vvals, extrapolation_bc=Interpolations.Line()
+            )
+        end
+    end
+
+    return CachedInterpolations(v2z_funcs, z2v_funcs, true_bottoms)
+end
+
+
+"""
+    volume_to_height_cached(volume, trap_id, cached_interp) -> Float64
+
+Fast version of volume_to_height using cached interpolations.
+"""
+function volume_to_height_cached(
+    volume::Float64,
+    trap_id::Int,
+    cached_interp::CachedInterpolations
+)::Float64
+    if volume <= 0.0
+        return 0.0
+    end
+
+    true_bottom = cached_interp.true_bottoms[trap_id]
+    v2z = cached_interp.v2z[trap_id]
+    water_level = v2z(volume)
+    return max(0.0, water_level - true_bottom)
+end
 
 
 """
