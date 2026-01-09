@@ -60,8 +60,23 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
     # Note: Top layer always has infinite leakage height (impermeable caprock)
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
 
+
+    # From L1 up to L9. Using values from paper.
+    brine_density = 1020
+    # co2_density = 425
+    co2_density = (570 + 350) / 2  # Average density between L1 and L9
+    brine_co2_density_differences = brine_density .- co2_density
+
+    # Compute leakage heights for each layer
+    g = 9.81 # m/s^2
+    leakage_height = sampled_params[:shale_pressure_threshold] ./ (brine_co2_density_differences .* g)
+
+
     for i in 1:n_layers
-        leakage_height = (i == n_layers) ? Inf : sampled_params[:leakage_height]
+        leakage_height = (i == n_layers) ? Inf : leakage_height
+        # leakage_height = (i == n_layers) ? Inf : sampled_params[:leakage_height]
+        # leakage_height = sampled_params[:leakage_height]
+
 
         reservoir_properties[i] = ReservoirProperties(
             sampled_params[:sand_porosity],

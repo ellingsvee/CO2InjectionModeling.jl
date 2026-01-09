@@ -69,13 +69,11 @@ function create_default_monte_carlo_config(;
         :sand_residual_co2_saturation => Uniform(0.15, 0.25),
 
         # Irreducible water saturation: uniform between 0.24 and 0.36 (0.3 ± 20%)
-        :sand_irreducible_water_saturation => Uniform(0.24, 0.36),
+        :sand_irreducible_water_saturation => Uniform(0.25, 0.35),
 
         # Shale pressure threshold: normal distribution around 98000 Pa with 10% std
-        :shale_pressure_threshold => Normal(98000.0, 9800.0),
-
-        # Leakage height: uniform between 16 and 24 m (20 ± 20%)
-        :leakage_height => Uniform(16.0, 24.0),
+        # :shale_pressure_threshold => Normal(98000.0, 9800.0),
+        :shale_pressure_threshold => Uniform(49000.0, 147000.0),
 
         # Residual leakage time: uniform between 3 and 7 years (5 ± 40%)
         :residual_leakage_time => Uniform(3.0, 7.0)
@@ -118,7 +116,7 @@ function create_custom_monte_carlo_config(;
     sand_residual_co2_saturation::Tuple{Float64,Float64}=(0.15, 0.25),
     sand_irreducible_water_saturation::Tuple{Float64,Float64}=(0.24, 0.36),
     shale_pressure_threshold::Tuple{Float64,Float64}=(80000.0, 116000.0),
-    leakage_height::Tuple{Float64,Float64}=(16.0, 24.0),
+    # leakage_height::Tuple{Float64,Float64}=(16.0, 24.0),
     residual_leakage_time::Tuple{Float64,Float64}=(3.0, 7.0),
     start_time::Float64=0.0,
     end_time::Float64=15.0,
@@ -130,7 +128,7 @@ function create_custom_monte_carlo_config(;
         :sand_residual_co2_saturation => Uniform(sand_residual_co2_saturation[1], sand_residual_co2_saturation[2]),
         :sand_irreducible_water_saturation => Uniform(sand_irreducible_water_saturation[1], sand_irreducible_water_saturation[2]),
         :shale_pressure_threshold => Uniform(shale_pressure_threshold[1], shale_pressure_threshold[2]),
-        :leakage_height => Uniform(leakage_height[1], leakage_height[2]),
+        # :leakage_height => Uniform(leakage_height[1], leakage_height[2]),
         :residual_leakage_time => Uniform(residual_leakage_time[1], residual_leakage_time[2])
     )
 

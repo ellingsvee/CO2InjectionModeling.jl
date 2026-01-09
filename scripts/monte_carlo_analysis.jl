@@ -406,3 +406,89 @@ function print_uncertainty_summary(ensemble::MonteCarloEnsemble)
 
     println("="^80)
 end
+
+"""
+    plot_layer_distribution_barplot(
+        ensemble::MonteCarloEnsemble;
+        output_file::Union{String,Nothing}="layer_distribution_barplot.png",
+        figsize::Tuple{Int,Int}=(1000, 600)
+    )
+
+Create a barplot showing the percentage of CO₂ stored in each layer at the final timepoint,
+with error bars indicating uncertainty.
+
+# Arguments
+- `ensemble::MonteCarloEnsemble`: Monte Carlo ensemble results
+- `output_file::Union{String,Nothing}`: Save to file if provided
+- `figsize::Tuple{Int,Int}=(1000, 600)`: Figure size in pixels
+
+# Returns
+- `Plots.Plot`: The generated barplot
+"""
+function plot_layer_distribution_barplot(
+    ensemble::MonteCarloEnsemble;
+    output_file::Union{String,Nothing}="layer_distribution_barplot.png",
+    figsize::Tuple{Int,Int}=(1000, 600)
+)
+    # Get number of layers
+    n_layers = length(ensemble.results[1].snapshots[1].stored_by_layer_m3)
+    n_realizations = ensemble.config.n_realizations
+    final_time_idx = length(ensemble.timepoints)
+
+    # Extract data for all layers at final timepoint
+    # percentages[layer, realization]
+    percentages = zeros(n_layers, n_realizations)
+
+    for real_idx in 1:n_realizations
+        # Get total stored CO2 for this realization at final time
+        total = ensemble.results[real_idx].snapshots[final_time_idx].total_stored_m3
+        # total = ensemble.results[real_idx].snapshots[final_time_idx].total_injected_m3
+        
+
+        # Get stored amount in each layer
+        for layer_idx in 1:n_layers
+            layer_amount = ensemble.results[real_idx].snapshots[final_time_idx].stored_by_layer_m3[layer_idx]
+            percentages[layer_idx, real_idx] = (layer_amount / total) * 100.0
+        end
+    end
+
+    # Compute statistics for each layer
+    mean_pct = vec(mean(percentages, dims=2))
+    std_pct = vec(std(percentages, dims=2))
+    p5_pct = vec([quantile(percentages[i, :], 0.05) for i in 1:n_layers])
+    p95_pct = vec([quantile(percentages[i, :], 0.95) for i in 1:n_layers])
+
+    # Create barplot
+    layer_labels = ["L$i" for i in 1:n_layers]
+
+    p = bar(
+        1:n_layers,
+        mean_pct,
+        yerror=(mean_pct .- p5_pct, p95_pct .- mean_pct),
+        xlabel="Layer",
+        ylabel="Percentage of Total CO₂ (%)",
+        title="CO₂ Distribution Across Layers at t = $(ensemble.timepoints[end]) years",
+        label="Mean ± 90% CI",
+        legend=:topright,
+        color=:steelblue,
+        alpha=0.7,
+        xticks=(1:n_layers, layer_labels),
+        size=figsize,
+        grid=true,
+        bar_width=0.6
+    )
+
+    # Add percentage labels on top of bars
+    for i in 1:n_layers
+        annotate!(p, i, mean_pct[i] + (p95_pct[i] - mean_pct[i]) + 1.5,
+                 text(@sprintf("%.1f%%", mean_pct[i]), :center, 8))
+    end
+
+    # Save if output file specified
+    if output_file !== nothing
+        savefig(p, output_file)
+        println("  Saved: $output_file")
+    end
+
+    return p
+end
