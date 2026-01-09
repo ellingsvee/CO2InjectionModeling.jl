@@ -596,11 +596,9 @@ function generate_leakage_weather_events(
     end
 
     # Compute stored volume at each timestamp, accounting for drainage
-    stored_at_time = Dict{Float64, Float64}()
-    for t in sorted_times
-        stored = compute_total_stored_at_time_with_drainage(spill_events, tstruct, t, leakage_state)
-        stored_at_time[t] = stored
-    end
+    # OPTIMIZATION: Compute all trap states in a single batch call instead of
+    # calling trap_states_at_timepoints once per timestamp (O(n²) -> O(n))
+    stored_at_time = _compute_stored_volumes_batch(spill_events, tstruct, sorted_times, leakage_state)
 
     # Get injection rate at each timestamp (sum of rain_rate)
     function get_injection_rate_at(t::Float64)
@@ -863,4 +861,52 @@ function merge_weather_events(events::Vector{WeatherEvent})::Vector{WeatherEvent
     push!(merged, current_event)
 
     return merged
+end
+
+
+"""
+    _compute_stored_volumes_batch(spill_events, tstruct, sorted_times, leakage_state) -> Dict{Float64, Float64}
+
+Compute total stored volumes at all given timepoints in a single batch.
+This is an optimization over calling compute_total_stored_at_time_with_drainage
+repeatedly, avoiding repeated z_vol_tables computation.
+"""
+function _compute_stored_volumes_batch(
+    spill_events::Vector{SpillEvent},
+    tstruct::TrapStructure,
+    sorted_times::Vector{Float64},
+    leakage_state::LeakageState
+)::Dict{Float64, Float64}
+
+    if isempty(sorted_times)
+        return Dict{Float64, Float64}()
+    end
+
+    # Get all trap states at all timepoints in a SINGLE batch call
+    # This reuses z_vol_tables computation across all timepoints
+    tstates = trap_states_at_timepoints(tstruct, spill_events, sorted_times; verbose=false)
+
+    stored_at_time = Dict{Float64, Float64}()
+
+    for (i, t) in enumerate(sorted_times)
+        volumes = tstates[i][2]  # Volume in each trap
+
+        total = 0.0
+        for trap_id in 1:numtraps(tstruct)
+            vol = volumes[trap_id]
+            # Check 'draining' - descendants of leaking traps also drain
+            if leakage_state.draining[trap_id]
+                # Draining trap - use drainage-adjusted volume if available
+                drained_vol = compute_volume_with_drainage(trap_id, t, leakage_state)
+                if !isnothing(drained_vol)
+                    vol = drained_vol
+                end
+            end
+            total += vol
+        end
+
+        stored_at_time[t] = total
+    end
+
+    return stored_at_time
 end
