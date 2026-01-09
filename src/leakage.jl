@@ -3,6 +3,14 @@ Leakage modeling for CO2 injection simulations.
 
 This module provides functions to detect and track leakage of CO2 from reservoir traps
 when the CO2 column height exceeds a threshold (leakage_height).
+
+# Module organization:
+# 1. Interpolation caching (CachedInterpolations)
+# 2. Trap geometry helpers (find_leakage_location, get_true_topography_bottom, etc.)
+# 3. Leakage volume computation (compute_leakage_volume, volume_to_height)
+# 4. Residual drainage (compute_drainable_volume, compute_volume_with_drainage)
+# 5. Leakage state initialization and time estimation
+# 6. Weather event generation for upstream layers
 """
 
 import Interpolations
@@ -15,6 +23,13 @@ export compute_drainable_volume, compute_volume_with_drainage, compute_residual_
 export CachedInterpolations, create_cached_interpolations, volume_to_height_cached
 
 
+#==============================================================================#
+# SECTION 1: Interpolation caching
+#==============================================================================#
+
+# Type alias for interpolation functions (improves type stability over Any)
+const InterpolationFunc = Union{Function, Interpolations.Extrapolation}
+
 """
     CachedInterpolations
 
@@ -22,9 +37,9 @@ Cache for precomputed interpolation functions to avoid repeated creation.
 Contains v2z (volume to elevation) and z2v (elevation to volume) interpolations for each trap.
 """
 struct CachedInterpolations
-    v2z::Vector{Any}  # Volume to elevation interpolations
-    z2v::Vector{Any}  # Elevation to volume interpolations
-    true_bottoms::Vector{Float64}  # True topography bottoms for height calculation
+    v2z::Vector{InterpolationFunc}  # Volume to elevation interpolations
+    z2v::Vector{InterpolationFunc}  # Elevation to volume interpolations
+    true_bottoms::Vector{Float64}   # True topography bottoms for height calculation
 end
 
 
@@ -39,8 +54,8 @@ function create_cached_interpolations(
     z_vol_tables::Vector{Tuple{Vector{Float64}, Vector{Float64}}}
 )::CachedInterpolations
     n = numtraps(tstruct)
-    v2z_funcs = Vector{Any}(undef, n)
-    z2v_funcs = Vector{Any}(undef, n)
+    v2z_funcs = Vector{InterpolationFunc}(undef, n)
+    z2v_funcs = Vector{InterpolationFunc}(undef, n)
     true_bottoms = Vector{Float64}(undef, n)
 
     for trap_id in 1:n
@@ -85,6 +100,10 @@ function volume_to_height_cached(
     return max(0.0, water_level - true_bottom)
 end
 
+
+#==============================================================================#
+# SECTION 2: Trap geometry helpers
+#==============================================================================#
 
 """
     find_leakage_location(trap_id::Int, tstruct::TrapStructure) -> CartesianIndex{2}
@@ -141,6 +160,10 @@ function get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure)::Float6
     return min_base_elevation
 end
 
+
+#==============================================================================#
+# SECTION 3: Leakage volume computation
+#==============================================================================#
 
 """
     compute_leakage_volume(trap_id::Int, z_vol_table, tstruct::TrapStructure, leakage_height::Float64) -> Union{Float64, Nothing}
@@ -242,6 +265,10 @@ function volume_to_height(
     return height
 end
 
+
+#==============================================================================#
+# SECTION 4: Residual drainage
+#==============================================================================#
 
 """
     compute_drainable_volume(initial_volume::Float64, residual_saturation::Float64) -> Float64
@@ -384,6 +411,10 @@ function compute_residual_drainage_rate(
     return drainable_vol / residual_time
 end
 
+
+#==============================================================================#
+# SECTION 5: Leakage state initialization and time estimation
+#==============================================================================#
 
 """
     initialize_leakage_state(tstruct::TrapStructure, z_vol_tables, leakage_height::Float64,
@@ -590,6 +621,37 @@ function find_next_leakage_event(leakage_time_est::Vector{LeakageTimeEstimate}):
 end
 
 
+#==============================================================================#
+# SECTION 6: Weather event generation for upstream layers
+#==============================================================================#
+
+"""
+    _get_injection_rate_at_time(weather_events, t, grid_size) -> Float64
+
+Get the total injection rate at a given time from weather events.
+"""
+function _get_injection_rate_at_time(
+    weather_events::Vector{WeatherEvent},
+    t::Float64,
+    grid_size::Tuple{Int, Int}
+)::Float64
+    # Find the weather event active at time t (last event with timestamp <= t)
+    current_we = weather_events[1]
+    for we in weather_events
+        if we.timestamp <= t
+            current_we = we
+        else
+            break
+        end
+    end
+    if current_we.rain_rate isa Matrix
+        return sum(current_we.rain_rate)
+    else
+        # Scalar rain_rate - uniform across domain
+        return current_we.rain_rate * prod(grid_size)
+    end
+end
+
 """
     generate_leakage_weather_events(leakage_state, source_weather_events, spill_events, tstruct, target_grid_size) -> Vector{WeatherEvent}
 
@@ -601,10 +663,6 @@ The leakage rate at any time t equals:
 Where:
 - d(stored)/dt is the rate at which non-leaking traps are filling
 - residual_drainage_rate(t) is the rate at which leaking traps are draining their existing CO2
-
-When multiple traps are leaking, the total leakage rate is distributed among all active
-leakage locations proportionally to each trap's inflow rate. This preserves mass conservation:
-the sum of rates at all leakage locations equals the total leakage rate.
 
 When multiple traps are leaking, the total leakage rate is distributed among all active
 leakage locations proportionally to each trap's inflow rate. This preserves mass conservation:
@@ -672,25 +730,6 @@ function generate_leakage_weather_events(
     # calling trap_states_at_timepoints once per timestamp (O(n²) -> O(n))
     stored_at_time = _compute_stored_volumes_batch(spill_events, tstruct, sorted_times, leakage_state)
 
-    # Get injection rate at each timestamp (sum of rain_rate)
-    function get_injection_rate_at(t::Float64)
-        # Find the weather event active at time t
-        current_we = source_weather_events[1]
-        for we in source_weather_events
-            if we.timestamp <= t
-                current_we = we
-            else
-                break
-            end
-        end
-        if current_we.rain_rate isa Matrix
-            return sum(current_we.rain_rate)
-        else
-            # Scalar rain_rate - uniform across domain
-            return current_we.rain_rate * prod(target_grid_size)
-        end
-    end
-
     # Build WeatherEvents using mass balance: leakage = injection - d(stored)/dt
     # Note: When drainage is happening, d(stored)/dt is negative, which increases leakage_rate
     events = WeatherEvent[]
@@ -728,7 +767,7 @@ function generate_leakage_weather_events(
 
         # Leakage rate = injection rate - filling rate
         # If filling_rate is negative (drainage), this increases leakage_rate
-        injection_rate = get_injection_rate_at(t)
+        injection_rate = _get_injection_rate_at_time(source_weather_events, t, target_grid_size)
         total_leakage_rate = max(0.0, injection_rate - filling_rate)
 
         # Distribute leakage among all active leakage locations
@@ -776,23 +815,9 @@ function generate_leakage_weather_events(
 end
 
 
-"""
-    compute_total_stored_at_time(spill_events, tstruct, time) -> Float64
-
-Compute the total stored volume at a given time using the spill event sequence.
-Does not account for residual drainage from leaking traps.
-"""
-function compute_total_stored_at_time(
-    spill_events::Vector{SpillEvent},
-    tstruct::TrapStructure,
-    time::Float64
-)::Float64
-    # Use trap_states_at_timepoints for accurate computation
-    tstates = trap_states_at_timepoints(tstruct, spill_events, [time]; verbose=false)
-    volumes = tstates[1][2]  # Volume in each trap
-    return sum(volumes)
-end
-
+#==============================================================================#
+# SECTION 7: Helper functions
+#==============================================================================#
 
 """
     compute_total_stored_at_time_with_drainage(spill_events, tstruct, time, leakage_state) -> Float64

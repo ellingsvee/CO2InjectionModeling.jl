@@ -409,32 +409,3 @@ function get_effective_leakage_cap(leakage_state::LeakageState, trap_id::Int)::F
     # This trap is leaking - cap at its leakage volume
     return leakage_state.leakage_volume[trap_id]
 end
-
-
-# Keep the old function signature for backwards compatibility
-function _fill_sequence_for_weather_event!(seq, sgraph, rateinfo, changetimeest,
-                                           filled_traps, cur_amounts, z_vol_tables,
-                                           tstruct, infiltration, endtime, time_slack, leakage_height,
-                                           verbose)
-    # Create a dummy leakage state with no leakage
-    num_traps = numtraps(tstruct)
-    leakage_state = LeakageState(
-        fill(false, num_traps),  # leaking
-        fill(false, num_traps),  # draining
-        fill(Inf, num_traps),
-        fill(Inf, num_traps),
-        LeakageRecord[],
-        Inf,
-        fill(0.0, num_traps),  # initial_volume_at_leak
-        0.0,  # residual_saturation (no residual drainage)
-        Inf   # residual_leakage_time (no residual drainage)
-    )
-    leakage_time_est = [LeakageTimeEstimate(i, Inf, Inf) for i in 1:num_traps]
-
-    _fill_sequence_for_weather_event_with_leakage!(
-        seq, sgraph, rateinfo, changetimeest, leakage_time_est,
-        filled_traps, cur_amounts, z_vol_tables,
-        tstruct, infiltration, endtime, time_slack,
-        leakage_state, verbose
-    )
-end
