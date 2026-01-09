@@ -56,34 +56,44 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
         sampled_params[param_name] = rand(dist)
     end
 
+    # Density values from L1 up to L9 (from paper)
+    brine_density = 1020.0
+    co2_density = (570.0 + 350.0) / 2.0  # Average density between L1 and L9
+
+    # Get spatial variability parameter for pressure threshold (default to 0.0 if not specified)
+    shale_pressure_threshold_std = get(sampled_params, :shale_pressure_threshold_std, 0.0)
+
     # Create ReservoirProperties for each layer
-    # Note: Top layer always has infinite leakage height (impermeable caprock)
+    # Note: leakage_height is computed automatically from shale_pressure_threshold
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
 
-
-    # From L1 up to L9. Using values from paper.
-    brine_density = 1020
-    # co2_density = 425
-    co2_density = (570 + 350) / 2  # Average density between L1 and L9
-    brine_co2_density_differences = brine_density .- co2_density
-
-    # Compute leakage heights for each layer
-    g = 9.81 # m/s^2
-    leakage_height = sampled_params[:shale_pressure_threshold] ./ (brine_co2_density_differences .* g)
-
-
     for i in 1:n_layers
-        # leakage_height = (i == n_layers) ? Inf : leakage_height
-
-
-        reservoir_properties[i] = ReservoirProperties(
-            sampled_params[:sand_porosity],
-            sampled_params[:sand_residual_co2_saturation],
-            sampled_params[:sand_irreducible_water_saturation],
-            sampled_params[:shale_pressure_threshold],
-            leakage_height,
-            sampled_params[:residual_leakage_time]
-        )
+        # Top layer has infinite leakage height (impermeable caprock)
+        if i == n_layers
+            reservoir_properties[i] = ReservoirProperties(
+                sampled_params[:sand_porosity],
+                sampled_params[:sand_residual_co2_saturation],
+                sampled_params[:sand_irreducible_water_saturation],
+                sampled_params[:shale_pressure_threshold],
+                sampled_params[:residual_leakage_time];
+                leakage_height=Inf,  # Explicitly set to Inf for top layer
+                shale_pressure_threshold_std=shale_pressure_threshold_std,
+                brine_density=brine_density,
+                co2_density=co2_density
+            )
+        else
+            reservoir_properties[i] = ReservoirProperties(
+                sampled_params[:sand_porosity],
+                sampled_params[:sand_residual_co2_saturation],
+                sampled_params[:sand_irreducible_water_saturation],
+                sampled_params[:shale_pressure_threshold],
+                sampled_params[:residual_leakage_time];
+                # leakage_height computed automatically from pressure
+                shale_pressure_threshold_std=shale_pressure_threshold_std,
+                brine_density=brine_density,
+                co2_density=co2_density
+            )
+        end
     end
 
     return reservoir_properties, sampled_params

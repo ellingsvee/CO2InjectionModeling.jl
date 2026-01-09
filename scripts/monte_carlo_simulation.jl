@@ -54,7 +54,7 @@ println("="^80)
 # )
 
  config = create_default_monte_carlo_config(
-    n_realizations=50,
+    n_realizations=25,
     start_time=0.0,
     end_time=15.0,
     num_snapshots=45,
