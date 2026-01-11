@@ -95,33 +95,6 @@ function ReservoirProperties(
     )
 end
 
-# Backward compatibility: old constructor with explicit leakage_height
-function ReservoirProperties(
-    sand_porosity::Float64,
-    sand_residual_co2_saturation::Float64,
-    sand_irreducible_water_saturation::Float64,
-    shale_pressure_threshold::Float64,
-    leakage_height::Float64,
-    residual_leakage_time::Float64;
-    shale_pressure_threshold_std::Float64=0.0,
-    shale_pressure_threshold_per_trap::Union{Vector{Float64}, Nothing}=nothing,
-    brine_density::Float64=1020.0,
-    co2_density::Float64=460.0
-)
-    ReservoirProperties(
-        sand_porosity,
-        sand_residual_co2_saturation,
-        sand_irreducible_water_saturation,
-        shale_pressure_threshold,
-        residual_leakage_time;
-        leakage_height=leakage_height,
-        shale_pressure_threshold_std=shale_pressure_threshold_std,
-        shale_pressure_threshold_per_trap=shale_pressure_threshold_per_trap,
-        brine_density=brine_density,
-        co2_density=co2_density
-    )
-end
-
 struct SimulationLayerSnapshot
     timestamp::Float64
     spill_event::SpillEvent

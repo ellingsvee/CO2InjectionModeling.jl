@@ -56,6 +56,12 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
         sampled_params[param_name] = rand(dist)
     end
 
+    # Special handling for the shale_pressure_threshold as we need to sample per layer
+    sampled_shale_thresholds = rand.(Ref(config.param_distributions[:shale_pressure_threshold]), n_layers)
+    for i in 1:n_layers
+        sampled_params[Symbol("shale_pressure_threshold_layer_$i")] = sampled_shale_thresholds[i]
+    end
+
     # Density values from L1 up to L9 (from paper)
     brine_density = 1020.0
     co2_density = (570.0 + 350.0) / 2.0  # Average density between L1 and L9
@@ -68,32 +74,43 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
 
     for i in 1:n_layers
-        # Top layer has infinite leakage height (impermeable caprock)
-        if i == n_layers
-            reservoir_properties[i] = ReservoirProperties(
-                sampled_params[:sand_porosity],
-                sampled_params[:sand_residual_co2_saturation],
-                sampled_params[:sand_irreducible_water_saturation],
-                sampled_params[:shale_pressure_threshold],
-                sampled_params[:residual_leakage_time];
-                leakage_height=Inf,  # Explicitly set to Inf for top layer
-                shale_pressure_threshold_std=shale_pressure_threshold_std,
-                brine_density=brine_density,
-                co2_density=co2_density
-            )
-        else
-            reservoir_properties[i] = ReservoirProperties(
-                sampled_params[:sand_porosity],
-                sampled_params[:sand_residual_co2_saturation],
-                sampled_params[:sand_irreducible_water_saturation],
-                sampled_params[:shale_pressure_threshold],
-                sampled_params[:residual_leakage_time];
-                # leakage_height computed automatically from pressure
-                shale_pressure_threshold_std=shale_pressure_threshold_std,
-                brine_density=brine_density,
-                co2_density=co2_density
-            )
-        end
+    #     # Top layer has infinite leakage height (impermeable caprock)
+    #     if i == n_layers
+    #         reservoir_properties[i] = ReservoirProperties(
+    #             sampled_params[:sand_porosity],
+    #             sampled_params[:sand_residual_co2_saturation],
+    #             sampled_params[:sand_irreducible_water_saturation],
+    #             Inf,
+    #             sampled_params[:residual_leakage_time];
+    #             # leakage_height computed automatically from pressure
+    #             shale_pressure_threshold_std=shale_pressure_threshold_std,
+    #             brine_density=brine_density,
+    #             co2_density=co2_density
+    #         )
+    #     else
+    #         reservoir_properties[i] = ReservoirProperties(
+    #             sampled_params[:sand_porosity],
+    #             sampled_params[:sand_residual_co2_saturation],
+    #             sampled_params[:sand_irreducible_water_saturation],
+    #             sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
+    #             sampled_params[:residual_leakage_time];
+    #             # leakage_height computed automatically from pressure
+    #             shale_pressure_threshold_std=shale_pressure_threshold_std,
+    #             brine_density=brine_density,
+    #             co2_density=co2_density
+    #         )
+    #     end
+        reservoir_properties[i] = ReservoirProperties(
+            sampled_params[:sand_porosity],
+            sampled_params[:sand_residual_co2_saturation],
+            sampled_params[:sand_irreducible_water_saturation],
+            sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
+            sampled_params[:residual_leakage_time];
+            # leakage_height computed automatically from pressure
+            shale_pressure_threshold_std=shale_pressure_threshold_std,
+            brine_density=brine_density,
+            co2_density=co2_density
+        )
     end
 
     return reservoir_properties, sampled_params

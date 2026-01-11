@@ -63,7 +63,8 @@ function create_default_monte_carlo_config(;
 
     param_distributions = Dict{Symbol, Distribution}(
         # Porosity: uniform distribution between 0.32 and 0.48 (0.4 ± 20%)
-        :sand_porosity => Uniform(0.32, 0.48),
+        # :sand_porosity => Uniform(0.32, 0.48),
+        :sand_porosity => Normal(0.4, 0),
 
         # Residual CO2 saturation: uniform between 0.15 and 0.25 (0.2 ± 25%)
         # :sand_residual_co2_saturation => Uniform(0.15, 0.25),
@@ -74,17 +75,19 @@ function create_default_monte_carlo_config(;
         :sand_irreducible_water_saturation => Normal(0.3, 0),
 
         # Shale pressure threshold: normal distribution around 98000 Pa with 10% std
-        :shale_pressure_threshold => Normal(98000.0, 0),
-        # :shale_pressure_threshold => Uniform(49000.0, 147000.0),
+        # :shale_pressure_threshold => Normal(98000.0, 0),
+        :shale_pressure_threshold => Uniform(49000.0, 147000.0),
 
         # Residual leakage time: uniform between 3 and 7 years (5 ± 40%)
-        :residual_leakage_time => Uniform(3.0, 7.0),
+        :residual_leakage_time => Uniform(1.0, 3.0),
+        # :residual_leakage_time => Normal(1.0, 0),
 
         # Shale pressure threshold spatial variability: std deviation in Pa (0 = no variability)
         # User specified 16000 Pa as the std for spatial variation
         # :shale_pressure_threshold_std => Normal(16000.0, 0)
-        # :shale_pressure_threshold_std => Normal(8000.0, 0)
-        :shale_pressure_threshold_std => Normal(0.0, 0)
+        # :shale_pressure_threshold_std => Normal(10000.0, 0)
+        :shale_pressure_threshold_std => Normal(10.0, 0),
+        # :shale_pressure_threshold_std => Uniform(8.0, 15.0)
     )
 
     return MonteCarloConfig(
