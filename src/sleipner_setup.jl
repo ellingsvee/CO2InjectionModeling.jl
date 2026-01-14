@@ -3,6 +3,7 @@ using Statistics
 using CairoMakie
 export SleipnerTopography, load_sleipner_topography, create_domain_from_topography
 export generate_reservoir_properties_for_sleipner_layers, generate_sleipner_injection_events
+export generate_fitted_reservoir_properties_for_sleipner_layers
 export load_feeder_location, utm_to_grid_index
 
 struct SleipnerTopography
@@ -21,8 +22,11 @@ function load_sleipner_topography(path::String = "sleipner/depth_surfaces/")
     println("\nLoading Sleipner depth surfaces...")
 
     # Load individual .npy files instead of .npz
+    # Note: We reverse the Y-axis (2nd dimension) to match UTM coordinate convention
+    # where northing increases upward, but array indices increase downward
     function load_surface(name::String)
-        return npzread(joinpath(path, "$(name).npy"))
+        data = npzread(joinpath(path, "$(name).npy"))
+        return reverse(data, dims=2)  # Flip Y-axis to correct orientation
     end
 
     top_caprock = load_surface("Top_Caprock")
@@ -138,7 +142,7 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     sand_residual_co2_saturation::Float64 = 0.2
     sand_irreducible_water_saturation::Float64 = 0.3
     shale_pressure_threshold::Float64 = 98000.0
-    residual_leakage_time::Float64 = 5.0 # years
+    residual_leakage_time::Float64 = 2.0 # years
 
     # Density values from L1 up to L9 (from paper)
     brine_density = 1020.0
@@ -155,8 +159,8 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
                 sand_residual_co2_saturation,
                 sand_irreducible_water_saturation,
                 shale_pressure_threshold,
+                # Inf,
                 residual_leakage_time;
-                leakage_height=Inf,  # Explicitly set to Inf for top layer
                 brine_density=brine_density,
                 co2_density=co2_density
             )
@@ -172,6 +176,61 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
                 co2_density=co2_density
             )
         end
+    end
+    return reservoir_properties
+end
+
+function generate_fitted_reservoir_properties_for_sleipner_layers()::Vector{ReservoirProperties}
+
+    n_layers = 9
+
+    # Common reservoir properties for all layers
+    sand_porosity::Float64 = 0.4
+    sand_residual_co2_saturation::Float64 = 0.2
+    sand_irreducible_water_saturation::Float64 = 0.3
+    shale_pressure_threshold::Float64 = 98000.0
+    residual_leakage_time::Float64 = 2.0 # years
+
+    # Density values from L1 up to L9 (from paper)
+    brine_density = 1020.0
+    co2_density = 460.0  # Average CO2 density
+
+    sampled_shale_thresholds =[
+        64935.189136968474,
+        145480.99151323555,
+        60265.54535253754,
+        86545.36470224884,
+        134536.57733389136,
+        114664.10814779482,
+        118790.15494120165,
+        110065.36326170494,
+        115946.26594344187,
+        # Inf, 
+    ]
+    # sampled_shale_thresholds[1] *= 1.3
+    sampled_shale_thresholds[2] *= 0.95
+    sampled_shale_thresholds[6] *= 0.85
+    sampled_shale_thresholds[7] *= 1.1
+    sampled_shale_thresholds[8] *= 1.1
+    sampled_shale_thresholds[9] *= 1.4
+
+
+
+    # Create ReservoirProperties for each layer
+    # Note: leakage_height is computed automatically from shale_pressure_threshold
+    reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
+    for i in 1:n_layers
+        # Top layer has infinite leakage height (impermeable caprock)
+        reservoir_properties[i] = ReservoirProperties(
+            sand_porosity,
+            sand_residual_co2_saturation,
+            sand_irreducible_water_saturation,
+            sampled_shale_thresholds[i],
+            residual_leakage_time;
+            # leakage_height computed automatically from pressure
+            brine_density=brine_density,
+            co2_density=co2_density
+        )
     end
     return reservoir_properties
 end
@@ -221,7 +280,7 @@ function generate_sleipner_injection_events(
     ]
 
     # Convert Mt/year to m³/year
-    co2_density_l1 = 425.0  # The same as used in reservoir properties
+    co2_density_l1 = 460.0  # The same as used in reservoir properties
     annual_rates_m3_per_year = annual_rates_mt .* 1e9 ./ co2_density_l1
 
     # Create injection events for bottom layer (L1)
