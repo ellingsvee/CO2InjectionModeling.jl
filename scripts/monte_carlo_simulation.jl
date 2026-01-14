@@ -1,22 +1,7 @@
-"""
-Monte Carlo Uncertainty Quantification for Sleipner CO2 Injection
-
-This script performs Monte Carlo simulations to quantify uncertainty in CO2 storage
-predictions arising from uncertain reservoir properties.
-
-The analysis produces:
-1. Uncertainty bands for total CO2 storage and leakage over time
-2. Layer-by-layer uncertainty analysis
-3. Statistical summaries at key time points
-4. Comprehensive visualizations
-
-Usage:
-    julia --project=. scripts/monte_carlo_simulation.jl
-"""
-
 
 using CO2InjectionModeling
 using SurfaceWaterIntegratedModeling
+using CairoMakie
 using Printf
 
 include("monte_carlo_analysis.jl")
@@ -24,10 +9,6 @@ include("monte_carlo_analysis.jl")
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-
-println("="^80)
-println("MONTE CARLO UNCERTAINTY ANALYSIS - SLEIPNER CO2 INJECTION")
-println("="^80)
 
 # Create Monte Carlo configuration
 # You can customize parameter ranges here
@@ -54,26 +35,16 @@ println("="^80)
 # )
 
  config = create_default_monte_carlo_config(
-    n_realizations=25,
+    n_realizations=500,
     start_time=0.0,
     end_time=15.0,
     num_snapshots=45,
     random_seed=1
 )
 
-println("\nConfiguration:")
-println("  Realizations: $(config.n_realizations)")
-println("  Time range: $(config.start_time) - $(config.end_time) years")
-println("  Snapshots: $(config.num_snapshots)")
-println("  Random seed: $(config.random_seed)")
-
 # =============================================================================
 # SETUP RESERVOIR GEOMETRY AND INJECTION
 # =============================================================================
-
-println("\n" * "-"^80)
-println("Setting up reservoir geometry...")
-println("-"^80)
 
 # Load Sleipner topography and create domain
 boundary_condition = :closed
@@ -81,87 +52,121 @@ topography = load_sleipner_topography()
 domain = create_domain_from_topography(topography, 1.0)
 layers = analyze_base_surfaces(topography; boundary_condition=boundary_condition)
 
-println("  Domain: $(domain.nx) × $(domain.ny) × $(domain.nz)")
-println("  Number of layers: $(length(layers))")
+
+# plot_layer_topographies(
+#     layers,
+#     domain;
+#     output_file="layer_topographies.png",
+#     title="Sleipner Layer Topographies",
+#     colormap=:viridis,
+#     contour_levels=14,
+#     show_contour_labels=false
+# );
 
 # Load injection location from feeder chimney data
 xy, (utm_x, utm_y, depth) = load_feeder_location(topography)
-println("  Injection location: grid indices $xy")
-println("  UTM coordinates: ($utm_x, $utm_y)")
-println("  Depth: $depth m")
+
 
 # Generate injection schedule
 injection_events = generate_sleipner_injection_events(layers, xy)
-println("  Number of injection events: $(length(injection_events))")
 
 # =============================================================================
 # RUN MONTE CARLO SIMULATION
 # =============================================================================
-
-println("\n" * "-"^80)
-println("Running Monte Carlo simulation...")
-println("-"^80)
 
 ensemble = run_monte_carlo_simulation(
     config,
     layers,
     domain,
     injection_events;
-    verbose=true
+    verbose=true,
+    store_seqs=true  # Store sequences for spatial animations
 );
 
-println("\nMonte Carlo simulation completed!")
 
 # =============================================================================
 # UNCERTAINTY ANALYSIS
 # =============================================================================
 
-println("\n" * "-"^80)
-println("Generating uncertainty analysis plots...")
-println("-"^80)
-
 # Create output directory for plots
 mkpath("monte_carlo_results")
 
 # 1. Total CO2 storage uncertainty
-println("\nPlotting total CO2 storage uncertainty...")
-plot_total_storage_uncertainty(
-    ensemble;
-    output_file="monte_carlo_results/total_storage_uncertainty.png",
-    show_individual=false,
-    figsize=(1000, 600)
-)
+# plot_total_storage_uncertainty(
+#     ensemble;
+#     output_file="monte_carlo_results/total_storage_uncertainty.png",
+#     show_individual=false,
+#     figsize=(1000, 600)
+# )
 
-# 2. Total CO2 leakage uncertainty
-println("\nPlotting total CO2 leakage uncertainty...")
-plot_total_leakage_uncertainty(
-    ensemble;
-    output_file="monte_carlo_results/total_leakage_uncertainty.png",
-    show_individual=false,
-    figsize=(1000, 600)
-)
+# # 2. Total CO2 leakage uncertainty
+# println("\nPlotting total CO2 leakage uncertainty...")
+# plot_total_leakage_uncertainty(
+#     ensemble;
+#     output_file="monte_carlo_results/total_leakage_uncertainty.png",
+#     show_individual=false,
+#     figsize=(1000, 600)
+# )
 
-# 3. Layer-by-layer uncertainty
-println("\nPlotting layer-by-layer uncertainty...")
-n_layers = length(layers)
-plot_all_layers_uncertainty(
-    ensemble,
-    n_layers;
-    output_file="monte_carlo_results/all_layers_uncertainty.png",
-    figsize=(1400, 1000)
-)
+# # 3. Layer-by-layer uncertainty
+# println("\nPlotting layer-by-layer uncertainty...")
+# n_layers = length(layers)
+# plot_all_layers_uncertainty(
+#     ensemble,
+#     n_layers;
+#     output_file="monte_carlo_results/all_layers_uncertainty.png",
+#     figsize=(1400, 1000)
+# )
 
-# 4. Layer distribution barplot at final timepoint
-println("\nGenerating layer distribution barplot...")
+# # 4. Layer distribution barplot at final timepoint
+# println("\nGenerating layer distribution barplot...")
 plot_layer_distribution_barplot(
     ensemble;
-    output_file="monte_carlo_results/layer_distribution_barplot.png",
-    figsize=(1000, 600)
+    output_file="monte_carlo_results/layer_distribution_barplot.svg",
+    bar_color=colorant"#386624",
+    bar_alpha=1.0,  # Semi-transparent bars so error bars are visible
+    error_bar_color=:black,  # Black error bars for better contrast
+    error_bar_linewidth=2.0,
+    fontsize_labels=16,
+    fontsize_ticks=15,
+    fontsize_values=15,
+    figure_size=(700, 400)
 )
+println("jk")
+
+# # 5. Mean plume animation across realizations (single color)
+# println("\nGenerating mean plume animation (single color)...")
+# animate_multi_layer_filling_ensemble(
+#     ensemble,
+#     layers,
+#     domain;
+#     output_file="monte_carlo_results/ensemble_mean_filling.gif",
+#     num_frames=30,
+#     end_time=15.0,
+#     fps=3,
+#     show_probability=false,
+#     plume_color=:red
+# )
+
+# 6. Probability-based plume animation across realizations
+        # :shale_pressure_threshold_std => Uniform(8.0, 15.0)
+# animate_multi_layer_filling_ensemble(
+#     ensemble,
+#     layers,
+#     domain;
+#     output_file="monte_carlo_results/ensemble_probability_filling.gif",
+#     num_frames=30,
+#     end_time=15.0,
+#     fps=3,
+#     show_probability=true,
+#     probability_colormap=:viridis
+# )
 
 # =============================================================================
 # STATISTICAL SUMMARY
 # =============================================================================
 
 # Print comprehensive statistical summary
-print_uncertainty_summary(ensemble)
+# print_uncertainty_summary(ensemble)
+print_percentages(ensemble);
+

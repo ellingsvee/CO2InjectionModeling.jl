@@ -24,6 +24,8 @@ struct MonteCarloResult
     realization_id::Int
     parameters::Dict{Symbol, Float64}
     snapshots::Vector{ReservoirSnapshot}
+    seqs::Union{Vector{Vector{SpillEvent}}, Nothing}
+    leakage_states::Union{Vector{LeakageState}, Nothing}
 end
 
 """
@@ -73,44 +75,71 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
     # Note: leakage_height is computed automatically from shale_pressure_threshold
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
 
+
+    # sampled_shale_thresholds =[
+    #     64935.189136968474,
+    #     145480.99151323555,
+    #     60265.54535253754,
+    #     86545.36470224884,
+    #     134536.57733389136,
+    #     114664.10814779482,
+    #     118790.15494120165,
+    #     110065.36326170494,
+    #     115946.26594344187,
+    #     # Inf, 
+    # ]
+    # sampled_shale_thresholds[1] *= 1.5
+    # sampled_shale_thresholds[2] *= 0.95
+    # sampled_shale_thresholds[3] *= 1.75
+    # sampled_shale_thresholds[4] *= 1.25
+
+    # sampled_shale_thresholds[6] *= 0.88
+    # sampled_shale_thresholds[7] *= 0.85
+    # sampled_shale_thresholds[8] *= 1.1
+    # sampled_shale_thresholds[9] *= 1.02
+
+    sampled_shale_thresholds =[
+        64935.189136968474,
+        145480.99151323555,
+        60265.54535253754,
+        86545.36470224884,
+        134536.57733389136,
+        114664.10814779482,
+        118790.15494120165,
+        110065.36326170494,
+        115946.26594344187,
+        # Inf, 
+    ]
+    sampled_shale_thresholds[1] *= 1.5
+    sampled_shale_thresholds[2] *= 0.6
+    sampled_shale_thresholds[3] *= 1.75
+    sampled_shale_thresholds[4] *= 1.25
+    sampled_shale_thresholds[5] *= 1.1
+
+    sampled_shale_thresholds[6] *= 0.88
+    sampled_shale_thresholds[7] *= 0.85
+    sampled_shale_thresholds[8] *= 1.1
+    sampled_shale_thresholds[9] *= 1.0
+
     for i in 1:n_layers
-    #     # Top layer has infinite leakage height (impermeable caprock)
-    #     if i == n_layers
-    #         reservoir_properties[i] = ReservoirProperties(
-    #             sampled_params[:sand_porosity],
-    #             sampled_params[:sand_residual_co2_saturation],
-    #             sampled_params[:sand_irreducible_water_saturation],
-    #             Inf,
-    #             sampled_params[:residual_leakage_time];
-    #             # leakage_height computed automatically from pressure
-    #             shale_pressure_threshold_std=shale_pressure_threshold_std,
-    #             brine_density=brine_density,
-    #             co2_density=co2_density
-    #         )
-    #     else
-    #         reservoir_properties[i] = ReservoirProperties(
-    #             sampled_params[:sand_porosity],
-    #             sampled_params[:sand_residual_co2_saturation],
-    #             sampled_params[:sand_irreducible_water_saturation],
-    #             sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
-    #             sampled_params[:residual_leakage_time];
-    #             # leakage_height computed automatically from pressure
-    #             shale_pressure_threshold_std=shale_pressure_threshold_std,
-    #             brine_density=brine_density,
-    #             co2_density=co2_density
-    #         )
-    #     end
+        # Top layer has infinite leakage height (impermeable caprock)
+        # if i == n_layers
+        #     sampled_params[Symbol("shale_pressure_threshold_layer_$i")] = Inf
+        # end
+
         reservoir_properties[i] = ReservoirProperties(
             sampled_params[:sand_porosity],
             sampled_params[:sand_residual_co2_saturation],
             sampled_params[:sand_irreducible_water_saturation],
-            sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
+            # sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
+            sampled_shale_thresholds[i],
             sampled_params[:residual_leakage_time];
             # leakage_height computed automatically from pressure
             shale_pressure_threshold_std=shale_pressure_threshold_std,
             brine_density=brine_density,
             co2_density=co2_density
         )
+
     end
 
     return reservoir_properties, sampled_params
@@ -122,7 +151,8 @@ end
         config::MonteCarloConfig,
         layers::Vector{Layer},
         domain::Domain3D,
-        injection_events::Vector{Vector{InjectionEvent}}
+        injection_events::Vector{Vector{InjectionEvent}};
+        store_seqs::Bool=false
     )
 
 Run a single Monte Carlo realization with sampled parameters.
@@ -133,6 +163,7 @@ Run a single Monte Carlo realization with sampled parameters.
 - `layers::Vector{Layer}`: Reservoir layer structure
 - `domain::Domain3D`: Spatial domain
 - `injection_events::Vector{Vector{InjectionEvent}}`: CO2 injection schedule (per layer)
+- `store_seqs::Bool=false`: Whether to store spill sequences for spatial animations
 
 # Returns
 - `MonteCarloResult`: Results from this realization
@@ -142,7 +173,8 @@ function run_single_realization(
     config::MonteCarloConfig,
     layers::Vector{Layer},
     domain::Domain3D,
-    injection_events::Vector{Vector{InjectionEvent}}
+    injection_events::Vector{Vector{InjectionEvent}};
+    store_seqs::Bool=false
 )
     # Sample reservoir properties
     n_layers = length(layers)
@@ -171,7 +203,11 @@ function run_single_realization(
         verbose=false
     )
 
-    return MonteCarloResult(realization_id, sampled_params, snapshots)
+    # Optionally store seqs and leakage_states for spatial animations
+    stored_seqs = store_seqs ? seqs : nothing
+    stored_leakage_states = store_seqs ? leakage_states : nothing
+
+    return MonteCarloResult(realization_id, sampled_params, snapshots, stored_seqs, stored_leakage_states)
 end
 
 """
@@ -180,7 +216,8 @@ end
         layers::Vector{Layer},
         domain::Domain3D,
         injection_events::Vector{Vector{InjectionEvent}};
-        verbose::Bool=true
+        verbose::Bool=true,
+        store_seqs::Bool=false
     )
 
 Run Monte Carlo uncertainty analysis with multiple parameter realizations.
@@ -191,6 +228,7 @@ Run Monte Carlo uncertainty analysis with multiple parameter realizations.
 - `domain::Domain3D`: Spatial domain
 - `injection_events::Vector{Vector{InjectionEvent}}`: CO2 injection schedule (per layer)
 - `verbose::Bool=true`: Show progress bar
+- `store_seqs::Bool=false`: Whether to store spill sequences for spatial animations
 
 # Returns
 - `MonteCarloEnsemble`: Aggregated results from all realizations
@@ -200,7 +238,8 @@ function run_monte_carlo_simulation(
     layers::Vector{Layer},
     domain::Domain3D,
     injection_events::Vector{Vector{InjectionEvent}};
-    verbose::Bool=true
+    verbose::Bool=true,
+    store_seqs::Bool=false
 )
     # Set random seed if specified
     if config.random_seed !== nothing
@@ -218,7 +257,7 @@ function run_monte_carlo_simulation(
 
     # Run simulations
     for i in 1:config.n_realizations
-        results[i] = run_single_realization(i, config, layers, domain, injection_events)
+        results[i] = run_single_realization(i, config, layers, domain, injection_events; store_seqs=store_seqs)
         next!(progress)
     end
 

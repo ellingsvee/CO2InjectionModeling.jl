@@ -8,6 +8,7 @@ Provides functions for:
 """
 
 using Plots
+using CairoMakie
 using Statistics
 using Printf
 
@@ -407,28 +408,124 @@ function print_uncertainty_summary(ensemble::MonteCarloEnsemble)
     println("="^80)
 end
 
-"""
-    plot_layer_distribution_barplot(
-        ensemble::MonteCarloEnsemble;
-        output_file::Union{String,Nothing}="layer_distribution_barplot.png",
-        figsize::Tuple{Int,Int}=(1000, 600)
-    )
-
-Create a barplot showing the percentage of CO₂ stored in each layer at the final timepoint,
-with error bars indicating uncertainty.
-
-# Arguments
-- `ensemble::MonteCarloEnsemble`: Monte Carlo ensemble results
-- `output_file::Union{String,Nothing}`: Save to file if provided
-- `figsize::Tuple{Int,Int}=(1000, 600)`: Figure size in pixels
-
-# Returns
-- `Plots.Plot`: The generated barplot
-"""
 function plot_layer_distribution_barplot(
     ensemble::MonteCarloEnsemble;
-    output_file::Union{String,Nothing}="layer_distribution_barplot.png",
-    figsize::Tuple{Int,Int}=(1000, 600)
+    output_file::Union{String,Nothing}="layer_distribution_barplot.svg",
+    title::Union{String,Nothing}=nothing,
+    bar_color=CairoMakie.colorant"#212C53",
+    bar_alpha::Float64=0.75,
+    error_bar_color=:black,
+    error_bar_linewidth::Float64=2.5,
+    show_values::Bool=true,
+    fontsize_title::Int=18,
+    fontsize_labels::Int=14,
+    fontsize_ticks::Int=12,
+    fontsize_values::Int=10,
+    figure_size::Tuple{Int,Int}=(700, 500),
+    bar_width::Float64=0.7
+)
+    # Get number of layers
+    n_layers = length(ensemble.results[1].snapshots[1].stored_by_layer_m3)
+    n_realizations = ensemble.config.n_realizations
+    final_time_idx = length(ensemble.timepoints)
+
+    # Extract data for all layers at final timepoint
+    # percentages[layer, realization]
+    percentages = zeros(n_layers, n_realizations)
+
+    for real_idx in 1:n_realizations
+        # Get total stored CO2 for this realization at final time
+        total = ensemble.results[real_idx].snapshots[final_time_idx].total_stored_m3
+
+        # Get stored amount in each layer
+        for layer_idx in 1:n_layers
+            layer_amount = ensemble.results[real_idx].snapshots[final_time_idx].stored_by_layer_m3[layer_idx]
+            percentages[layer_idx, real_idx] = (layer_amount / total) * 100.0
+        end
+    end
+
+    # Compute statistics for each layer
+    mean_pct = vec(mean(percentages, dims=2))
+    std_pct = vec(std(percentages, dims=2))
+    p5_pct = vec([quantile(percentages[i, :], 0.05) for i in 1:n_layers])
+    p95_pct = vec([quantile(percentages[i, :], 0.95) for i in 1:n_layers])
+
+    # Create figure
+    fig = CairoMakie.Figure(
+        size=figure_size,
+        backgroundcolor=:white,
+        fontsize=fontsize_ticks
+    )
+
+    # Create axis
+    title_row = isnothing(title) ? 1 : 2
+    ax = CairoMakie.Axis(fig[title_row, 1],
+        xlabel="Layer",
+        ylabel="Total stored (%)",
+        xlabelsize=fontsize_labels,
+        ylabelsize=fontsize_labels,
+        xticklabelsize=fontsize_ticks,
+        yticklabelsize=fontsize_ticks,
+        xticks=(1:n_layers, ["L$i" for i in 1:n_layers]),
+        xgridvisible=false,
+        ygridvisible=true,
+        ygridcolor=(:gray, 0.3),
+        ygridstyle=:dot,
+        spinewidth=1.5
+    )
+
+    # Calculate error bar lengths
+    lower_errors = mean_pct .- p5_pct
+    upper_errors = p95_pct .- mean_pct
+
+    # Plot bars with alpha transparency
+    CairoMakie.barplot!(ax, 1:n_layers, mean_pct,
+        color=(bar_color, bar_alpha),
+        width=bar_width,
+        strokewidth=0
+    )
+
+    # Plot error bars (90% confidence interval)
+    CairoMakie.errorbars!(ax, 1:n_layers, mean_pct, lower_errors, upper_errors,
+        color=error_bar_color,
+        linewidth=error_bar_linewidth,
+        whiskerwidth=10
+    )
+
+    # Add percentage value labels on top of bars
+    if show_values
+        for i in 1:n_layers
+            label_y = mean_pct[i] + upper_errors[i] + maximum(mean_pct) * 0.02
+            CairoMakie.text!(ax, i, label_y,
+                text=@sprintf("%.1f%%", mean_pct[i]),
+                align=(:center, :bottom),
+                fontsize=fontsize_values,
+                color=:black
+            )
+        end
+    end
+
+    # Add title if provided
+    if !isnothing(title)
+        CairoMakie.Label(fig[1, 1], title, fontsize=fontsize_title, font=:bold)
+    end
+
+    # Adjust y-axis limits to make room for labels
+    if show_values
+        CairoMakie.ylims!(ax, 0, maximum(mean_pct .+ upper_errors) * 1.15)
+    end
+
+    # Save if output file specified
+    if !isnothing(output_file)
+        CairoMakie.save(output_file, fig)
+        println("  Saved: $output_file")
+    end
+
+    return fig
+end
+
+function print_percentages(
+    ensemble::MonteCarloEnsemble;
 )
     # Get number of layers
     n_layers = length(ensemble.results[1].snapshots[1].stored_by_layer_m3)
@@ -455,40 +552,13 @@ function plot_layer_distribution_barplot(
     # Compute statistics for each layer
     mean_pct = vec(mean(percentages, dims=2))
     std_pct = vec(std(percentages, dims=2))
-    p5_pct = vec([quantile(percentages[i, :], 0.05) for i in 1:n_layers])
-    p95_pct = vec([quantile(percentages[i, :], 0.95) for i in 1:n_layers])
 
-    # Create barplot
-    layer_labels = ["L$i" for i in 1:n_layers]
-
-    p = bar(
-        1:n_layers,
-        mean_pct,
-        yerror=(mean_pct .- p5_pct, p95_pct .- mean_pct),
-        xlabel="Layer",
-        ylabel="Percentage of Total CO₂ (%)",
-        title="CO₂ Distribution Across Layers at t = $(ensemble.timepoints[end]) years",
-        label="Mean ± 90% CI",
-        legend=:topright,
-        color=:steelblue,
-        alpha=0.7,
-        xticks=(1:n_layers, layer_labels),
-        size=figsize,
-        grid=true,
-        bar_width=0.6
-    )
-
-    # Add percentage labels on top of bars
-    for i in 1:n_layers
-        annotate!(p, i, mean_pct[i] + (p95_pct[i] - mean_pct[i]) + 1.5,
-                 text(@sprintf("%.1f%%", mean_pct[i]), :center, 8))
+    println("\nLayer | Mean (%)      | Std (%)       |")
+    println("-"^60)
+    for layer_idx in 1:n_layers
+        @printf("%5d | %12.2f | %12.2f\n",
+                layer_idx,
+                mean_pct[layer_idx],
+                std_pct[layer_idx])
     end
-
-    # Save if output file specified
-    if output_file !== nothing
-        savefig(p, output_file)
-        println("  Saved: $output_file")
-    end
-
-    return p
 end

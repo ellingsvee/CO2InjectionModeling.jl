@@ -7,7 +7,6 @@ include("monte_carlo_analysis.jl")
 
 
 # Optimizider
-
 layer_percentages_true = [9, 10, 7, 6, 25, 8, 7, 11, 17] ./ 100
 
 # =============================================================================
@@ -16,10 +15,10 @@ layer_percentages_true = [9, 10, 7, 6, 25, 8, 7, 11, 17] ./ 100
 
 
  config = create_default_monte_carlo_config(
-    n_realizations=250,
+    n_realizations=1000,
     start_time=0.0,
     end_time=15.0,
-    num_snapshots=45,
+    num_snapshots=30,
     random_seed=1
 )
 
