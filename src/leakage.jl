@@ -898,6 +898,7 @@ function generate_leakage_weather_events(
                     weight = inflow_rates[j] / total_inflow
                     loc = record.leakage_location
                     rate_matrix[loc] += weight * total_leakage_rate
+                    # spread_out_injection_rate!(rate_matrix, target_grid_size, loc, weight * total_leakage_rate)
                 end
             else
                 # Fallback: equal distribution if no inflow information
@@ -905,6 +906,7 @@ function generate_leakage_weather_events(
                 for record in active_records
                     loc = record.leakage_location
                     rate_matrix[loc] += equal_rate
+                    # spread_out_injection_rate!(rate_matrix, target_grid_size, loc, equal_rate)
                 end
             end
         end
@@ -917,6 +919,31 @@ function generate_leakage_weather_events(
 
     # Remove duplicate timestamps and merge rates
     return merge_weather_events(events)
+end
+
+function spread_out_injection_rate!(
+    rate_matrix::Matrix{Float64},
+    target_grid_size::Tuple{Int, Int},
+    loc::CartesianIndex{2},
+    total_rate::Float64
+)
+    neighbor_indices = CartesianIndex[]
+
+    spread_number = 3
+    for di in -spread_number:spread_number, dj in -spread_number:spread_number
+        ni = loc[1] + di
+        nj = loc[2] + dj
+        if ni >= 1 && ni <= target_grid_size[1] && nj >= 1 && nj <= target_grid_size[2]
+            push!(neighbor_indices, CartesianIndex(ni, nj))
+        end
+    end
+    n_neighbors = length(neighbor_indices)
+    if n_neighbors > 0
+        rate_per_cell = total_rate / n_neighbors
+        for idx in neighbor_indices
+            rate_matrix[idx] += rate_per_cell
+        end
+    end
 end
 
 
