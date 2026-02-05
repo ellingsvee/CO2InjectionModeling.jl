@@ -123,16 +123,19 @@ function sample_reservoir_properties(config::MonteCarloConfig, n_layers::Int)
 
     for i in 1:n_layers
         # Top layer has infinite leakage height (impermeable caprock)
-        # if i == n_layers
-        #     sampled_params[Symbol("shale_pressure_threshold_layer_$i")] = Inf
-        # end
+        if i == 5
+            sampled_params[Symbol("shale_pressure_threshold_layer_$i")] *= 1.4
+        end
+        if i == n_layers
+            sampled_params[Symbol("shale_pressure_threshold_layer_$i")] *= 1.0
+        end
 
         reservoir_properties[i] = ReservoirProperties(
             sampled_params[:sand_porosity],
             sampled_params[:sand_residual_co2_saturation],
             sampled_params[:sand_irreducible_water_saturation],
-            # sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
-            sampled_shale_thresholds[i],
+            sampled_params[Symbol("shale_pressure_threshold_layer_$i")],
+            # sampled_shale_thresholds[i],
             sampled_params[:residual_leakage_time];
             # leakage_height computed automatically from pressure
             shale_pressure_threshold_std=shale_pressure_threshold_std,

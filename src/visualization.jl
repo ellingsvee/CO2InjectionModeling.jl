@@ -1,12 +1,16 @@
 using CairoMakie
 using Statistics
+using Printf
+using Colors
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_timepoints, SpillEvent
 
 export animate_multi_layer_filling, animate_multi_layer_saturation
 export plot_layer_volumes_timeseries, plot_layer_fractions_timeseries
 export animate_multi_layer_filling_ensemble
 export plot_layer_topographies
-export plot_final_co2_distribution
+export plot_final_co2_distribution, create_injection_locations_dict
+export plot_scenario_storage_timeseries, plot_scenario_layer_distribution, ScenarioData
+export plot_scenario_storage_comparison, plot_scenario_leakage_comparison
 
 
 """
@@ -1058,12 +1062,18 @@ for all layers. Uses a uniform color for CO2 presence and optionally overlays te
 - `figure_size`: Figure size as (width, height) tuple (default: auto-calculated)
 - `row_gap`: Gap between rows in pixels (default: 5)
 - `col_gap`: Gap between columns in pixels (default: 5)
+- `injection_locations`: Dict mapping layer index to Vector of CartesianIndex{2} for injection well locations (default: nothing)
+- `injection_marker`: Marker symbol for injection locations (default: :xcross)
+- `injection_marker_color`: Color for injection markers (default: :red)
+- `injection_marker_size`: Size of injection markers (default: 15)
+- `injection_marker_strokewidth`: Stroke width for injection markers (default: 2.0)
 
 # Returns
 - `Figure`: The Makie figure object
 
 # Example
 ```julia
+# Basic usage
 fig = plot_final_co2_distribution(
     layers, seqs, domain;
     output_file="final_co2.svg",
@@ -1071,6 +1081,18 @@ fig = plot_final_co2_distribution(
     co2_color=:royalblue,
     show_contours=true,
     transpose_layout=true
+)
+
+# With injection location markers
+injection_locs = Dict(
+    1 => [CartesianIndex(32, 59)],  # Well in layer 1
+    3 => [CartesianIndex(45, 70)]   # Well in layer 3
+)
+fig = plot_final_co2_distribution(
+    layers, seqs, domain;
+    injection_locations=injection_locs,
+    injection_marker=:xcross,
+    injection_marker_color=:red
 )
 ```
 """
@@ -1098,7 +1120,13 @@ function plot_final_co2_distribution(
     fontsize_ticks::Int = 10,
     figure_size::Union{Tuple{Int, Int}, Nothing} = nothing,
     row_gap::Int = 5,
-    col_gap::Int = 5
+    col_gap::Int = 5,
+    # Injection location markers
+    injection_locations::Union{Nothing, Dict{Int, Vector{CartesianIndex{2}}}} = nothing,
+    injection_marker = :xcross,
+    injection_marker_color = :red,
+    injection_marker_size::Int = 15,
+    injection_marker_strokewidth::Float64 = 2.0
 )
     n_layers = length(layers)
     @assert n_layers == length(seqs) "Number of layers must match number of sequences"
@@ -1306,6 +1334,38 @@ function plot_final_co2_distribution(
             colormap = [RGBAf(0, 0, 0, 0), (co2_color, co2_alpha)],
             colorrange = (0.0, 1.0)
         )
+
+        # Plot injection location markers if provided for this layer
+        if !isnothing(injection_locations) && haskey(injection_locations, layer_idx)
+            locs = injection_locations[layer_idx]
+            for loc in locs
+                # Convert grid index to coordinates
+                # Grid indices are 1-based, need to map to coordinate system
+                if coords_in_km
+                    loc_x = (loc[1] - 1) * domain.dx / 1000
+                    loc_y = (loc[2] - 1) * domain.dy / 1000
+                elseif show_utm_coords
+                    loc_x = utm_origin[1] + (loc[1] - 1) * domain.dx
+                    loc_y = utm_origin[2] + (loc[2] - 1) * domain.dy
+                else
+                    loc_x = (loc[1] - 1) * domain.dx
+                    loc_y = (loc[2] - 1) * domain.dy
+                end
+
+                # Swap coordinates if transposed
+                if transpose_layout
+                    loc_x, loc_y = loc_y, loc_x
+                end
+
+                scatter!(ax, [loc_x], [loc_y],
+                    marker = injection_marker,
+                    markersize = injection_marker_size,
+                    color = injection_marker_color,
+                    strokewidth = injection_marker_strokewidth,
+                    strokecolor = injection_marker_color
+                )
+            end
+        end
     end
 
     # Add overall title if provided
@@ -1316,6 +1376,569 @@ function plot_final_co2_distribution(
     # Adjust spacing for compact appearance
     colgap!(fig.layout, col_gap)
     rowgap!(fig.layout, row_gap)
+
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+
+"""
+    create_injection_locations_dict(well_locations, well_layers)
+
+Helper function to create the injection_locations Dict from well locations and layers.
+
+# Arguments
+- `well_locations`: Vector of CartesianIndex{2} for each well
+- `well_layers`: Vector of Int layer indices for each well
+
+# Returns
+- Dict{Int, Vector{CartesianIndex{2}}} mapping layer index to well locations in that layer
+
+# Example
+```julia
+locations = [CartesianIndex(32, 59), CartesianIndex(45, 70)]
+layers = [1, 3]
+injection_locs = create_injection_locations_dict(locations, layers)
+# Returns: Dict(1 => [CartesianIndex(32, 59)], 3 => [CartesianIndex(45, 70)])
+```
+"""
+function create_injection_locations_dict(
+    well_locations::Vector{<:CartesianIndex{2}},
+    well_layers::Vector{Int}
+)::Dict{Int, Vector{CartesianIndex{2}}}
+    @assert length(well_locations) == length(well_layers) "Locations and layers must have same length"
+
+    result = Dict{Int, Vector{CartesianIndex{2}}}()
+    for (loc, layer) in zip(well_locations, well_layers)
+        if !haskey(result, layer)
+            result[layer] = CartesianIndex{2}[]
+        end
+        push!(result[layer], loc)
+    end
+    return result
+end
+
+
+# =============================================================================
+# SCENARIO COMPARISON PLOTS (for optimization experiments)
+# =============================================================================
+
+"""
+    ScenarioData
+
+Data structure for storing scenario results for comparison plotting.
+
+# Fields
+- `name::String`: Display name for the scenario (e.g., "1 Well", "2 Wells")
+- `timepoints::Vector{Float64}`: Time points (years)
+- `storage_mt::Vector{Float64}`: Total CO2 stored at each timepoint (Mt)
+- `layer_percentages::Vector{Float64}`: Percentage of CO2 in each layer at final time
+"""
+struct ScenarioData
+    name::String
+    timepoints::Vector{Float64}
+    storage_mt::Vector{Float64}
+    layer_percentages::Vector{Float64}
+end
+
+
+"""
+    plot_scenario_storage_timeseries(
+        scenarios::Vector{ScenarioData};
+        kwargs...
+    )
+
+Create a professional time series plot comparing CO2 storage evolution across scenarios.
+
+# Arguments
+- `scenarios`: Vector of ScenarioData with storage time series
+
+# Keyword Arguments
+- `output_file`: Path to save figure (default: nothing)
+- `title`: Plot title (default: nothing)
+- `colors`: Vector of colors for each scenario (default: professional palette)
+- `linewidth`: Line width (default: 2.5)
+- `show_markers`: Show markers at data points (default: false)
+- `marker_size`: Size of markers (default: 8)
+- `fontsize_title`: Title font size (default: 18)
+- `fontsize_labels`: Axis label font size (default: 14)
+- `fontsize_ticks`: Tick label font size (default: 12)
+- `fontsize_legend`: Legend font size (default: 12)
+- `figure_size`: Figure size as (width, height) (default: (700, 450))
+- `show_legend`: Whether to show legend (default: true)
+- `legend_position`: Legend position (default: :rb for right-bottom)
+
+# Example
+```julia
+scenarios = [
+    ScenarioData("1 Well", times, storage1, pct1),
+    ScenarioData("2 Wells", times, storage2, pct2),
+    ScenarioData("3 Wells", times, storage3, pct3)
+]
+plot_scenario_storage_timeseries(scenarios; output_file="storage_comparison.svg")
+```
+"""
+function plot_scenario_storage_timeseries(
+    scenarios::Vector{ScenarioData};
+    output_file::Union{String, Nothing} = nothing,
+    title::Union{String, Nothing} = nothing,
+    colors::Union{Vector, Nothing} = nothing,
+    linewidth::Float64 = 2.5,
+    show_markers::Bool = false,
+    marker_size::Int = 8,
+    fontsize_title::Int = 18,
+    fontsize_labels::Int = 14,
+    fontsize_ticks::Int = 12,
+    fontsize_legend::Int = 12,
+    figure_size::Tuple{Int, Int} = (700, 450),
+    show_legend::Bool = true,
+    legend_position = :rb
+)
+    # Professional color palette if not provided
+    if isnothing(colors)
+        colors = [
+            colorant"#2E86AB",  # Blue
+            colorant"#A23B72",  # Magenta
+            colorant"#F18F01",  # Orange
+            colorant"#C73E1D",  # Red
+            colorant"#3B1F2B"   # Dark
+        ]
+    end
+
+    # Create figure
+    fig = Figure(
+        size = figure_size,
+        backgroundcolor = :white,
+        fontsize = fontsize_ticks
+    )
+
+    # Create axis
+    title_row = isnothing(title) ? 1 : 2
+    ax = Axis(fig[title_row, 1],
+        xlabel = "Time (years)",
+        ylabel = "CO₂ Stored (Mt)",
+        xlabelsize = fontsize_labels,
+        ylabelsize = fontsize_labels,
+        xticklabelsize = fontsize_ticks,
+        yticklabelsize = fontsize_ticks,
+        xgridvisible = true,
+        ygridvisible = true,
+        xgridcolor = (:gray, 0.3),
+        ygridcolor = (:gray, 0.3),
+        xgridstyle = :dot,
+        ygridstyle = :dot,
+        spinewidth = 1.5
+    )
+
+    # Plot each scenario
+    for (i, scenario) in enumerate(scenarios)
+        color = colors[mod1(i, length(colors))]
+
+        lines!(ax, scenario.timepoints, scenario.storage_mt,
+            color = color,
+            linewidth = linewidth,
+            label = scenario.name
+        )
+
+        if show_markers
+            scatter!(ax, scenario.timepoints, scenario.storage_mt,
+                color = color,
+                markersize = marker_size
+            )
+        end
+    end
+
+    # Add legend
+    if show_legend
+        axislegend(ax, position = legend_position,
+                   labelsize = fontsize_legend,
+                   framevisible = true,
+                   framecolor = (:gray, 0.5),
+                   bgcolor = (:white, 0.9))
+    end
+
+    # Add title
+    if !isnothing(title)
+        Label(fig[1, 1], title, fontsize = fontsize_title, font = :bold)
+    end
+
+    # Save
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+
+"""
+    plot_scenario_layer_distribution(
+        scenarios::Vector{ScenarioData};
+        kwargs...
+    )
+
+Create a professional grouped bar chart comparing layer distributions across scenarios.
+
+# Arguments
+- `scenarios`: Vector of ScenarioData with layer_percentages
+
+# Keyword Arguments
+- `output_file`: Path to save figure (default: nothing)
+- `title`: Plot title (default: nothing)
+- `colors`: Vector of colors for each scenario (default: professional palette)
+- `bar_alpha`: Bar transparency (default: 0.9)
+- `show_values`: Show percentage values on bars (default: true)
+- `fontsize_title`: Title font size (default: 18)
+- `fontsize_labels`: Axis label font size (default: 14)
+- `fontsize_ticks`: Tick label font size (default: 12)
+- `fontsize_values`: Value label font size (default: 9)
+- `fontsize_legend`: Legend font size (default: 11)
+- `figure_size`: Figure size as (width, height) (default: (800, 450))
+- `bar_width`: Width of individual bars (default: 0.2)
+- `legend_position`: Legend position (default: :rt)
+
+# Example
+```julia
+scenarios = [
+    ScenarioData("1 Well", times, storage1, [10.0, 15.0, 20.0, ...]),
+    ScenarioData("2 Wells", times, storage2, [12.0, 18.0, 22.0, ...])
+]
+plot_scenario_layer_distribution(scenarios; output_file="layer_comparison.svg")
+```
+"""
+function plot_scenario_layer_distribution(
+    scenarios::Vector{ScenarioData};
+    output_file::Union{String, Nothing} = nothing,
+    title::Union{String, Nothing} = nothing,
+    colors::Union{Vector, Nothing} = nothing,
+    bar_alpha::Float64 = 0.9,
+    show_values::Bool = true,
+    fontsize_title::Int = 18,
+    fontsize_labels::Int = 14,
+    fontsize_ticks::Int = 12,
+    fontsize_values::Int = 9,
+    fontsize_legend::Int = 11,
+    figure_size::Tuple{Int, Int} = (800, 450),
+    bar_width::Float64 = 0.2,
+    legend_position = :rt
+)
+    # Professional color palette if not provided
+#let brown = rgb("#271B11")
+#let green = rgb("#386624")
+#let orange = rgb("#A49841")
+#let blue = rgb("#74AFB9")
+
+    if isnothing(colors)
+        colors = [
+            colorant"#386624",  # Green
+            colorant"#A49841",  # Orange
+            colorant"#74AFB9",   # Blue
+            colorant"#271B11",  # Brown
+        ]
+    end
+
+
+    # Remove the first scenario
+    scenarios_plot = scenarios[2:end]
+
+    n_scenarios = length(scenarios_plot)
+    n_layers = length(scenarios[1].layer_percentages)
+
+    # Create figure
+    fig = Figure(
+        size = figure_size,
+        backgroundcolor = :white,
+        fontsize = fontsize_ticks
+    )
+
+    # Create axis
+    title_row = isnothing(title) ? 1 : 2
+    ax = Axis(fig[title_row, 1],
+        xlabel = "Layer",
+        ylabel = "Total stored (%)",
+        xlabelsize = fontsize_labels,
+        ylabelsize = fontsize_labels,
+        xticklabelsize = fontsize_ticks,
+        yticklabelsize = fontsize_ticks,
+        xticks = (1:n_layers, ["L$i" for i in 1:n_layers]),
+        xgridvisible = false,
+        ygridvisible = true,
+        ygridcolor = (:gray, 0.3),
+        ygridstyle = :dot,
+        spinewidth = 1.5
+    )
+
+
+    # Plot bars for each scenario
+    for (s_idx, scenario) in enumerate(scenarios_plot)
+        color = colors[mod1(s_idx, length(colors))]
+
+        # Offset for this scenario's bars within each group
+        offset = (s_idx - (n_scenarios + 1) / 2) * bar_width
+        positions = collect(1:n_layers) .+ offset
+
+        barplot!(ax, positions, scenario.layer_percentages,
+            color = (color, bar_alpha),
+            width = bar_width * 0.9,
+            strokewidth = 0,
+            label = scenario.name
+        )
+
+        # Add value labels
+        if show_values
+            for (pos, val) in zip(positions, scenario.layer_percentages)
+                if val > 2.0  # Only show labels for bars with meaningful values
+                    text!(ax, pos, val + 1.0,
+                        text = @sprintf("%.0f", val),
+                        align = (:center, :bottom),
+                        fontsize = fontsize_values,
+                        color = :black
+                    )
+                end
+            end
+        end
+    end
+
+    # Add legend
+    axislegend(ax, position = legend_position,
+               labelsize = fontsize_legend,
+               framevisible = true,
+               framecolor = (:gray, 0.5),
+               bgcolor = (:white, 0.9))
+
+    # Add title
+    if !isnothing(title)
+        Label(fig[1, 1], title, fontsize = fontsize_title, font = :bold)
+    end
+
+    # Adjust y-axis limits to accommodate labels
+    if show_values
+        max_val = maximum(maximum(s.layer_percentages) for s in scenarios_plot)
+        ylims!(ax, 0, max_val * 1.15)
+    end
+
+    # Save
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+
+"""
+    plot_scenario_storage_comparison(
+        scenario_names::Vector{String},
+        storage_values::Vector{Float64};
+        kwargs...
+    )
+
+Create a professional bar chart comparing total CO2 storage across scenarios.
+
+# Arguments
+- `scenario_names`: Names for each scenario
+- `storage_values`: Total storage in Mt for each scenario
+
+# Keyword Arguments
+- `output_file`: Path to save figure (default: nothing)
+- `title`: Plot title (default: nothing)
+- `colors`: Vector of colors for each bar (default: professional palette)
+- `bar_alpha`: Bar transparency (default: 1.0)
+- `show_values`: Show values on bars (default: true)
+- `ylabel`: Y-axis label (default: "CO₂ Stored (Mt)")
+- `fontsize_labels`: Axis label font size (default: 16)
+- `fontsize_ticks`: Tick label font size (default: 14)
+- `fontsize_values`: Value label font size (default: 14)
+- `figure_size`: Figure size (default: (600, 400))
+- `bar_width`: Width of bars (default: 0.6)
+"""
+function plot_scenario_storage_comparison(
+    scenario_names::Vector{String},
+    storage_values::Vector{Float64};
+    output_file::Union{String, Nothing} = nothing,
+    title::Union{String, Nothing} = nothing,
+    colors::Union{Vector, Nothing} = nothing,
+    bar_alpha::Float64 = 1.0,
+    show_values::Bool = true,
+    ylabel::String = "CO₂ Stored (Mt)",
+    fontsize_labels::Int = 16,
+    fontsize_ticks::Int = 14,
+    fontsize_values::Int = 14,
+    figure_size::Tuple{Int, Int} = (600, 400),
+    bar_width::Float64 = 0.6
+)
+    if isnothing(colors)
+        colors = [
+            colorant"#386624",  # Green
+            colorant"#A49841",  # Orange
+            colorant"#74AFB9",  # Blue
+            colorant"#271B11",  # Brown
+        ]
+    end
+
+    n_scenarios = length(scenario_names)
+
+    fig = Figure(
+        size = figure_size,
+        backgroundcolor = :white,
+        fontsize = fontsize_ticks
+    )
+
+    title_row = isnothing(title) ? 1 : 2
+    ax = Axis(fig[title_row, 1],
+        # xlabel = "Scenario",
+        ylabel = ylabel,
+        xlabelsize = fontsize_labels,
+        ylabelsize = fontsize_labels,
+        xticklabelsize = fontsize_ticks,
+        yticklabelsize = fontsize_ticks,
+        xticks = (1:n_scenarios, scenario_names),
+        xticklabelrotation = 0.0,
+        xgridvisible = false,
+        ygridvisible = true,
+        ygridcolor = (:gray, 0.3),
+        ygridstyle = :dot,
+        spinewidth = 1.5
+    )
+
+    # Plot bars
+    bar_colors = [(colors[mod1(i, length(colors))], bar_alpha) for i in 1:n_scenarios]
+    barplot!(ax, 1:n_scenarios, storage_values,
+        color = bar_colors,
+        width = bar_width,
+        strokewidth = 0
+    )
+
+    # Add value labels
+    if show_values
+        for (i, val) in enumerate(storage_values)
+            text!(ax, i, val + maximum(storage_values) * 0.02,
+                text = @sprintf("%.2f", val),
+                align = (:center, :bottom),
+                fontsize = fontsize_values,
+                color = :black
+            )
+        end
+    end
+
+    # Adjust y-axis
+    if show_values
+        ylims!(ax, 0, maximum(storage_values) * 1.12)
+    end
+
+    if !isnothing(title)
+        Label(fig[1, 1], title, fontsize = 18, font = :bold)
+    end
+
+    if !isnothing(output_file)
+        save(output_file, fig)
+        println("Figure saved to: $(output_file)")
+    end
+
+    return fig
+end
+
+
+"""
+    plot_scenario_leakage_comparison(
+        scenario_names::Vector{String},
+        leakage_values::Vector{Float64};
+        kwargs...
+    )
+
+Create a professional bar chart comparing total CO2 leakage across scenarios.
+
+# Arguments
+- `scenario_names`: Names for each scenario
+- `leakage_values`: Total leakage in Mt for each scenario
+
+# Keyword Arguments
+- Same as plot_scenario_storage_comparison, with ylabel default "CO₂ Leaked (Mt)"
+"""
+function plot_scenario_leakage_comparison(
+    scenario_names::Vector{String},
+    leakage_values::Vector{Float64};
+    output_file::Union{String, Nothing} = nothing,
+    title::Union{String, Nothing} = nothing,
+    colors::Union{Vector, Nothing} = nothing,
+    bar_alpha::Float64 = 1.0,
+    show_values::Bool = true,
+    ylabel::String = "CO₂ Leaked (Mt)",
+    fontsize_labels::Int = 16,
+    fontsize_ticks::Int = 14,
+    fontsize_values::Int = 14,
+    figure_size::Tuple{Int, Int} = (600, 400),
+    bar_width::Float64 = 0.6
+)
+    if isnothing(colors)
+        colors = [
+            colorant"#386624",  # Green
+            colorant"#A49841",  # Orange
+            colorant"#74AFB9",  # Blue
+            colorant"#271B11",  # Brown
+        ]
+    end
+
+    n_scenarios = length(scenario_names)
+
+    fig = Figure(
+        size = figure_size,
+        backgroundcolor = :white,
+        fontsize = fontsize_ticks
+    )
+
+    title_row = isnothing(title) ? 1 : 2
+    ax = Axis(fig[title_row, 1],
+        # xlabel = "Scenario",
+        ylabel = ylabel,
+        xlabelsize = fontsize_labels,
+        ylabelsize = fontsize_labels,
+        xticklabelsize = fontsize_ticks,
+        yticklabelsize = fontsize_ticks,
+        xticks = (1:n_scenarios, scenario_names),
+        xticklabelrotation = 0.0,
+        xgridvisible = false,
+        ygridvisible = true,
+        ygridcolor = (:gray, 0.3),
+        ygridstyle = :dot,
+        spinewidth = 1.5
+    )
+
+    # Plot bars
+    bar_colors = [(colors[mod1(i, length(colors))], bar_alpha) for i in 1:n_scenarios]
+    barplot!(ax, 1:n_scenarios, leakage_values,
+        color = bar_colors,
+        width = bar_width,
+        strokewidth = 0
+    )
+
+    # Add value labels
+    if show_values
+        max_val = maximum(leakage_values)
+        for (i, val) in enumerate(leakage_values)
+            text!(ax, i, val + max_val * 0.02,
+                text = @sprintf("%.2f", val),
+                align = (:center, :bottom),
+                fontsize = fontsize_values,
+                color = :black
+            )
+        end
+    end
+
+    # Adjust y-axis
+    if show_values && maximum(leakage_values) > 0
+        ylims!(ax, 0, maximum(leakage_values) * 1.15)
+    end
+
+    if !isnothing(title)
+        Label(fig[1, 1], title, fontsize = 18, font = :bold)
+    end
 
     if !isnothing(output_file)
         save(output_file, fig)

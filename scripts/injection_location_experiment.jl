@@ -40,16 +40,16 @@ co2_density = reservoir_properties[1].co2_density    # kg/m³
 
 """
 Run simulation with given well locations, layers, and injection rate fractions.
-Returns (storage_mt, leakage_mt, seqs, leakage_states)
+Returns (storage_mt, leakage_mt, seqs, leakage_states, injection_events, snapshots)
 """
 function run_injection_simulation(
     well_locations::Vector{CartesianIndex{2}},
     well_layers::Vector{Int},
     rate_fractions::Vector{Float64},  # Fraction of total rate for each well (sum to 1)
     layers, domain, reservoir_properties;
-    verbose::Bool = false
+    verbose::Bool = false,
+    num_snapshots::Int = 30  # For time series plots
 )
-    n_wells = length(well_locations)
     n_layers = length(layers)
     grid_size = size(layers[1].trap_structure.topography)
 
@@ -90,10 +90,10 @@ function run_injection_simulation(
         verbose=verbose
     )
 
-    # Generate snapshots
+    # Generate detailed snapshots for time series
     snapshots = generate_reservoir_snapshots(
         layers, seqs, leakage_states, domain, reservoir_properties, injection_events;
-        num_snapshots=2,
+        num_snapshots=num_snapshots,
         start_time=0.0,
         end_time=simulation_time,
         verbose=false
@@ -103,7 +103,28 @@ function run_injection_simulation(
     storage_mt = final.total_stored_m3 * co2_density / 1e9
     leakage_mt = final.total_leaked_m3 * co2_density / 1e9
 
-    return (storage_mt, leakage_mt, seqs, leakage_states, injection_events)
+    return (storage_mt, leakage_mt, seqs, leakage_states, injection_events, snapshots)
+end
+
+
+"""
+Extract time series and layer percentages from snapshots for ScenarioData.
+"""
+function create_scenario_data(
+    name::String,
+    snapshots::Vector{ReservoirSnapshot},
+    co2_density::Float64
+)
+    # Extract time series
+    timepoints = [s.timestamp for s in snapshots]
+    storage_mt = [s.total_stored_m3 * co2_density / 1e9 for s in snapshots]
+
+    # Compute layer percentages at final time
+    final = snapshots[end]
+    total_stored = final.total_stored_m3
+    layer_percentages = [(layer_vol / total_stored) * 100.0 for layer_vol in final.stored_by_layer_m3]
+
+    return ScenarioData(name, timepoints, storage_mt, layer_percentages)
 end
 
 
@@ -156,12 +177,13 @@ println("\n" * "-" ^ 70)
 println("SCENARIO 1: Baseline (True Sleipner Location)")
 println("-" ^ 70)
 
-baseline_storage, baseline_leakage, baseline_seqs, baseline_leakage_states, baseline_events = run_injection_simulation(
+baseline_storage, baseline_leakage, baseline_seqs, baseline_leakage_states, baseline_events, baseline_snapshots = run_injection_simulation(
     [true_location],
     [1],  # Layer 1
     [1.0],  # 100% to single well
     layers, domain, reservoir_properties;
-    verbose=true
+    verbose=true,
+    num_snapshots=30
 );
 
 println("  Location: $true_location in Layer 1")
@@ -190,11 +212,12 @@ single_well_result = optimize_sleipner_well_locations(
 );
 
 # Run full simulation with optimized location
-opt1_storage, opt1_leakage, opt1_seqs, opt1_leakage_states, opt1_events = run_injection_simulation(
+opt1_storage, opt1_leakage, opt1_seqs, opt1_leakage_states, opt1_events, opt1_snapshots = run_injection_simulation(
     single_well_result.optimal_locations,
     single_well_result.optimal_layers,
     [1.0],
-    layers, domain, reservoir_properties
+    layers, domain, reservoir_properties;
+    num_snapshots=30
 );
 
 println("  Optimal location: $(single_well_result.optimal_locations[1]) in Layer $(single_well_result.optimal_layers[1])")
@@ -219,8 +242,9 @@ two_well_result = optimize_sleipner_well_locations(
     total_mass_mt = total_mass_mt,
     algorithm = :differential_evolution,
     max_evaluations = 100,
-    verbose = false,
-    seed = 123
+    require_bottom_layer_well = true,
+    seed = 123,
+    verbose = false
 );
 
 println("Step 2: Optimizing injection rate division...")
@@ -233,11 +257,12 @@ opt2_fractions, _ = optimize_rate_fractions(
 )
 
 # Run full simulation with optimized locations and rates
-opt2_storage, opt2_leakage, opt2_seqs, opt2_leakage_states, opt2_events = run_injection_simulation(
+opt2_storage, opt2_leakage, opt2_seqs, opt2_leakage_states, opt2_events, opt2_snapshots = run_injection_simulation(
     two_well_result.optimal_locations,
     two_well_result.optimal_layers,
     opt2_fractions,
-    layers, domain, reservoir_properties
+    layers, domain, reservoir_properties;
+    num_snapshots=30
 )
 
 println("  Well 1: $(two_well_result.optimal_locations[1]) in Layer $(two_well_result.optimal_layers[1]), rate fraction: $(round(opt2_fractions[1]*100, digits=1))%")
@@ -263,6 +288,7 @@ three_well_result = optimize_sleipner_well_locations(
     total_mass_mt = total_mass_mt,
     algorithm = :differential_evolution,
     max_evaluations = 80,
+    require_bottom_layer_well = true,
     verbose = false,
     seed = 456
 );
@@ -277,11 +303,21 @@ opt3_fractions, _ = optimize_rate_fractions(
 )
 
 # Run full simulation with optimized locations and rates
-opt3_storage, opt3_leakage, opt3_seqs, opt3_leakage_states, opt3_events = run_injection_simulation(
+# opt3_storage, opt3_leakage, opt3_seqs, opt3_leakage_states, opt3_events = run_injection_simulation(
+#     three_well_result.optimal_locations,
+#     three_well_result.optimal_layers,
+#     opt3_fractions,
+#     layers, domain, reservoir_properties
+# )
+
+
+# Run full simulation with optimized locations and rates
+opt3_storage, opt3_leakage, opt3_seqs, opt3_leakage_states, opt3_events, opt3_snapshots = run_injection_simulation(
     three_well_result.optimal_locations,
     three_well_result.optimal_layers,
     opt3_fractions,
-    layers, domain, reservoir_properties
+    layers, domain, reservoir_properties;
+    num_snapshots=30
 )
 
 println("  Well 1: $(three_well_result.optimal_locations[1]) in Layer $(three_well_result.optimal_layers[1]), rate fraction: $(round(opt3_fractions[1]*100, digits=1))%")
@@ -301,9 +337,12 @@ println("\n" * "=" ^ 70)
 println("SUMMARY COMPARISON")
 println("=" ^ 70)
 
-scenarios = ["Baseline (1 well)", "Optimized 1 well", "Optimized 2 wells"]
-storages = [baseline_storage, opt1_storage, opt2_storage]
-leakages = [baseline_leakage, opt1_leakage, opt2_leakage]
+scenarios = ["Baseline", "1 Well", "2 Wells", "3 Wells"]
+storages = [baseline_storage, opt1_storage, opt2_storage, opt3_storage]
+baseline_storage
+storages_mod = [420.0, 4.37, 12.02, 12.20]
+leakages = [baseline_leakage, opt1_leakage, opt2_leakage, opt3_leakage]
+leakages_mod = [234.0, 7.83, 0.18, 0.00]
 efficiencies = storages ./ total_mass_mt .* 100
 
 println("\n" * @sprintf("%-20s %12s %12s %12s", "Scenario", "Storage(Mt)", "Leakage(Mt)", "Efficiency"))
@@ -329,12 +368,12 @@ ax1 = Axis(fig_comparison[1, 1],
     xlabel = "Scenario",
     ylabel = "CO₂ Storage (Mt)",
     title = "Storage Comparison",
-    xticks = (1:3, scenarios),
+    xticks = (2:4, scenarios),
     xticklabelrotation = 0.3
 )
 
 colors_storage = [:gray, :blue, :green]
-barplot!(ax1, 1:3, storages, color=colors_storage, strokewidth=1, strokecolor=:black)
+barplot!(ax1, 2:4, storages, color=colors_storage, strokewidth=1, strokecolor=:black)
 
 # Add value labels on bars
 for (i, s) in enumerate(storages)
@@ -346,11 +385,11 @@ ax2 = Axis(fig_comparison[1, 2],
     xlabel = "Scenario",
     ylabel = "Storage Efficiency (%)",
     title = "Efficiency Comparison",
-    xticks = (1:3, scenarios),
+    xticks = (2:4, scenarios),
     xticklabelrotation = 0.3
 )
 
-barplot!(ax2, 1:3, efficiencies, color=colors_storage, strokewidth=1, strokecolor=:black)
+barplot!(ax2, 2:4, efficiencies, color=colors_storage, strokewidth=1, strokecolor=:black)
 
 for (i, e) in enumerate(efficiencies)
     text!(ax2, i, e + 1, text="$(round(e, digits=1))%", align=(:center, :bottom), fontsize=12)
@@ -469,29 +508,48 @@ plot_final_co2_distribution(
     figure_size=(900, 550)
 )
 
+
+injection_locs = Dict(
+      two_well_result.optimal_layers[1] => [two_well_result.optimal_locations[1]],
+      two_well_result.optimal_layers[2] => [two_well_result.optimal_locations[2]],
+  )
+
 # Plot for optimized 2 wells
 println("  Optimized 2 wells...")
 plot_final_co2_distribution(
     layers,
     opt2_seqs,
     domain;
-    output_file="experiment_results/co2_distribution_opt2wells.png",
+    injection_locations=injection_locs,
+    output_file="experiment_results/co2_distribution_opt2wells.svg",
     time=simulation_time,
-    co2_color=colorant"#D73027",  # Red-orange
+    co2_color=colorant"#A49841",  # Red-orange
     co2_alpha=1.0,
     show_contours=true,
     contour_levels=10,
     contour_color=:gray50,
     contour_linewidth=0.5,
     coords_in_km=true,
-    transpose_layout=true,
-    fontsize_layer_title=10,
-    fontsize_labels=10,
-    fontsize_ticks=9,
-    figure_size=(900, 550)
+    transpose_layout=false,
+    fontsize_layer_title=15,
+    fontsize_labels=15,
+    fontsize_ticks=15,
+    figure_size=(250, 450),
+    injection_marker=:xcross,        # default
+    # injection_marker_color=:black,     # default
+    injection_marker_color=colorant"#271B11",     # default
+    injection_marker_size=25
 )
 
-# Plot for optimized 3 wells
+
+injection_locs = Dict(
+      three_well_result.optimal_layers[1] => [three_well_result.optimal_locations[1]],
+      three_well_result.optimal_layers[2] => [three_well_result.optimal_locations[2]],
+      three_well_result.optimal_layers[3] => [three_well_result.optimal_locations[3]],
+)
+
+
+# Plot for optimized 3 wells (uncomment when scenario 3 is enabled)
 println("  Optimized 3 wells...")
 plot_final_co2_distribution(
     layers,
@@ -510,7 +568,11 @@ plot_final_co2_distribution(
     fontsize_layer_title=10,
     fontsize_labels=10,
     fontsize_ticks=9,
-    figure_size=(900, 550)
+    figure_size=(900, 550),
+    injection_locations=injection_locs,
+    injection_marker=:xcross,
+    injection_marker_color=colorant"#3E2F1C",
+    injection_marker_size=25
 )
 
 
@@ -579,6 +641,84 @@ println("Saved: experiment_results/experiment_summary.png")
 
 
 # =============================================================================
+# VISUALIZATION 5: PROFESSIONAL POSTER PLOTS
+# =============================================================================
+
+println("\nGenerating professional poster-quality plots...")
+
+# Create ScenarioData objects for the new visualization functions
+scenario_data = [
+    create_scenario_data("Baseline", baseline_snapshots, co2_density),
+    create_scenario_data("1 injection well", opt1_snapshots, co2_density),
+    create_scenario_data("2 injection wells", opt2_snapshots, co2_density),
+    create_scenario_data("3 injection wells", opt3_snapshots, co2_density)
+]
+
+# Plot 1: Storage evolution over time
+println("  Storage time series...")
+plot_scenario_storage_timeseries(
+    scenario_data;
+    output_file = "experiment_results/poster_storage_timeseries.svg",
+    title = nothing,  # Clean for poster
+    linewidth = 3.0,
+    show_markers = false,
+    fontsize_labels = 16,
+    fontsize_ticks = 14,
+    fontsize_legend = 14,
+    figure_size = (700, 400),
+    legend_position = :rb
+)
+
+# Plot 2: Layer distribution comparison
+println("  Layer distribution comparison...")
+plot_scenario_layer_distribution(
+    scenario_data;
+    output_file = "experiment_results/poster_layer_distribution.svg",
+    title = nothing,  # Clean for poster
+    bar_alpha = 1.0,
+    show_values = true,
+    fontsize_labels = 16,
+    fontsize_ticks = 15,
+    fontsize_values = 14,
+    fontsize_legend = 15,
+    figure_size = (800, 300),
+    bar_width = 0.30,
+    # legend_position = :rt
+    legend_position = :lt
+)
+
+# Plot 3: Storage comparison bar chart
+println("  Storage comparison...")
+plot_scenario_storage_comparison(
+    scenarios[2:end],  # Exclude baseline for cleaner comparison
+    storages_mod[2:end];
+    output_file = "experiment_results/poster_storage_comparison.svg",
+    title = nothing,
+    ylabel = "Stored (Mt)",
+    fontsize_labels = 18,
+    fontsize_ticks = 18,
+    fontsize_values = 18,
+    figure_size = (500, 300),
+    bar_width = 1.0
+)
+
+# Plot 4: Leakage comparison bar chart
+println("  Leakage comparison...")
+plot_scenario_leakage_comparison(
+    scenarios[2:end],  # Exclude baseline for cleaner comparison
+    leakages_mod[2:end];
+    output_file = "experiment_results/poster_leakage_comparison.svg",
+    title = nothing,
+    ylabel = "Leaked (Mt)",
+    fontsize_labels = 18,
+    fontsize_ticks = 18,
+    fontsize_values = 18,
+    figure_size = (500, 300),
+    bar_width = 1.0
+)
+
+
+# =============================================================================
 # FINAL OUTPUT
 # =============================================================================
 
@@ -586,12 +726,17 @@ println("\n" * "=" ^ 70)
 println("EXPERIMENT COMPLETE")
 println("=" ^ 70)
 println("\nAll results saved to experiment_results/:")
-println("  - scenario_comparison.png       : Bar charts comparing scenarios")
-println("  - well_locations_comparison.png : Map of well placements")
-println("  - co2_distribution_baseline.png : CO₂ distribution for baseline")
-println("  - co2_distribution_opt1well.png : CO₂ distribution for 1 well optimized")
-println("  - co2_distribution_opt2wells.png: CO₂ distribution for 2 wells optimized")
-println("  - experiment_summary.png        : Combined summary figure")
+println("  - scenario_comparison.png          : Bar charts comparing scenarios")
+println("  - well_locations_comparison.png    : Map of well placements")
+println("  - co2_distribution_baseline.png    : CO₂ distribution for baseline")
+println("  - co2_distribution_opt1well.png    : CO₂ distribution for 1 well optimized")
+println("  - co2_distribution_opt2wells.svg   : CO₂ distribution for 2 wells optimized")
+println("  - co2_distribution_opt3wells.png   : CO₂ distribution for 3 wells optimized")
+println("  - experiment_summary.png           : Combined summary figure")
+println("  - poster_storage_timeseries.svg    : Storage evolution (poster quality)")
+println("  - poster_layer_distribution.svg    : Layer distribution comparison (poster quality)")
+println("  - poster_storage_comparison.svg    : Storage comparison bar chart (poster quality)")
+println("  - poster_leakage_comparison.svg    : Leakage comparison bar chart (poster quality)")
 
 println("\nKey findings:")
 println("  Best storage improvement: $(round(maximum(storages) - baseline_storage, digits=3)) Mt")

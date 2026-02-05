@@ -6,20 +6,20 @@ using Colors
 using Printf
 
 # Setup
-boundary_condition = :closed
+boundary_condition = :open
 topography = load_sleipner_topography()
 domain = create_domain_from_topography(topography, 1.0)
 layers = analyze_base_surfaces(topography; boundary_condition=boundary_condition)
 
 # Select layer to plot
-layer_idx = 1
+layer_idx = 2
 layer = layers[layer_idx]
 
 """
     plot_trap_footprints(layer, domain; kwargs...)
 
 Create a professional plot showing trap footprints for a single layer.
-Traps are shown with a uniform color, with terrain contours underneath.
+Traps can be shown with uniform color or with discrete colors to distinguish individual traps.
 
 # Arguments
 - `layer`: A Layer struct
@@ -27,8 +27,10 @@ Traps are shown with a uniform color, with terrain contours underneath.
 
 # Keyword Arguments
 - `output_file`: Path to save figure (default: nothing, returns figure)
-- `trap_color`: Color for trap footprints (default: :royalblue)
+- `trap_color`: Color for trap footprints when using uniform color (default: :royalblue)
 - `trap_alpha`: Alpha transparency for trap footprints (default: 0.7)
+- `use_discrete_colors`: If true, color each trap differently (default: false)
+- `discrete_colors`: Vector of colors to cycle through for traps (default: 4 distinct colors)
 - `show_contours`: Whether to show terrain contours (default: true)
 - `contour_levels`: Number of contour lines (default: 12)
 - `contour_color`: Color for contour lines (default: :gray50)
@@ -47,6 +49,8 @@ function plot_trap_footprints(
     output_file::Union{String, Nothing} = nothing,
     trap_color = :royalblue,
     trap_alpha::Float64 = 0.7,
+    use_discrete_colors::Bool = false,
+    discrete_colors::Vector = [colorant"#386624", colorant"#1f77b4", colorant"#e377c2", colorant"#ff7f0e"],
     show_contours::Bool = true,
     contour_levels::Int = 12,
     contour_color = :gray50,
@@ -137,7 +141,7 @@ function plot_trap_footprints(
 
     # Plot terrain contours
     if show_contours
-        contour!(ax, x_coords, y_coords, topo,
+        Makie.contour!(ax, x_coords, y_coords, topo,
             levels = contour_levels,
             color = (contour_color, 0.6),
             linewidth = contour_linewidth
@@ -163,14 +167,34 @@ function plot_trap_footprints(
         trap_map = trap_map_raw
     end
 
-    # Create binary trap presence map (1.0 where trap exists, 0.0 elsewhere)
-    trap_presence = Float64.(trap_map .> 0)
+    # Plot trap footprints
+    if use_discrete_colors
+        # Create colormap with transparent background + cycling discrete colors
+        # Each trap gets a color based on (trap_id - 1) mod number_of_colors
+        n_colors = length(discrete_colors)
+        cmap = [RGBAf(0, 0, 0, 0)]  # Transparent for background (trap_id = 0)
 
-    # Plot trap footprints using heatmap with transparent/colored colormap
-    heatmap!(ax, x_coords, y_coords, trap_presence,
-        colormap = [RGBAf(0, 0, 0, 0), (trap_color, trap_alpha)],
-        colorrange = (0.0, 1.0)
-    )
+        # Add colors for each trap, cycling through discrete_colors
+        for trap_id in 1:num_traps_val
+            color_idx = ((trap_id - 1) % n_colors) + 1
+            # push!(cmap, colorant(discrete_colors[color_idx], trap_alpha))
+            push!(cmap, discrete_colors[color_idx])
+        end
+
+        Makie.heatmap!(ax, x_coords, y_coords, Float64.(trap_map),
+            colormap = cmap,
+            colorrange = (0.0, Float64(num_traps_val))
+        )
+    else
+        # Create binary trap presence map (1.0 where trap exists, 0.0 elsewhere)
+        trap_presence = Float64.(trap_map .> 0)
+
+        # Plot trap footprints using heatmap with transparent/colored colormap
+        heatmap!(ax, x_coords, y_coords, trap_presence,
+            colormap = [RGBAf(0, 0, 0, 0), (trap_color, trap_alpha)],
+            colorrange = (0.0, 1.0)
+        )
+    end
 
     if !isnothing(output_file)
         save(output_file, fig)
@@ -180,13 +204,20 @@ function plot_trap_footprints(
     return fig
 end
 
+#let brown = rgb("#271B11")
+#let green = rgb("#386624")
+#let orange = rgb("#A49841")
+#let blue = rgb("#74AFB9")
+
+
 # Generate the trap footprint visualization for layer 1
 println("Generating trap footprint visualization for $(layer.name)...")
 fig = plot_trap_footprints(
     layer,
     domain;
     output_file="trap_footprints_open.svg",
-    trap_color=colorant"#386624",
+    use_discrete_colors=true,
+    discrete_colors=[colorant"#5A4E47", colorant"#386624", colorant"#A49841", colorant"#74AFB9"],
     trap_alpha=1.0,
     show_contours=true,
     contour_levels=12,
@@ -197,6 +228,5 @@ fig = plot_trap_footprints(
     fontsize_title=16,
     fontsize_labels=16,
     fontsize_ticks=16,
-    # figure_size=(350, 600)
     figure_size=(600, 350)
 )

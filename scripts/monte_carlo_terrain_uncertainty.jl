@@ -326,7 +326,7 @@ println("="^80)
 
 # Parameter uncertainty configuration
 param_config = create_default_monte_carlo_config(
-    n_realizations=500,
+n_realizations=25,
     start_time=0.0,
     end_time=15.0,
     num_snapshots=45,
@@ -335,7 +335,7 @@ param_config = create_default_monte_carlo_config(
 
 # Terrain uncertainty configuration
 terrain_config = create_default_terrain_config(
-    noise_std=3.0,              # 3.0 meters standard deviation
+    noise_std=1.5,              # 3.0 meters standard deviation
     sample_spacing=3,           # Sample every 3rd grid point (~150m wavelength)
     perturb_all_surfaces=true,  # Perturb all depth surfaces
     correlation_between_layers=0.5  # 50% correlation between layers
@@ -384,10 +384,10 @@ plot_layer_distribution_barplot(
     bar_alpha=1.0,
     error_bar_color=:black,
     error_bar_linewidth=2.0,
-    fontsize_labels=13,
-    fontsize_ticks=12,
-    fontsize_values=12,
-    figure_size=(500, 300)
+    fontsize_labels=16,
+    fontsize_ticks=15,
+    fontsize_values=14,
+    figure_size=(800, 300)
 )
 
 # Print summary statistics

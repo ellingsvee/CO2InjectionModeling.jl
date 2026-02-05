@@ -35,7 +35,7 @@ include("monte_carlo_analysis.jl")
 # )
 
  config = create_default_monte_carlo_config(
-    n_realizations=500,
+    n_realizations=25,
     start_time=0.0,
     end_time=15.0,
     num_snapshots=45,
@@ -91,7 +91,7 @@ ensemble = run_monte_carlo_simulation(
 # Create output directory for plots
 mkpath("monte_carlo_results")
 
-# 1. Total CO2 storage uncertainty
+# # 1. Total CO2 storage uncertainty
 # plot_total_storage_uncertainty(
 #     ensemble;
 #     output_file="monte_carlo_results/total_storage_uncertainty.png",
@@ -130,7 +130,7 @@ plot_layer_distribution_barplot(
     fontsize_labels=16,
     fontsize_ticks=15,
     fontsize_values=15,
-    figure_size=(700, 400)
+    figure_size=(800, 400)
 )
 println("jk")
 

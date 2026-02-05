@@ -7,9 +7,9 @@ export generate_fitted_reservoir_properties_for_sleipner_layers
 export load_feeder_location, utm_to_grid_index
 
 struct SleipnerTopography
-    surfaces::Dict{String, Any}
+    surfaces::Dict{String,Any}
     top_caprock::Array{Float64,2}
-    sand_layers::Vector{Dict{String, Any}}
+    sand_layers::Vector{Dict{String,Any}}
     nx::Int
     ny::Int
     dx::Float64
@@ -18,7 +18,7 @@ struct SleipnerTopography
     depth_max::Float64
 end
 
-function load_sleipner_topography(path::String = "sleipner/depth_surfaces/")
+function load_sleipner_topography(path::String="sleipner/depth_surfaces/")
     println("\nLoading Sleipner depth surfaces...")
 
     # Load individual .npy files instead of .npz
@@ -36,7 +36,7 @@ function load_sleipner_topography(path::String = "sleipner/depth_surfaces/")
     thick_shale = load_surface("ThickShale")
 
     # Store all surfaces in a dictionary for compatibility
-    surfaces = Dict{String, Any}(
+    surfaces = Dict{String,Any}(
         "Top_Caprock" => top_caprock,
         "TopSW" => top_sw,
         "TopUtsiraFm" => top_utsira,
@@ -88,14 +88,14 @@ function load_sleipner_topography(path::String = "sleipner/depth_surfaces/")
     ))
 
     # Sort by depth (shallowest to deepest by top surface mean)
-    sand_layers = sort(sand_layers, by = x -> mean(x["top"]))
+    sand_layers = sort(sand_layers, by=x -> mean(x["top"]))
 
     nx, ny = size(top_caprock)
     depth_min = minimum(top_caprock)
     depth_max = maximum(base_utsira)
 
     # Bit hacky, but matches original grid spacing
-    dx = 3200.0 / nx 
+    dx = 3200.0 / nx
     dy = 5900.0 / ny
 
     return SleipnerTopography(
@@ -142,7 +142,13 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     sand_residual_co2_saturation::Float64 = 0.2
     sand_irreducible_water_saturation::Float64 = 0.3
     shale_pressure_threshold::Float64 = 98000.0
-    residual_leakage_time::Float64 = 2.0 # years
+    residual_leakage_time::Float64 = 5.0 # years
+
+    shale_pressure_thresholds = fill(shale_pressure_threshold, n_layers)
+    # shale_pressure_thresholds[end] = Inf  # Top layer impermeable
+
+    # shale_pressure_thresholds[5] *= 1.4
+    shale_pressure_thresholds[9] *= 1.0
 
     # Density values from L1 up to L9 (from paper)
     brine_density = 1020.0
@@ -152,30 +158,16 @@ function generate_reservoir_properties_for_sleipner_layers()::Vector{ReservoirPr
     # Note: leakage_height is computed automatically from shale_pressure_threshold
     reservoir_properties = Vector{ReservoirProperties}(undef, n_layers)
     for i in 1:n_layers
-        # Top layer has infinite leakage height (impermeable caprock)
-        if i == n_layers
-            reservoir_properties[i] = ReservoirProperties(
-                sand_porosity,
-                sand_residual_co2_saturation,
-                sand_irreducible_water_saturation,
-                shale_pressure_threshold,
-                # Inf,
-                residual_leakage_time;
-                brine_density=brine_density,
-                co2_density=co2_density
-            )
-        else
-            reservoir_properties[i] = ReservoirProperties(
-                sand_porosity,
-                sand_residual_co2_saturation,
-                sand_irreducible_water_saturation,
-                shale_pressure_threshold,
-                residual_leakage_time;
-                # leakage_height computed automatically from pressure
-                brine_density=brine_density,
-                co2_density=co2_density
-            )
-        end
+        reservoir_properties[i] = ReservoirProperties(
+            sand_porosity,
+            sand_residual_co2_saturation,
+            sand_irreducible_water_saturation,
+            shale_pressure_thresholds[i],
+            residual_leakage_time;
+            # leakage_height computed automatically from pressure
+            brine_density=brine_density,
+            co2_density=co2_density
+        )
     end
     return reservoir_properties
 end
@@ -195,7 +187,7 @@ function generate_fitted_reservoir_properties_for_sleipner_layers()::Vector{Rese
     brine_density = 1020.0
     co2_density = 460.0  # Average CO2 density
 
-    sampled_shale_thresholds =[
+    sampled_shale_thresholds = [
         64935.189136968474,
         145480.99151323555,
         60265.54535253754,
@@ -333,8 +325,8 @@ Parse a Z-MAP format polygon file and extract the coordinates.
 - Each data line contains: X (easting), Y (northing), Z (depth), and segment ID
 - The parser skips the header and extracts only the coordinate data
 """
-function parse_zmap_polygon(filepath::String)::Vector{Tuple{Float64, Float64, Float64}}
-    coordinates = Tuple{Float64, Float64, Float64}[]
+function parse_zmap_polygon(filepath::String)::Vector{Tuple{Float64,Float64,Float64}}
+    coordinates = Tuple{Float64,Float64,Float64}[]
 
     open(filepath, "r") do file
         in_data_section = false
@@ -390,7 +382,7 @@ Calculate the centroid of a polygon defined by (x, y, z) coordinates.
 - Z value is averaged across all points
 - If the polygon is closed (first point equals last point), the last point is excluded
 """
-function polygon_centroid(coords::Vector{Tuple{Float64, Float64, Float64}})::Tuple{Float64, Float64, Float64}
+function polygon_centroid(coords::Vector{Tuple{Float64,Float64,Float64}})::Tuple{Float64,Float64,Float64}
     if isempty(coords)
         error("Cannot compute centroid of empty polygon")
     end
@@ -441,8 +433,8 @@ function utm_to_grid_index(
     utm_x::Float64,
     utm_y::Float64,
     topography::SleipnerTopography;
-    grid_origin_x::Float64 = 436800.0,
-    grid_origin_y::Float64 = 6468100.0
+    grid_origin_x::Float64=436800.0,
+    grid_origin_y::Float64=6468100.0
 )::CartesianIndex
     # Convert UTM to grid coordinates
     grid_x = utm_x - grid_origin_x
@@ -489,10 +481,10 @@ println("Feeder location: grid cell \$injection_cell at UTM (\$utm_x, \$utm_y)")
 """
 function load_feeder_location(
     topography::SleipnerTopography;
-    feeder_file::String = "sleipner/feeders/data/Main_feeder_chimney",
-    grid_origin_x::Float64 = 436800.0,
-    grid_origin_y::Float64 = 6468100.0
-)::Tuple{CartesianIndex, Tuple{Float64, Float64, Float64}}
+    feeder_file::String="sleipner/feeders/data/Main_feeder_chimney",
+    grid_origin_x::Float64=436800.0,
+    grid_origin_y::Float64=6468100.0
+)::Tuple{CartesianIndex,Tuple{Float64,Float64,Float64}}
     # Parse the feeder chimney polygon
     coords = parse_zmap_polygon(feeder_file)
 
@@ -506,8 +498,8 @@ function load_feeder_location(
 
     # Convert to grid indices
     grid_index = utm_to_grid_index(utm_x, utm_y, topography;
-                                   grid_origin_x=grid_origin_x,
-                                   grid_origin_y=grid_origin_y)
+        grid_origin_x=grid_origin_x,
+        grid_origin_y=grid_origin_y)
 
     return (grid_index, centroid)
 end

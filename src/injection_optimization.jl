@@ -880,6 +880,7 @@ Configuration for optimizing well placement locations.
 - `end_time::Float64`: Simulation end time (years)
 - `co2_density::Float64`: CO2 density for volume conversion (kg/m³)
 - `min_well_spacing::Int`: Minimum grid cells between wells (default: 5)
+- `require_bottom_layer_well::Bool`: If true, force at least one well to be in layer 1 (default: false)
 """
 struct LocationOptimizationConfig
     n_wells::Int
@@ -892,6 +893,7 @@ struct LocationOptimizationConfig
     end_time::Float64
     co2_density::Float64
     min_well_spacing::Int
+    require_bottom_layer_well::Bool
 
     function LocationOptimizationConfig(;
         n_wells::Int,
@@ -903,7 +905,8 @@ struct LocationOptimizationConfig
         start_time::Float64 = 0.0,
         end_time::Float64 = 15.0,
         co2_density::Float64 = 425.0,
-        min_well_spacing::Int = 5
+        min_well_spacing::Int = 5,
+        require_bottom_layer_well::Bool = false
     )
         @assert n_wells >= 1 "Need at least 1 well"
         @assert n_layers >= 1 "Need at least 1 layer"
@@ -914,13 +917,20 @@ struct LocationOptimizationConfig
             allowed_layers = collect(1:(n_layers-1))
         end
 
+        # If requiring bottom layer well, ensure layer 1 is in allowed_layers
+        if require_bottom_layer_well && !(1 in allowed_layers)
+            @warn "require_bottom_layer_well=true but layer 1 not in allowed_layers. Adding layer 1."
+            allowed_layers = sort(unique([1; allowed_layers]))
+        end
+
         # Default injection rate: distribute total mass evenly
         if isnothing(injection_rate_mt_per_year)
             injection_rate_mt_per_year = total_mass_mt / (n_wells * (end_time - start_time))
         end
 
         new(n_wells, n_layers, grid_size, allowed_layers, total_mass_mt,
-            injection_rate_mt_per_year, start_time, end_time, co2_density, min_well_spacing)
+            injection_rate_mt_per_year, start_time, end_time, co2_density, min_well_spacing,
+            require_bottom_layer_well)
     end
 end
 
@@ -958,6 +968,8 @@ end
 Convert normalized decision variables [0,1] to well locations and layers.
 
 Each well uses 3 variables: (x_norm, y_norm, layer_norm)
+
+If `config.require_bottom_layer_well` is true, the first well is forced to layer 1.
 """
 function decode_location_variables(x::Vector{Float64}, config::LocationOptimizationConfig)
     n_wells = config.n_wells
@@ -979,9 +991,14 @@ function decode_location_variables(x::Vector{Float64}, config::LocationOptimizat
         locations[w] = CartesianIndex(i, j)
 
         # Map to allowed layers
-        n_allowed = length(config.allowed_layers)
-        layer_idx = clamp(round(Int, 1 + layer_norm * (n_allowed - 1)), 1, n_allowed)
-        layers[w] = config.allowed_layers[layer_idx]
+        # If require_bottom_layer_well is true, force the first well to layer 1
+        if config.require_bottom_layer_well && w == 1
+            layers[w] = 1
+        else
+            n_allowed = length(config.allowed_layers)
+            layer_idx = clamp(round(Int, 1 + layer_norm * (n_allowed - 1)), 1, n_allowed)
+            layers[w] = config.allowed_layers[layer_idx]
+        end
     end
 
     return locations, layers
@@ -1215,6 +1232,9 @@ function optimize_well_locations(
     verbose && println("\nStarting well location optimization")
     verbose && println("Number of wells: $(config.n_wells)")
     verbose && println("Allowed layers: $(config.allowed_layers)")
+    if config.require_bottom_layer_well
+        verbose && println("Constraint: At least one well must be in layer 1 (bottom)")
+    end
     verbose && println("Grid size: $(config.grid_size)")
     verbose && println("Decision variables: $n_vars (3 per well: x, y, layer)")
     verbose && println("")
@@ -1278,6 +1298,7 @@ end
     optimize_sleipner_well_locations(;
         n_wells::Int = 2,
         allowed_layers::Union{Vector{Int}, Nothing} = nothing,
+        require_bottom_layer_well::Bool = false,
         total_mass_mt::Float64 = 12.18,
         algorithm::Symbol = :differential_evolution,
         max_evaluations::Int = 100,
@@ -1290,6 +1311,7 @@ Convenience function to optimize well locations for Sleipner.
 # Arguments
 - `n_wells`: Number of wells to place (default: 2)
 - `allowed_layers`: Which layers to consider (default: 1-8, excluding caprock)
+- `require_bottom_layer_well`: If true, force at least one well to be in layer 1 (default: false)
 - `total_mass_mt`: Total mass to inject in Mt (default: 12.18)
 - `algorithm`: Optimization algorithm (:differential_evolution recommended for this problem)
 - `max_evaluations`: Maximum objective evaluations
@@ -1301,6 +1323,7 @@ Convenience function to optimize well locations for Sleipner.
 result = optimize_sleipner_well_locations(
     n_wells = 3,
     allowed_layers = [1, 2, 3],  # Only lower layers
+    require_bottom_layer_well = true,  # Ensure one well in L1
     max_evaluations = 50
 )
 ```
@@ -1308,6 +1331,7 @@ result = optimize_sleipner_well_locations(
 function optimize_sleipner_well_locations(;
     n_wells::Int = 2,
     allowed_layers::Union{Vector{Int}, Nothing} = nothing,
+    require_bottom_layer_well::Bool = false,
     total_mass_mt::Float64 = 12.2,
     algorithm::Symbol = :differential_evolution,
     max_evaluations::Int = 100,
@@ -1331,7 +1355,8 @@ function optimize_sleipner_well_locations(;
         start_time = 0.0,
         end_time = 15.0,
         co2_density = 460.0,
-        min_well_spacing = 5
+        min_well_spacing = 5,
+        require_bottom_layer_well = require_bottom_layer_well
     )
 
     # Run optimization
