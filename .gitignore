@@ -1,1 +1,8 @@
 /Manifest*.toml
+
+
+# Paper that has been used during development
+papers
+
+# Sleipner layers
+sleipner
