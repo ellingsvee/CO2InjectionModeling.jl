@@ -1,7 +1,5 @@
-using CairoMakie
 using Statistics
 using Printf
-using Colors
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_timepoints, SpillEvent
 
 export animate_multi_layer_filling, animate_multi_layer_saturation
@@ -35,13 +33,13 @@ function animate_multi_layer_filling(
     layers::Vector{Layer},
     seqs::Vector{Vector{SpillEvent}},
     domain::Domain3D;
-    output_file::String = "multi_layer_filling.gif",
-    num_frames::Int = 30,
-    start_time::Float64 = 0.0,
-    end_time::Union{Float64, Nothing} = nothing,
-    fps::Int = 2,
-    colormap::Symbol = :thermal,
-    max_CO2_height::Float64 = 20.0
+    output_file::String="multi_layer_filling.gif",
+    num_frames::Int=30,
+    start_time::Float64=0.0,
+    end_time::Union{Float64,Nothing}=nothing,
+    fps::Int=2,
+    colormap::Symbol=:thermal,
+    max_CO2_height::Float64=20.0
 )
     n_layers = length(layers)
     @assert n_layers == length(seqs) "Number of layers must match number of sequences"
@@ -91,12 +89,12 @@ function animate_multi_layer_filling(
         z_vol_tables = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
 
         push!(layer_data, (
-            tstruct = tstruct,
-            num_traps = num_traps,
-            tstates = tstates,
-            z_vol_tables = z_vol_tables,
-            pad = layer.boundary_padding,
-            name = layer.name
+            tstruct=tstruct,
+            num_traps=num_traps,
+            tstates=tstates,
+            z_vol_tables=z_vol_tables,
+            pad=layer.boundary_padding,
+            name=layer.name
         ))
     end
 
@@ -114,7 +112,7 @@ function animate_multi_layer_filling(
     ny = ny_padded - 2 * pad
 
     # Set up figure with grid layout
-    fig = Figure(size = (400 * n_cols, 350 * n_rows + 100))
+    fig = Figure(size=(400 * n_cols, 350 * n_rows + 100))
 
     x_coords = range(0, nx * domain.dx, length=nx)
     y_coords = range(0, ny * domain.dy, length=ny)
@@ -133,27 +131,27 @@ function animate_multi_layer_filling(
         layer_name = isnothing(layer_data[layer_idx]) ? "Layer $layer_idx" : layer_data[layer_idx].name
 
         ax = Axis(fig[row, col],
-                  title = layer_name,
-                  xlabel = col == 1 ? "X (m)" : "",
-                  ylabel = row == n_rows ? "Y (m)" : "",
-                  aspect = DataAspect(),
-                  xticklabelsvisible = (row == n_rows),
-                  yticklabelsvisible = (col == 1))
+            title=layer_name,
+            xlabel=col == 1 ? "X (m)" : "",
+            ylabel=row == n_rows ? "Y (m)" : "",
+            aspect=DataAspect(),
+            xticklabelsvisible=(row == n_rows),
+            yticklabelsvisible=(col == 1))
 
         hm = heatmap!(ax, x_coords, y_coords, height_data,
-                      colormap = colormap,
-                      colorrange = (0.0, max_CO2_height))
+            colormap=colormap,
+            colorrange=(0.0, max_CO2_height))
 
         push!(axes, ax)
     end
 
     # Add a shared colorbar
-    Colorbar(fig[:, n_cols + 1], colormap = colormap, colorrange = (0.0, max_CO2_height),
-             label = "CO2 Height (m)")
+    Colorbar(fig[:, n_cols+1], colormap=colormap, colorrange=(0.0, max_CO2_height),
+        label="CO2 Height (m)")
 
     # Add overall title with time
     time_label = Observable("Time: 0.0 years")
-    Label(fig[0, :], time_label, fontsize = 20, font = :bold)
+    Label(fig[0, :], time_label, fontsize=20, font=:bold)
 
     println("Creating animation...")
 
@@ -244,12 +242,12 @@ function animate_multi_layer_saturation(
     leakage_states::Vector{LeakageState},
     domain::Domain3D,
     reservoir_properties::Vector{ReservoirProperties};
-    output_file::String = "multi_layer_saturation.gif",
-    num_frames::Int = 30,
-    start_time::Float64 = 0.0,
-    end_time::Union{Float64, Nothing} = nothing,
-    fps::Int = 2,
-    colormap::Symbol = :viridis
+    output_file::String="multi_layer_saturation.gif",
+    num_frames::Int=30,
+    start_time::Float64=0.0,
+    end_time::Union{Float64,Nothing}=nothing,
+    fps::Int=2,
+    colormap::Symbol=:viridis
 )
     n_layers = length(layers)
     @assert n_layers == length(seqs) "Number of layers must match number of sequences"
@@ -300,13 +298,13 @@ function animate_multi_layer_saturation(
         trap_capacities = [tstruct.trapvolumes[i] - tstruct.subvolumes[i] for i in 1:num_traps]
 
         push!(layer_data, (
-            tstruct = tstruct,
-            num_traps = num_traps,
-            tstates = tstates,
-            trap_capacities = trap_capacities,
-            pad = layer.boundary_padding,
-            name = layer.name,
-            leakage_state = leakage_states[layer_idx]
+            tstruct=tstruct,
+            num_traps=num_traps,
+            tstates=tstates,
+            trap_capacities=trap_capacities,
+            pad=layer.boundary_padding,
+            name=layer.name,
+            leakage_state=leakage_states[layer_idx]
         ))
     end
 
@@ -324,7 +322,7 @@ function animate_multi_layer_saturation(
     ny = ny_padded - 2 * pad
 
     # Set up figure with grid layout
-    fig = Figure(size = (400 * n_cols, 350 * n_rows + 100))
+    fig = Figure(size=(400 * n_cols, 350 * n_rows + 100))
 
     x_coords = range(0, nx * domain.dx, length=nx)
     y_coords = range(0, ny * domain.dy, length=ny)
@@ -343,27 +341,27 @@ function animate_multi_layer_saturation(
         layer_name = isnothing(layer_data[layer_idx]) ? "Layer $layer_idx" : layer_data[layer_idx].name
 
         ax = Axis(fig[row, col],
-                  title = layer_name,
-                  xlabel = col == 1 ? "X (m)" : "",
-                  ylabel = row == n_rows ? "Y (m)" : "",
-                  aspect = DataAspect(),
-                  xticklabelsvisible = (row == n_rows),
-                  yticklabelsvisible = (col == 1))
+            title=layer_name,
+            xlabel=col == 1 ? "X (m)" : "",
+            ylabel=row == n_rows ? "Y (m)" : "",
+            aspect=DataAspect(),
+            xticklabelsvisible=(row == n_rows),
+            yticklabelsvisible=(col == 1))
 
         hm = heatmap!(ax, x_coords, y_coords, saturation_data,
-                      colormap = colormap,
-                      colorrange = (0.0, 1.0))
+            colormap=colormap,
+            colorrange=(0.0, 1.0))
 
         push!(axes, ax)
     end
 
     # Add a shared colorbar
-    Colorbar(fig[:, n_cols + 1], colormap = colormap, colorrange = (0.0, 1.0),
-             label = "CO2 Saturation")
+    Colorbar(fig[:, n_cols+1], colormap=colormap, colorrange=(0.0, 1.0),
+        label="CO2 Saturation")
 
     # Add overall title with time
     time_label = Observable("Time: 0.0 years")
-    Label(fig[0, :], time_label, fontsize = 20, font = :bold)
+    Label(fig[0, :], time_label, fontsize=20, font=:bold)
 
     println("Creating animation...")
 
@@ -427,7 +425,7 @@ function animate_multi_layer_saturation(
             saturation_map = saturation_map_padded[pad+1:end-pad, pad+1:end-pad]
 
             # Rescale the saturation_map to account for the sand_irreducible_water_saturation
-            saturation_map *= 1-reservoir_properties[layer_idx].sand_irreducible_water_saturation
+            saturation_map *= 1 - reservoir_properties[layer_idx].sand_irreducible_water_saturation
 
             # Update observable
             saturation_observables[layer_idx][] = saturation_map
@@ -462,9 +460,9 @@ Parameters:
 """
 function plot_layer_volumes_timeseries(
     snapshots::Vector{ReservoirSnapshot};
-    output_file::Union{String, Nothing} = nothing,
-    title::String = "CO2 Volume by Layer",
-    colormap::Symbol = :tab10
+    output_file::Union{String,Nothing}=nothing,
+    title::String="CO2 Volume by Layer",
+    colormap::Symbol=:tab10
 )
     n_snapshots = length(snapshots)
     n_layers = length(snapshots[1].layer_snapshots)
@@ -485,12 +483,12 @@ function plot_layer_volumes_timeseries(
 
     # Create figure with clean styling
     fig = Figure(
-        size = (900, 800),
-        backgroundcolor = :white
+        size=(900, 800),
+        backgroundcolor=:white
     )
 
     # Generate colors from colormap
-    cmap = cgrad(colormap, n_layers, categorical = true)
+    cmap = cgrad(colormap, n_layers, categorical=true)
 
     # Find global y-axis maximum for consistent scaling
     max_vol = maximum(maximum(v) for v in volumes_by_layer)
@@ -506,50 +504,50 @@ function plot_layer_volumes_timeseries(
         show_ylabel = col == 1
 
         ax = Axis(fig[row, col],
-                  title = layer_names[layer_idx],
-                  titlesize = 14,
-                  titlefont = :bold,
-                  xlabel = show_xlabel ? "Time (years)" : "",
-                  ylabel = show_ylabel ? "Volume (M m³)" : "",
-                  xlabelsize = 12,
-                  ylabelsize = 12,
-                  xticklabelsize = 10,
-                  yticklabelsize = 10,
-                  xticklabelsvisible = show_xlabel,
-                  yticklabelsvisible = show_ylabel,
-                  xgridvisible = true,
-                  ygridvisible = true,
-                  xgridcolor = (:gray, 0.3),
-                  ygridcolor = (:gray, 0.3),
-                  xgridstyle = :dot,
-                  ygridstyle = :dot,
-                  spinewidth = 1,
-                  xtickwidth = 1,
-                  ytickwidth = 1)
+            title=layer_names[layer_idx],
+            titlesize=14,
+            titlefont=:bold,
+            xlabel=show_xlabel ? "Time (years)" : "",
+            ylabel=show_ylabel ? "Volume (M m³)" : "",
+            xlabelsize=12,
+            ylabelsize=12,
+            xticklabelsize=10,
+            yticklabelsize=10,
+            xticklabelsvisible=show_xlabel,
+            yticklabelsvisible=show_ylabel,
+            xgridvisible=true,
+            ygridvisible=true,
+            xgridcolor=(:gray, 0.3),
+            ygridcolor=(:gray, 0.3),
+            xgridstyle=:dot,
+            ygridstyle=:dot,
+            spinewidth=1,
+            xtickwidth=1,
+            ytickwidth=1)
 
         layer_color = cmap[layer_idx]
 
         # Fill area under curve first (so line is on top)
         band!(ax, times, zeros(n_snapshots), volumes_by_layer[layer_idx],
-              color = (layer_color, 0.4))
+            color=(layer_color, 0.4))
 
         # Plot volume line
         lines!(ax, times, volumes_by_layer[layer_idx],
-               color = layer_color,
-               linewidth = 2.5)
+            color=layer_color,
+            linewidth=2.5)
 
         # Add markers at data points
         scatter!(ax, times, volumes_by_layer[layer_idx],
-                 color = layer_color,
-                 markersize = 4,
-                 strokewidth = 0)
+            color=layer_color,
+            markersize=4,
+            strokewidth=0)
 
         ylims!(ax, 0, y_max)
         xlims!(ax, times[1], times[end])
     end
 
     # Add overall title
-    Label(fig[0, :], title, fontsize = 18, font = :bold, padding = (0, 0, 10, 0))
+    Label(fig[0, :], title, fontsize=18, font=:bold, padding=(0, 0, 10, 0))
 
     # Adjust spacing
     colgap!(fig.layout, 15)
@@ -579,10 +577,10 @@ Parameters:
 """
 function plot_layer_fractions_timeseries(
     snapshots::Vector{ReservoirSnapshot};
-    output_file::Union{String, Nothing} = nothing,
-    title::String = "CO2 Distribution Across Layers",
-    show_leaked::Bool = true,
-    colormap::Symbol = :viridis
+    output_file::Union{String,Nothing}=nothing,
+    title::String="CO2 Distribution Across Layers",
+    show_leaked::Bool=true,
+    colormap::Symbol=:viridis
 )
     n_snapshots = length(snapshots)
     n_layers = length(snapshots[1].layer_snapshots)
@@ -611,16 +609,16 @@ function plot_layer_fractions_timeseries(
     layer_names = [snapshots[1].layer_snapshots[i].layer_name for i in 1:n_layers]
 
     # Create figure
-    fig = Figure(size = (800, 500))
+    fig = Figure(size=(800, 500))
 
     ax = Axis(fig[1, 1],
-              title = title,
-              xlabel = "Time (years)",
-              ylabel = "Fraction of Injected CO2 (%)",
-              limits = (nothing, nothing, 0, 105))
+        title=title,
+        xlabel="Time (years)",
+        ylabel="Fraction of Injected CO2 (%)",
+        limits=(nothing, nothing, 0, 105))
 
     # Generate colors from colormap
-    cmap = cgrad(colormap, n_layers + (show_leaked ? 1 : 0), categorical = true)
+    cmap = cgrad(colormap, n_layers + (show_leaked ? 1 : 0), categorical=true)
 
     # Build cumulative sums for stacked area chart
     cumulative = zeros(n_snapshots)
@@ -631,7 +629,7 @@ function plot_layer_fractions_timeseries(
         lower = copy(cumulative)
         upper = cumulative .+ fractions_by_layer[:, layer_idx]
 
-        b = band!(ax, times, lower, upper, color = cmap[layer_idx], label = layer_names[layer_idx])
+        b = band!(ax, times, lower, upper, color=cmap[layer_idx], label=layer_names[layer_idx])
         push!(bands, b)
         push!(labels, layer_names[layer_idx])
 
@@ -643,16 +641,16 @@ function plot_layer_fractions_timeseries(
         lower = copy(cumulative)
         upper = cumulative .+ leaked_fraction
 
-        b = band!(ax, times, lower, upper, color = (:red, 0.6), label = "Leaked")
+        b = band!(ax, times, lower, upper, color=(:red, 0.6), label="Leaked")
         push!(bands, b)
         push!(labels, "Leaked")
     end
 
     # Add legend
-    Legend(fig[1, 2], bands, labels, "Location", framevisible = true, labelsize = 11)
+    Legend(fig[1, 2], bands, labels, "Location", framevisible=true, labelsize=11)
 
     # Add horizontal line at 100%
-    hlines!(ax, [100], color = :black, linestyle = :dash, linewidth = 1)
+    hlines!(ax, [100], color=:black, linestyle=:dash, linewidth=1)
 
     if !isnothing(output_file)
         save(output_file, fig)
@@ -681,11 +679,11 @@ Parameters:
 function plot_layer_topographies(
     layers::Vector{Layer},
     domain::Domain3D;
-    output_file::Union{String, Nothing} = nothing,
-    title::String = "Layer Topographies",
-    colormap::Symbol = :viridis,
-    contour_levels::Int = 15,
-    show_contour_labels::Bool = true
+    output_file::Union{String,Nothing}=nothing,
+    title::String="Layer Topographies",
+    colormap::Symbol=:viridis,
+    contour_levels::Int=15,
+    show_contour_labels::Bool=true
 )
     n_layers = length(layers)
 
@@ -703,8 +701,8 @@ function plot_layer_topographies(
         topo = topo_padded[pad+1:end-pad, pad+1:end-pad]
 
         push!(layer_topos, (
-            topo = topo,
-            name = layer.name
+            topo=topo,
+            name=layer.name
         ))
     end
 
@@ -715,7 +713,7 @@ function plot_layer_topographies(
 
     # Create figure with grid layout
     # Each cell needs space for axis + colorbar
-    fig = Figure(size = (450 * n_cols, 350 * n_rows + 100))
+    fig = Figure(size=(450 * n_cols, 350 * n_rows + 100))
 
     # Create subplots for each layer
     for layer_idx in 1:n_layers
@@ -733,51 +731,51 @@ function plot_layer_topographies(
         show_ylabel = col == 1
 
         ax = Axis(fig[row, col][1, 1],
-                  title = lt.name,
-                  titlesize = 14,
-                  titlefont = :bold,
-                  xlabel = show_xlabel ? "X (m)" : "",
-                  ylabel = show_ylabel ? "Y (m)" : "",
-                  xlabelsize = 12,
-                  ylabelsize = 12,
-                  xticklabelsvisible = show_xlabel,
-                  yticklabelsvisible = show_ylabel,
-                  aspect = DataAspect())
+            title=lt.name,
+            titlesize=14,
+            titlefont=:bold,
+            xlabel=show_xlabel ? "X (m)" : "",
+            ylabel=show_ylabel ? "Y (m)" : "",
+            xlabelsize=12,
+            ylabelsize=12,
+            xticklabelsvisible=show_xlabel,
+            yticklabelsvisible=show_ylabel,
+            aspect=DataAspect())
 
         # Plot heatmap with layer-specific colorrange
         hm = heatmap!(ax, x_coords, y_coords, lt.topo,
-                      colormap = colormap,
-                      colorrange = (layer_depth_min, layer_depth_max))
+            colormap=colormap,
+            colorrange=(layer_depth_min, layer_depth_max))
 
         # Add contour lines
         contour!(ax, x_coords, y_coords, lt.topo,
-                 levels = contour_levels,
-                 color = :black,
-                 linewidth = 1,
-                 alpha = 0.6)
+            levels=contour_levels,
+            color=:black,
+            linewidth=1,
+            alpha=0.6)
 
         # Add contour labels if requested
         if show_contour_labels
             contour!(ax, x_coords, y_coords, lt.topo,
-                     levels = contour_levels,
-                     color = :black,
-                     linewidth = 0,
-                     labels = true,
-                     labelsize = 8,
-                     labelfont = :regular)
+                levels=contour_levels,
+                color=:black,
+                linewidth=0,
+                labels=true,
+                labelsize=8,
+                labelfont=:regular)
         end
 
         # Add colorbar for this layer
         Colorbar(fig[row, col][1, 2],
-                 colormap = colormap,
-                 colorrange = (layer_depth_min, layer_depth_max),
-                 label = "Depth (m)",
-                 width = 15,
-                 ticklabelsize = 10)
+            colormap=colormap,
+            colorrange=(layer_depth_min, layer_depth_max),
+            label="Depth (m)",
+            width=15,
+            ticklabelsize=10)
     end
 
     # Add overall title
-    Label(fig[0, :], title, fontsize = 18, font = :bold, padding = (0, 0, 10, 0))
+    Label(fig[0, :], title, fontsize=18, font=:bold, padding=(0, 0, 10, 0))
 
     # Adjust spacing
     colgap!(fig.layout, 15)
@@ -818,14 +816,14 @@ function animate_multi_layer_filling_ensemble(
     ensemble,
     layers::Vector{Layer},
     domain::Domain3D;
-    output_file::String = "ensemble_mean_filling.gif",
-    num_frames::Int = 30,
-    start_time::Float64 = 0.0,
-    end_time::Union{Float64, Nothing} = nothing,
-    fps::Int = 2,
-    show_probability::Bool = false,
-    plume_color::Symbol = :red,
-    probability_colormap::Symbol = :viridis
+    output_file::String="ensemble_mean_filling.gif",
+    num_frames::Int=30,
+    start_time::Float64=0.0,
+    end_time::Union{Float64,Nothing}=nothing,
+    fps::Int=2,
+    show_probability::Bool=false,
+    plume_color::Symbol=:red,
+    probability_colormap::Symbol=:viridis
 )
     n_layers = length(layers)
     n_realizations = length(ensemble.results)
@@ -882,12 +880,12 @@ function animate_multi_layer_filling_ensemble(
         end
 
         push!(layer_data, (
-            tstruct = tstruct,
-            num_traps = num_traps,
-            realization_tstates = realization_tstates,
-            z_vol_tables = z_vol_tables,
-            pad = layer.boundary_padding,
-            name = layer.name
+            tstruct=tstruct,
+            num_traps=num_traps,
+            realization_tstates=realization_tstates,
+            z_vol_tables=z_vol_tables,
+            pad=layer.boundary_padding,
+            name=layer.name
         ))
     end
 
@@ -905,7 +903,7 @@ function animate_multi_layer_filling_ensemble(
     ny = ny_padded - 2 * pad
 
     # Set up figure with grid layout
-    fig = Figure(size = (400 * n_cols, 350 * n_rows + 100))
+    fig = Figure(size=(400 * n_cols, 350 * n_rows + 100))
 
     x_coords = range(0, nx * domain.dx, length=nx)
     y_coords = range(0, ny * domain.dy, length=ny)
@@ -924,24 +922,24 @@ function animate_multi_layer_filling_ensemble(
         layer_name = isnothing(layer_data[layer_idx]) ? "Layer $layer_idx" : layer_data[layer_idx].name
 
         ax = Axis(fig[row, col],
-                  title = layer_name,
-                  xlabel = col == 1 ? "X (m)" : "",
-                  ylabel = row == n_rows ? "Y (m)" : "",
-                  aspect = DataAspect(),
-                  xticklabelsvisible = (row == n_rows),
-                  yticklabelsvisible = (col == 1))
+            title=layer_name,
+            xlabel=col == 1 ? "X (m)" : "",
+            ylabel=row == n_rows ? "Y (m)" : "",
+            aspect=DataAspect(),
+            xticklabelsvisible=(row == n_rows),
+            yticklabelsvisible=(col == 1))
 
         # Choose colormap based on show_probability
         if show_probability
             # Use colormap to show probability gradient
             hm = heatmap!(ax, x_coords, y_coords, presence_data,
-                          colormap = probability_colormap,
-                          colorrange = (0.0, 1.0))
+                colormap=probability_colormap,
+                colorrange=(0.0, 1.0))
         else
             # Use binary colormap: transparent for no CO2, plume_color for CO2 presence
             hm = heatmap!(ax, x_coords, y_coords, presence_data,
-                          colormap = [RGBAf(1,1,1,0), plume_color],
-                          colorrange = (0.0, 1.0))
+                colormap=[RGBAf(1, 1, 1, 0), plume_color],
+                colorrange=(0.0, 1.0))
         end
 
         push!(axes, ax)
@@ -949,16 +947,16 @@ function animate_multi_layer_filling_ensemble(
 
     # Add colorbar if showing probability
     if show_probability
-        Colorbar(fig[:, n_cols + 1],
-                 colormap = probability_colormap,
-                 colorrange = (0.0, 1.0),
-                 label = "CO2 Presence Probability")
+        Colorbar(fig[:, n_cols+1],
+            colormap=probability_colormap,
+            colorrange=(0.0, 1.0),
+            label="CO2 Presence Probability")
     end
 
     # Add overall title with time
     mode_label = show_probability ? "Probability" : "Mean"
     time_label = Observable("Time: 0.0 years ($mode_label across $(n_realizations) realizations)")
-    Label(fig[0, :], time_label, fontsize = 20, font = :bold)
+    Label(fig[0, :], time_label, fontsize=20, font=:bold)
 
     println("Creating animation...")
 
@@ -1052,7 +1050,8 @@ for all layers. Uses a uniform color for CO2 presence and optionally overlays te
 - `contour_alpha`: Alpha for contour lines (default: 0.6)
 - `title`: Overall title (default: nothing, no title)
 - `show_utm_coords`: Use UTM coordinates on axes (default: true)
-- `utm_origin`: Tuple (x, y) for UTM origin (default: (436800.0, 6468100.0))
+- `utm_origin`: Tuple (x, y) for UTM origin. Default is Sleipner coordinates (436800.0, 6468100.0).
+  For other topographies, use `get_coordinate_origin(topography)` to get the appropriate origin.
 - `coords_in_km`: If true, show coordinates in km relative to origin (default: false)
 - `transpose_layout`: If true, rotate each subplot 90° (swap x/y axes) for wider plots (default: false)
 - `fontsize_title`: Font size for main title (default: 24)
@@ -1100,33 +1099,33 @@ function plot_final_co2_distribution(
     layers::Vector{Layer},
     seqs::Vector{Vector{SpillEvent}},
     domain::Domain3D;
-    output_file::Union{String, Nothing} = nothing,
-    time::Union{Float64, Nothing} = nothing,
-    co2_color = :dodgerblue,
-    co2_alpha::Float64 = 0.8,
-    show_contours::Bool = true,
-    contour_levels::Int = 10,
-    contour_color = :gray40,
-    contour_linewidth::Float64 = 0.5,
-    contour_alpha::Float64 = 0.6,
-    title::Union{String, Nothing} = nothing,
-    show_utm_coords::Bool = true,
-    utm_origin::Tuple{Float64, Float64} = (436800.0, 6468100.0),
-    coords_in_km::Bool = false,
-    transpose_layout::Bool = false,
-    fontsize_title::Int = 24,
-    fontsize_layer_title::Int = 14,
-    fontsize_labels::Int = 12,
-    fontsize_ticks::Int = 10,
-    figure_size::Union{Tuple{Int, Int}, Nothing} = nothing,
-    row_gap::Int = 5,
-    col_gap::Int = 5,
+    output_file::Union{String,Nothing}=nothing,
+    time::Union{Float64,Nothing}=nothing,
+    co2_color=:dodgerblue,
+    co2_alpha::Float64=0.8,
+    show_contours::Bool=true,
+    contour_levels::Int=10,
+    contour_color=:gray40,
+    contour_linewidth::Float64=0.5,
+    contour_alpha::Float64=0.6,
+    title::Union{String,Nothing}=nothing,
+    show_utm_coords::Bool=true,
+    utm_origin::Tuple{Float64,Float64}=(436800.0, 6468100.0),
+    coords_in_km::Bool=false,
+    transpose_layout::Bool=false,
+    fontsize_title::Int=24,
+    fontsize_layer_title::Int=14,
+    fontsize_labels::Int=12,
+    fontsize_ticks::Int=10,
+    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
+    row_gap::Int=5,
+    col_gap::Int=5,
     # Injection location markers
-    injection_locations::Union{Nothing, Dict{Int, Vector{CartesianIndex{2}}}} = nothing,
-    injection_marker = :xcross,
-    injection_marker_color = :red,
-    injection_marker_size::Int = 15,
-    injection_marker_strokewidth::Float64 = 2.0
+    injection_locations::Union{Nothing,Dict{Int,Vector{CartesianIndex{2}}}}=nothing,
+    injection_marker=:xcross,
+    injection_marker_color=:red,
+    injection_marker_size::Int=15,
+    injection_marker_strokewidth::Float64=2.0
 )
     n_layers = length(layers)
     @assert n_layers == length(seqs) "Number of layers must match number of sequences"
@@ -1169,11 +1168,11 @@ function plot_final_co2_distribution(
         tstates = trap_states_at_timepoints(tstruct, seq, [time]; verbose=false)
 
         push!(layer_data, (
-            tstruct = tstruct,
-            num_traps = num_traps,
-            tstate = tstates[1],  # Only one timepoint
-            pad = layer.boundary_padding,
-            name = layer.name
+            tstruct=tstruct,
+            num_traps=num_traps,
+            tstate=tstates[1],  # Only one timepoint
+            pad=layer.boundary_padding,
+            name=layer.name
         ))
     end
 
@@ -1241,9 +1240,9 @@ function plot_final_co2_distribution(
 
     # Create figure with compact settings
     fig = Figure(
-        size = figure_size,
-        backgroundcolor = :white,
-        fontsize = fontsize_ticks
+        size=figure_size,
+        backgroundcolor=:white,
+        fontsize=fontsize_ticks
     )
 
     # Create subplots for each layer
@@ -1263,21 +1262,21 @@ function plot_final_co2_distribution(
         show_ylabel = col == 1
 
         ax = Axis(fig[plot_row, col],
-            title = layer_name,
-            titlesize = fontsize_layer_title,
-            titlefont = :bold,
-            xlabel = show_xlabel ? x_label : "",
-            ylabel = show_ylabel ? y_label : "",
-            xlabelsize = fontsize_labels,
-            ylabelsize = fontsize_labels,
-            xticklabelsize = fontsize_ticks,
-            yticklabelsize = fontsize_ticks,
-            xticklabelsvisible = show_xlabel,
-            yticklabelsvisible = show_ylabel,
-            aspect = DataAspect(),
-            xgridvisible = false,
-            ygridvisible = false,
-            spinewidth = 1
+            title=layer_name,
+            titlesize=fontsize_layer_title,
+            titlefont=:bold,
+            xlabel=show_xlabel ? x_label : "",
+            ylabel=show_ylabel ? y_label : "",
+            xlabelsize=fontsize_labels,
+            ylabelsize=fontsize_labels,
+            xticklabelsize=fontsize_ticks,
+            yticklabelsize=fontsize_ticks,
+            xticklabelsvisible=show_xlabel,
+            yticklabelsvisible=show_ylabel,
+            aspect=DataAspect(),
+            xgridvisible=false,
+            ygridvisible=false,
+            spinewidth=1
         )
 
         # Set axis limits explicitly
@@ -1322,17 +1321,17 @@ function plot_final_co2_distribution(
         # Plot terrain contours if requested
         if show_contours
             contour!(ax, x_coords, y_coords, topo,
-                levels = contour_levels,
-                color = (contour_color, contour_alpha),
-                linewidth = contour_linewidth
+                levels=contour_levels,
+                color=(contour_color, contour_alpha),
+                linewidth=contour_linewidth
             )
         end
 
         # Plot CO2 presence as a heatmap with custom colormap
         # Use transparent for no CO2, and the specified color with alpha for CO2 presence
         heatmap!(ax, x_coords, y_coords, co2_map,
-            colormap = [RGBAf(0, 0, 0, 0), (co2_color, co2_alpha)],
-            colorrange = (0.0, 1.0)
+            colormap=[RGBAf(0, 0, 0, 0), (co2_color, co2_alpha)],
+            colorrange=(0.0, 1.0)
         )
 
         # Plot injection location markers if provided for this layer
@@ -1358,11 +1357,11 @@ function plot_final_co2_distribution(
                 end
 
                 scatter!(ax, [loc_x], [loc_y],
-                    marker = injection_marker,
-                    markersize = injection_marker_size,
-                    color = injection_marker_color,
-                    strokewidth = injection_marker_strokewidth,
-                    strokecolor = injection_marker_color
+                    marker=injection_marker,
+                    markersize=injection_marker_size,
+                    color=injection_marker_color,
+                    strokewidth=injection_marker_strokewidth,
+                    strokecolor=injection_marker_color
                 )
             end
         end
@@ -1370,7 +1369,7 @@ function plot_final_co2_distribution(
 
     # Add overall title if provided
     if !isnothing(title)
-        Label(fig[1, :], title, fontsize = fontsize_title, font = :bold)
+        Label(fig[1, :], title, fontsize=fontsize_title, font=:bold)
     end
 
     # Adjust spacing for compact appearance
@@ -1409,10 +1408,10 @@ injection_locs = create_injection_locations_dict(locations, layers)
 function create_injection_locations_dict(
     well_locations::Vector{<:CartesianIndex{2}},
     well_layers::Vector{Int}
-)::Dict{Int, Vector{CartesianIndex{2}}}
+)::Dict{Int,Vector{CartesianIndex{2}}}
     @assert length(well_locations) == length(well_layers) "Locations and layers must have same length"
 
-    result = Dict{Int, Vector{CartesianIndex{2}}}()
+    result = Dict{Int,Vector{CartesianIndex{2}}}()
     for (loc, layer) in zip(well_locations, well_layers)
         if !haskey(result, layer)
             result[layer] = CartesianIndex{2}[]
@@ -1484,19 +1483,19 @@ plot_scenario_storage_timeseries(scenarios; output_file="storage_comparison.svg"
 """
 function plot_scenario_storage_timeseries(
     scenarios::Vector{ScenarioData};
-    output_file::Union{String, Nothing} = nothing,
-    title::Union{String, Nothing} = nothing,
-    colors::Union{Vector, Nothing} = nothing,
-    linewidth::Float64 = 2.5,
-    show_markers::Bool = false,
-    marker_size::Int = 8,
-    fontsize_title::Int = 18,
-    fontsize_labels::Int = 14,
-    fontsize_ticks::Int = 12,
-    fontsize_legend::Int = 12,
-    figure_size::Tuple{Int, Int} = (700, 450),
-    show_legend::Bool = true,
-    legend_position = :rb
+    output_file::Union{String,Nothing}=nothing,
+    title::Union{String,Nothing}=nothing,
+    colors::Union{Vector,Nothing}=nothing,
+    linewidth::Float64=2.5,
+    show_markers::Bool=false,
+    marker_size::Int=8,
+    fontsize_title::Int=18,
+    fontsize_labels::Int=14,
+    fontsize_ticks::Int=12,
+    fontsize_legend::Int=12,
+    figure_size::Tuple{Int,Int}=(700, 450),
+    show_legend::Bool=true,
+    legend_position=:rb
 )
     # Professional color palette if not provided
     if isnothing(colors)
@@ -1511,27 +1510,27 @@ function plot_scenario_storage_timeseries(
 
     # Create figure
     fig = Figure(
-        size = figure_size,
-        backgroundcolor = :white,
-        fontsize = fontsize_ticks
+        size=figure_size,
+        backgroundcolor=:white,
+        fontsize=fontsize_ticks
     )
 
     # Create axis
     title_row = isnothing(title) ? 1 : 2
     ax = Axis(fig[title_row, 1],
-        xlabel = "Time (years)",
-        ylabel = "CO₂ Stored (Mt)",
-        xlabelsize = fontsize_labels,
-        ylabelsize = fontsize_labels,
-        xticklabelsize = fontsize_ticks,
-        yticklabelsize = fontsize_ticks,
-        xgridvisible = true,
-        ygridvisible = true,
-        xgridcolor = (:gray, 0.3),
-        ygridcolor = (:gray, 0.3),
-        xgridstyle = :dot,
-        ygridstyle = :dot,
-        spinewidth = 1.5
+        xlabel="Time (years)",
+        ylabel="CO₂ Stored (Mt)",
+        xlabelsize=fontsize_labels,
+        ylabelsize=fontsize_labels,
+        xticklabelsize=fontsize_ticks,
+        yticklabelsize=fontsize_ticks,
+        xgridvisible=true,
+        ygridvisible=true,
+        xgridcolor=(:gray, 0.3),
+        ygridcolor=(:gray, 0.3),
+        xgridstyle=:dot,
+        ygridstyle=:dot,
+        spinewidth=1.5
     )
 
     # Plot each scenario
@@ -1539,31 +1538,31 @@ function plot_scenario_storage_timeseries(
         color = colors[mod1(i, length(colors))]
 
         lines!(ax, scenario.timepoints, scenario.storage_mt,
-            color = color,
-            linewidth = linewidth,
-            label = scenario.name
+            color=color,
+            linewidth=linewidth,
+            label=scenario.name
         )
 
         if show_markers
             scatter!(ax, scenario.timepoints, scenario.storage_mt,
-                color = color,
-                markersize = marker_size
+                color=color,
+                markersize=marker_size
             )
         end
     end
 
     # Add legend
     if show_legend
-        axislegend(ax, position = legend_position,
-                   labelsize = fontsize_legend,
-                   framevisible = true,
-                   framecolor = (:gray, 0.5),
-                   bgcolor = (:white, 0.9))
+        axislegend(ax, position=legend_position,
+            labelsize=fontsize_legend,
+            framevisible=true,
+            framecolor=(:gray, 0.5),
+            bgcolor=(:white, 0.9))
     end
 
     # Add title
     if !isnothing(title)
-        Label(fig[1, 1], title, fontsize = fontsize_title, font = :bold)
+        Label(fig[1, 1], title, fontsize=fontsize_title, font=:bold)
     end
 
     # Save
@@ -1613,25 +1612,25 @@ plot_scenario_layer_distribution(scenarios; output_file="layer_comparison.svg")
 """
 function plot_scenario_layer_distribution(
     scenarios::Vector{ScenarioData};
-    output_file::Union{String, Nothing} = nothing,
-    title::Union{String, Nothing} = nothing,
-    colors::Union{Vector, Nothing} = nothing,
-    bar_alpha::Float64 = 0.9,
-    show_values::Bool = true,
-    fontsize_title::Int = 18,
-    fontsize_labels::Int = 14,
-    fontsize_ticks::Int = 12,
-    fontsize_values::Int = 9,
-    fontsize_legend::Int = 11,
-    figure_size::Tuple{Int, Int} = (800, 450),
-    bar_width::Float64 = 0.2,
-    legend_position = :rt
+    output_file::Union{String,Nothing}=nothing,
+    title::Union{String,Nothing}=nothing,
+    colors::Union{Vector,Nothing}=nothing,
+    bar_alpha::Float64=0.9,
+    show_values::Bool=true,
+    fontsize_title::Int=18,
+    fontsize_labels::Int=14,
+    fontsize_ticks::Int=12,
+    fontsize_values::Int=9,
+    fontsize_legend::Int=11,
+    figure_size::Tuple{Int,Int}=(800, 450),
+    bar_width::Float64=0.2,
+    legend_position=:rt
 )
     # Professional color palette if not provided
-#let brown = rgb("#271B11")
-#let green = rgb("#386624")
-#let orange = rgb("#A49841")
-#let blue = rgb("#74AFB9")
+    #let brown = rgb("#271B11")
+    #let green = rgb("#386624")
+    #let orange = rgb("#A49841")
+    #let blue = rgb("#74AFB9")
 
     if isnothing(colors)
         colors = [
@@ -1651,26 +1650,26 @@ function plot_scenario_layer_distribution(
 
     # Create figure
     fig = Figure(
-        size = figure_size,
-        backgroundcolor = :white,
-        fontsize = fontsize_ticks
+        size=figure_size,
+        backgroundcolor=:white,
+        fontsize=fontsize_ticks
     )
 
     # Create axis
     title_row = isnothing(title) ? 1 : 2
     ax = Axis(fig[title_row, 1],
-        xlabel = "Layer",
-        ylabel = "Total stored (%)",
-        xlabelsize = fontsize_labels,
-        ylabelsize = fontsize_labels,
-        xticklabelsize = fontsize_ticks,
-        yticklabelsize = fontsize_ticks,
-        xticks = (1:n_layers, ["L$i" for i in 1:n_layers]),
-        xgridvisible = false,
-        ygridvisible = true,
-        ygridcolor = (:gray, 0.3),
-        ygridstyle = :dot,
-        spinewidth = 1.5
+        xlabel="Layer",
+        ylabel="Total stored (%)",
+        xlabelsize=fontsize_labels,
+        ylabelsize=fontsize_labels,
+        xticklabelsize=fontsize_ticks,
+        yticklabelsize=fontsize_ticks,
+        xticks=(1:n_layers, ["L$i" for i in 1:n_layers]),
+        xgridvisible=false,
+        ygridvisible=true,
+        ygridcolor=(:gray, 0.3),
+        ygridstyle=:dot,
+        spinewidth=1.5
     )
 
 
@@ -1683,10 +1682,10 @@ function plot_scenario_layer_distribution(
         positions = collect(1:n_layers) .+ offset
 
         barplot!(ax, positions, scenario.layer_percentages,
-            color = (color, bar_alpha),
-            width = bar_width * 0.9,
-            strokewidth = 0,
-            label = scenario.name
+            color=(color, bar_alpha),
+            width=bar_width * 0.9,
+            strokewidth=0,
+            label=scenario.name
         )
 
         # Add value labels
@@ -1694,10 +1693,10 @@ function plot_scenario_layer_distribution(
             for (pos, val) in zip(positions, scenario.layer_percentages)
                 if val > 2.0  # Only show labels for bars with meaningful values
                     text!(ax, pos, val + 1.0,
-                        text = @sprintf("%.0f", val),
-                        align = (:center, :bottom),
-                        fontsize = fontsize_values,
-                        color = :black
+                        text=@sprintf("%.0f", val),
+                        align=(:center, :bottom),
+                        fontsize=fontsize_values,
+                        color=:black
                     )
                 end
             end
@@ -1705,15 +1704,15 @@ function plot_scenario_layer_distribution(
     end
 
     # Add legend
-    axislegend(ax, position = legend_position,
-               labelsize = fontsize_legend,
-               framevisible = true,
-               framecolor = (:gray, 0.5),
-               bgcolor = (:white, 0.9))
+    axislegend(ax, position=legend_position,
+        labelsize=fontsize_legend,
+        framevisible=true,
+        framecolor=(:gray, 0.5),
+        bgcolor=(:white, 0.9))
 
     # Add title
     if !isnothing(title)
-        Label(fig[1, 1], title, fontsize = fontsize_title, font = :bold)
+        Label(fig[1, 1], title, fontsize=fontsize_title, font=:bold)
     end
 
     # Adjust y-axis limits to accommodate labels
@@ -1761,17 +1760,17 @@ Create a professional bar chart comparing total CO2 storage across scenarios.
 function plot_scenario_storage_comparison(
     scenario_names::Vector{String},
     storage_values::Vector{Float64};
-    output_file::Union{String, Nothing} = nothing,
-    title::Union{String, Nothing} = nothing,
-    colors::Union{Vector, Nothing} = nothing,
-    bar_alpha::Float64 = 1.0,
-    show_values::Bool = true,
-    ylabel::String = "CO₂ Stored (Mt)",
-    fontsize_labels::Int = 16,
-    fontsize_ticks::Int = 14,
-    fontsize_values::Int = 14,
-    figure_size::Tuple{Int, Int} = (600, 400),
-    bar_width::Float64 = 0.6
+    output_file::Union{String,Nothing}=nothing,
+    title::Union{String,Nothing}=nothing,
+    colors::Union{Vector,Nothing}=nothing,
+    bar_alpha::Float64=1.0,
+    show_values::Bool=true,
+    ylabel::String="CO₂ Stored (Mt)",
+    fontsize_labels::Int=16,
+    fontsize_ticks::Int=14,
+    fontsize_values::Int=14,
+    figure_size::Tuple{Int,Int}=(600, 400),
+    bar_width::Float64=0.6
 )
     if isnothing(colors)
         colors = [
@@ -1785,44 +1784,44 @@ function plot_scenario_storage_comparison(
     n_scenarios = length(scenario_names)
 
     fig = Figure(
-        size = figure_size,
-        backgroundcolor = :white,
-        fontsize = fontsize_ticks
+        size=figure_size,
+        backgroundcolor=:white,
+        fontsize=fontsize_ticks
     )
 
     title_row = isnothing(title) ? 1 : 2
     ax = Axis(fig[title_row, 1],
         # xlabel = "Scenario",
-        ylabel = ylabel,
-        xlabelsize = fontsize_labels,
-        ylabelsize = fontsize_labels,
-        xticklabelsize = fontsize_ticks,
-        yticklabelsize = fontsize_ticks,
-        xticks = (1:n_scenarios, scenario_names),
-        xticklabelrotation = 0.0,
-        xgridvisible = false,
-        ygridvisible = true,
-        ygridcolor = (:gray, 0.3),
-        ygridstyle = :dot,
-        spinewidth = 1.5
+        ylabel=ylabel,
+        xlabelsize=fontsize_labels,
+        ylabelsize=fontsize_labels,
+        xticklabelsize=fontsize_ticks,
+        yticklabelsize=fontsize_ticks,
+        xticks=(1:n_scenarios, scenario_names),
+        xticklabelrotation=0.0,
+        xgridvisible=false,
+        ygridvisible=true,
+        ygridcolor=(:gray, 0.3),
+        ygridstyle=:dot,
+        spinewidth=1.5
     )
 
     # Plot bars
     bar_colors = [(colors[mod1(i, length(colors))], bar_alpha) for i in 1:n_scenarios]
     barplot!(ax, 1:n_scenarios, storage_values,
-        color = bar_colors,
-        width = bar_width,
-        strokewidth = 0
+        color=bar_colors,
+        width=bar_width,
+        strokewidth=0
     )
 
     # Add value labels
     if show_values
         for (i, val) in enumerate(storage_values)
             text!(ax, i, val + maximum(storage_values) * 0.02,
-                text = @sprintf("%.2f", val),
-                align = (:center, :bottom),
-                fontsize = fontsize_values,
-                color = :black
+                text=@sprintf("%.2f", val),
+                align=(:center, :bottom),
+                fontsize=fontsize_values,
+                color=:black
             )
         end
     end
@@ -1833,7 +1832,7 @@ function plot_scenario_storage_comparison(
     end
 
     if !isnothing(title)
-        Label(fig[1, 1], title, fontsize = 18, font = :bold)
+        Label(fig[1, 1], title, fontsize=18, font=:bold)
     end
 
     if !isnothing(output_file)
@@ -1864,17 +1863,17 @@ Create a professional bar chart comparing total CO2 leakage across scenarios.
 function plot_scenario_leakage_comparison(
     scenario_names::Vector{String},
     leakage_values::Vector{Float64};
-    output_file::Union{String, Nothing} = nothing,
-    title::Union{String, Nothing} = nothing,
-    colors::Union{Vector, Nothing} = nothing,
-    bar_alpha::Float64 = 1.0,
-    show_values::Bool = true,
-    ylabel::String = "CO₂ Leaked (Mt)",
-    fontsize_labels::Int = 16,
-    fontsize_ticks::Int = 14,
-    fontsize_values::Int = 14,
-    figure_size::Tuple{Int, Int} = (600, 400),
-    bar_width::Float64 = 0.6
+    output_file::Union{String,Nothing}=nothing,
+    title::Union{String,Nothing}=nothing,
+    colors::Union{Vector,Nothing}=nothing,
+    bar_alpha::Float64=1.0,
+    show_values::Bool=true,
+    ylabel::String="CO₂ Leaked (Mt)",
+    fontsize_labels::Int=16,
+    fontsize_ticks::Int=14,
+    fontsize_values::Int=14,
+    figure_size::Tuple{Int,Int}=(600, 400),
+    bar_width::Float64=0.6
 )
     if isnothing(colors)
         colors = [
@@ -1888,34 +1887,34 @@ function plot_scenario_leakage_comparison(
     n_scenarios = length(scenario_names)
 
     fig = Figure(
-        size = figure_size,
-        backgroundcolor = :white,
-        fontsize = fontsize_ticks
+        size=figure_size,
+        backgroundcolor=:white,
+        fontsize=fontsize_ticks
     )
 
     title_row = isnothing(title) ? 1 : 2
     ax = Axis(fig[title_row, 1],
         # xlabel = "Scenario",
-        ylabel = ylabel,
-        xlabelsize = fontsize_labels,
-        ylabelsize = fontsize_labels,
-        xticklabelsize = fontsize_ticks,
-        yticklabelsize = fontsize_ticks,
-        xticks = (1:n_scenarios, scenario_names),
-        xticklabelrotation = 0.0,
-        xgridvisible = false,
-        ygridvisible = true,
-        ygridcolor = (:gray, 0.3),
-        ygridstyle = :dot,
-        spinewidth = 1.5
+        ylabel=ylabel,
+        xlabelsize=fontsize_labels,
+        ylabelsize=fontsize_labels,
+        xticklabelsize=fontsize_ticks,
+        yticklabelsize=fontsize_ticks,
+        xticks=(1:n_scenarios, scenario_names),
+        xticklabelrotation=0.0,
+        xgridvisible=false,
+        ygridvisible=true,
+        ygridcolor=(:gray, 0.3),
+        ygridstyle=:dot,
+        spinewidth=1.5
     )
 
     # Plot bars
     bar_colors = [(colors[mod1(i, length(colors))], bar_alpha) for i in 1:n_scenarios]
     barplot!(ax, 1:n_scenarios, leakage_values,
-        color = bar_colors,
-        width = bar_width,
-        strokewidth = 0
+        color=bar_colors,
+        width=bar_width,
+        strokewidth=0
     )
 
     # Add value labels
@@ -1923,10 +1922,10 @@ function plot_scenario_leakage_comparison(
         max_val = maximum(leakage_values)
         for (i, val) in enumerate(leakage_values)
             text!(ax, i, val + max_val * 0.02,
-                text = @sprintf("%.2f", val),
-                align = (:center, :bottom),
-                fontsize = fontsize_values,
-                color = :black
+                text=@sprintf("%.2f", val),
+                align=(:center, :bottom),
+                fontsize=fontsize_values,
+                color=:black
             )
         end
     end
@@ -1937,7 +1936,7 @@ function plot_scenario_leakage_comparison(
     end
 
     if !isnothing(title)
-        Label(fig[1, 1], title, fontsize = 18, font = :bold)
+        Label(fig[1, 1], title, fontsize=18, font=:bold)
     end
 
     if !isnothing(output_file)

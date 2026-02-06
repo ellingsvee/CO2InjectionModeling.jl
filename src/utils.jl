@@ -12,10 +12,10 @@ Returns a 3D array where:
 - 2 = shale (low permeability)
 
 Parameters:
-- topography: SleipnerTopography struct
+- topography: Any AbstractTopography implementation
 - domain: Domain3D struct
 """
-function reconstruct_3d_lithology(topography::SleipnerTopography, domain::Domain3D)
+function reconstruct_3d_lithology(topography::AbstractTopography, domain::Domain3D)
     nx, ny, nz = domain.nx, domain.ny, domain.nz
     dz = domain.dz
     depth_min = domain.depth_min
@@ -33,25 +33,34 @@ function reconstruct_3d_lithology(topography::SleipnerTopography, domain::Domain
     # k=1 is deepest, k=nz is shallowest
     depth_at_k = depth_max .- (0.5:nz) .* dz  # Vector of length nz
 
-    # Process caprock layer (vectorized over k)
-    println("  Processing caprock...")
+    # Get caprock surface (may be nothing for some topographies)
+    top_caprock = get_caprock_surface(topography)
+
+    # Process caprock layer (vectorized over k) if caprock surface is defined
     caprock_count = 0
-    for k in 1:nz
-        cell_depth = depth_at_k[k]
-        # topography.top_caprock is already (nx, ny) - no transpose needed
-        caprock_mask = cell_depth .< topography.top_caprock  # Broadcasting, result is (nx, ny)
-        n_caprock_at_k = count(caprock_mask)
-        caprock_count += n_caprock_at_k
-        if n_caprock_at_k > 0
-            lithology[caprock_mask, k] .= 0  # Caprock
+    if !isnothing(top_caprock)
+        println("  Processing caprock...")
+        for k in 1:nz
+            cell_depth = depth_at_k[k]
+            caprock_mask = cell_depth .< top_caprock  # Broadcasting, result is (nx, ny)
+            n_caprock_at_k = count(caprock_mask)
+            caprock_count += n_caprock_at_k
+            if n_caprock_at_k > 0
+                lithology[caprock_mask, k] .= 0  # Caprock
+            end
         end
+        println("    Assigned $(caprock_count) caprock cells")
+    else
+        println("  No caprock surface defined, skipping caprock processing")
     end
-    println("    Assigned $(caprock_count) caprock cells")
+
+    # Get sand layers via interface method
+    sand_layers = get_sand_layers(topography)
 
     # Process sand layers (vectorized)
     println("  Processing sand layers...")
     sand_count = 0
-    for layer in topography.sand_layers
+    for layer in sand_layers
         # Layer surfaces are already (nx, ny) - no transpose needed
         layer_top = layer["top"]
         layer_base = layer["base"]

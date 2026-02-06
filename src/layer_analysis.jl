@@ -47,17 +47,22 @@ function add_boundary_wall(surface::Matrix{<:Real}, pad_width::Int, wall_height:
     return padded_surface
 end
 
-function analyze_base_surfaces(topography::SleipnerTopography; boundary_condition::Symbol=:open)::Vector{Layer}
+function analyze_base_surfaces(topography::AbstractTopography; boundary_condition::Symbol=:open)::Vector{Layer}
     @assert boundary_condition in [:open, :closed] "boundary_condition must be :open or :closed"
 
     # Determine padding width: 0 for open BC, 1 for closed BC
     pad_width = boundary_condition == :closed ? 1 : 0
 
+    # Get topography properties via interface methods
+    sand_layers = get_sand_layers(topography)
+    nx, ny = get_grid_dimensions(topography)
+    dx, dy = get_grid_spacing(topography)
+
     # Initialize empty vector (will grow as we push)
     layers = Vector{Layer}()
 
     # Iterate over each sand layer to create Layer structs
-    for layer in reverse(topography.sand_layers)
+    for layer in reverse(sand_layers)
         layer_name = layer["name"]
         base_surface = layer["top"]
 
@@ -66,10 +71,10 @@ function analyze_base_surfaces(topography::SleipnerTopography; boundary_conditio
 
         # Compute trap structure on padded surface
         # Adjust lengths to account for padding
-        original_length_x = topography.nx * topography.dx
-        original_length_y = topography.ny * topography.dy
-        padded_length_x = original_length_x + 2 * pad_width * topography.dx
-        padded_length_y = original_length_y + 2 * pad_width * topography.dy
+        original_length_x = nx * dx
+        original_length_y = ny * dy
+        padded_length_x = original_length_x + 2 * pad_width * dx
+        padded_length_y = original_length_y + 2 * pad_width * dy
 
         trap_structure = spillanalysis(padded_surface, lengths = (padded_length_x, padded_length_y))
         push!(layers, Layer(layer_name, trap_structure, pad_width))

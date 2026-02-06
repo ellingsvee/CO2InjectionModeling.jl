@@ -1,24 +1,21 @@
 module CO2BatchFill
 
-# Load subfiles
-include("sleipner_setup.jl")
+# Core types (must come first as other modules depend on them)
 include("structs.jl")
+
+# Abstract topography interface
+include("topography_interface.jl")
+
+# Core functionality
 include("layer_analysis.jl")
 include("volume_conversion.jl")
 include("utils.jl")  # Must come before leakage.jl (provides get_all_parents)
 include("leakage.jl")
-
 
 include("fill_layer.jl")
 include("fill_layers.jl")
 include("analysis.jl")
 include("visualization.jl")
 include("injection_optimization.jl")
-
-include("CO2RInterface.jl")
-
-using .CO2RInterface
-export setup_simulator, configure_reservoir, setup_sleipner_reservoir, run_simulation
-export generate_cross_section_animation, generate_birdseye_animation
 
 end
