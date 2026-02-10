@@ -3,11 +3,8 @@ module CO2BatchFill
 # Core types (must come first as other modules depend on them)
 include("structs.jl")
 
-# Abstract topography interface
+# Topography interface and GenericTopography
 include("topography_interface.jl")
-
-# Generic topography from raw arrays
-include("generic_topography.jl")
 
 # Core functionality
 include("layer_analysis.jl")

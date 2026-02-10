@@ -71,7 +71,7 @@ For Sleipner data, use the convenience wrappers that load the data and set defau
 
 ```R
 julia_command('using CO2BatchFill')
-julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner')
 
 setup <- julia_call("setup_sleipner_simulator", boundary_condition = "closed")
 julia_call("setup_sleipner_reservoir")
@@ -135,7 +135,7 @@ library(JuliaCall)
 julia_setup()
 julia_command('using Pkg; Pkg.activate(".")')
 julia_command('using CO2BatchFill')
-julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner')
 
 # 1. Setup simulator with Sleipner data
 setup <- julia_call("setup_sleipner_simulator", boundary_condition = "open")
@@ -283,7 +283,7 @@ Generate a bird's eye view animation showing CO2 distribution across all layers 
 
 These functions are available after loading the Sleipner module:
 ```R
-julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner')
 ```
 
 #### `setup_sleipner_simulator()`

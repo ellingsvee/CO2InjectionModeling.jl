@@ -15,7 +15,7 @@ julia_command('using Pkg; Pkg.activate(".")')
 julia_command('using CO2BatchFill')
 
 # Load the Sleipner module (includes convenience wrappers)
-julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner')
 
 # ============================================================================
 # EXAMPLE 1: Simple simulation with Sleipner defaults
