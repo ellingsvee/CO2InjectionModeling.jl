@@ -10,3 +10,6 @@ sleipner
 
 # Old scripts that are not part of the package but may be useful for reference
 scripts_legacy
+
+# Mac
+.DS_Store
