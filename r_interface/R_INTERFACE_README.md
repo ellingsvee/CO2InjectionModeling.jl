@@ -1,4 +1,4 @@
-# Using CO2InjectionModeling.jl from R
+# Using CO2BatchFill.jl from R
 
 Use the CO2 injection simulator from R using the JuliaCall package.
 
@@ -13,7 +13,7 @@ Use the CO2 injection simulator from R using the JuliaCall package.
   install.packages("JuliaCall")
   ```
 
-### 2. Install CO2InjectionModeling.jl
+### 2. Install CO2BatchFill.jl
 
 #### Option A: Use from the project directory
 
@@ -22,11 +22,11 @@ Navigate to the project directory and run:
 library(JuliaCall)
 julia_setup()
 
-# REMEMBER TO SET WORKING DIR TO CO2InjectionModeling.jl
+# REMEMBER TO SET WORKING DIR TO CO2BatchFill
 julia_command('using Pkg; Pkg.activate(".")')
 
 # This might take some time
-julia_command('using CO2InjectionModeling')
+julia_command('using CO2BatchFill')
 ```
 
 #### Option B: Install as a package
@@ -34,7 +34,7 @@ julia_command('using CO2InjectionModeling')
 Install the package globally so you can use it from any directory:
 
 ```bash
-cd /path/to/CO2InjectionModeling.jl
+cd /path/to/CO2BatchFill
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 julia -e 'using Pkg; Pkg.develop(path=pwd())'
 ```
@@ -43,16 +43,102 @@ Then in R:
 ```R
 library(JuliaCall)
 julia_setup()
-julia_command('using CO2InjectionModeling')
+julia_command('using CO2BatchFill')
 ```
 
-## Quick Start
+## Two APIs
 
-The simplest way to run a simulation with Sleipner defaults:
+CO2BatchFill provides two ways to run simulations from R:
+
+### Generic API (any dataset)
+
+Use `setup_simulator_from_surfaces()` to pass your own surface arrays directly. No dataset-specific code needed.
 
 ```R
-# 1. Setup simulator
-setup <- julia_call("setup_simulator", boundary_condition = "open")
+julia_command('using CO2BatchFill')
+
+setup <- julia_call("setup_simulator_from_surfaces",
+                    layer_tops = list(top_surface_1, top_surface_2),
+                    layer_bases = list(base_surface_1, base_surface_2),
+                    layer_names = c("Layer1", "Layer2"),
+                    dx = 50.0, dy = 50.0,
+                    boundary_condition = "closed")
+```
+
+### Sleipner Convenience API
+
+For Sleipner data, use the convenience wrappers that load the data and set default reservoir properties:
+
+```R
+julia_command('using CO2BatchFill')
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
+
+setup <- julia_call("setup_sleipner_simulator", boundary_condition = "closed")
+julia_call("setup_sleipner_reservoir")
+```
+
+## Quick Start (Generic API)
+
+```R
+library(JuliaCall)
+julia_setup()
+julia_command('using Pkg; Pkg.activate(".")')
+julia_command('using CO2BatchFill')
+
+# 1. Create or load your surface data (nx × ny matrices)
+nx <- 64; ny <- 64
+top1 <- matrix(runif(nx*ny, 900, 950), nrow=nx, ncol=ny)
+base1 <- top1 + 20  # 20m thick layer
+
+# 2. Setup simulator
+setup <- julia_call("setup_simulator_from_surfaces",
+                    layer_tops = list(top1),
+                    layer_bases = list(base1),
+                    layer_names = c("L1"),
+                    dx = 50.0, dy = 50.0,
+                    boundary_condition = "closed")
+
+nx_bc <- setup$nx_after_bc
+ny_bc <- setup$ny_after_bc
+
+# 3. Configure reservoir properties
+julia_call("configure_reservoir",
+           porosity = 0.35,
+           residual_co2_sat = 0.2,
+           irreducible_water_sat = 0.3,
+           shale_pressure_threshold = 98000.0,
+           leakage_height = Inf,
+           residual_leakage_time = 1.0)
+
+# 4. Create injection scenario
+n_times <- 10
+injection <- array(0, dim = c(n_times, nx_bc, ny_bc))
+for (i in 1:n_times) {
+  injection[i, 32, 32] <- 1e6  # m³/year at center
+}
+injection_matrices <- list(injection)
+
+# 5. Run simulation
+result <- julia_call("run_simulation",
+                     start_time = 0.0,
+                     end_time = 10.0,
+                     time_step = 1.0,
+                     injection_rate_matrices = injection_matrices)
+
+print(result$total_co2_volumes)
+```
+
+## Quick Start (Sleipner)
+
+```R
+library(JuliaCall)
+julia_setup()
+julia_command('using Pkg; Pkg.activate(".")')
+julia_command('using CO2BatchFill')
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
+
+# 1. Setup simulator with Sleipner data
+setup <- julia_call("setup_sleipner_simulator", boundary_condition = "open")
 nx <- setup$nx
 ny <- setup$ny
 
@@ -60,11 +146,9 @@ ny <- setup$ny
 julia_call("setup_sleipner_reservoir")
 
 # 3. Create injection scenario
-# Injection matrix dimensions: n_times × nx × ny
 n_times <- 15
 layer1_injection <- array(0, dim = c(n_times, nx, ny))
 
-# Inject at location (32, 59) with historical Sleipner rates
 rates_mt <- c(0.07, 0.67, 0.85, 0.94, 0.94, 1.02,
               0.96, 0.92, 0.76, 0.87, 0.83, 0.93,
               0.82, 0.86, 0.76)  # Mt/year
@@ -74,15 +158,13 @@ for (i in 1:n_times) {
   layer1_injection[i, 32, 59] <- rates_m3[i]
 }
 
-# Zero injection for other layers
 zero_injection <- array(0, dim = c(1, nx, ny))
 
-# List of injection matrices (one per layer)
 injection_matrices <- list(
-  layer1_injection,  # Layer 1 (bottom)
+  layer1_injection,
   zero_injection, zero_injection, zero_injection,
   zero_injection, zero_injection, zero_injection,
-  zero_injection, zero_injection  # Layer 9 (top)
+  zero_injection, zero_injection
 )
 
 # 4. Run simulation
@@ -93,50 +175,32 @@ result <- julia_call("run_simulation",
                      injection_rate_matrices = injection_matrices,
                      verbose = TRUE)
 
-# 5. Access results
 print(result$timepoints)
 print(result$total_co2_volumes)
 ```
 
 ## API Reference
 
-### `setup_simulator()`
+### Generic API (CO2BatchFill)
 
-Setup the simulator and load topography data.
+#### `setup_simulator_from_surfaces()`
+
+Setup the simulator from raw surface arrays. This is the primary entry point for custom datasets.
 
 **Parameters:**
-- `data_path`: Path to depth surfaces (default: `"sleipner/depth_surfaces/"`)
+- `layer_tops`: List of 2D matrices (each nx × ny), top surfaces for each layer
+- `layer_bases`: List of 2D matrices (each nx × ny), base surfaces for each layer
+- `layer_names`: Character vector of layer names (e.g., `c("L1", "L2")`)
+- `dx`: Grid spacing in x direction (meters)
+- `dy`: Grid spacing in y direction (meters)
 - `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
+- `caprock_surface`: Optional caprock top surface matrix (nx × ny), or `NULL`
 
-**Returns:** Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`
-
----
-
-### `setup_sleipner_reservoir()`
-
-Configure reservoir properties using Sleipner field default values. This is a convenience function that automatically sets:
-- Porosity: 0.4
-- Residual CO2 saturation: 0.2
-- Irreducible water saturation: 0.3
-- Shale pressure threshold: 98000.0 Pa
-- Leakage heights: Computed from density differences (brine: 1020 kg/m³, CO2: 425 kg/m³)
-  - Approximately 16.8 m for all layers except top
-  - Top layer (L9): Inf (impermeable caprock)
-- Residual leakage time: 1.0 years
-
-**Parameters:** None (must call `setup_simulator()` first)
-
-**Returns:** Dictionary with `status`, `n_layers`, `message`
-
-**Example:**
-```R
-julia_call("setup_simulator", boundary_condition = "open")
-julia_call("setup_sleipner_reservoir")
-```
+**Returns:** Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_after_bc`, `ny_after_bc`
 
 ---
 
-### `configure_reservoir()`
+#### `configure_reservoir()`
 
 Configure custom reservoir properties.
 
@@ -165,32 +229,19 @@ julia_call("configure_reservoir",
 
 **Example (layer-specific properties):**
 ```R
-# Compute layer-specific leakage heights from density differences
-brine_density <- 1020  # kg/m³
-co2_densities <- rep(425, 9)  # kg/m³
-density_diffs <- brine_density - co2_densities
-g <- 9.81  # m/s²
-shale_threshold <- 98000.0  # Pa
-
-# Calculate leakage heights: h = P_threshold / (Δρ * g)
-leakage_heights <- shale_threshold / (density_diffs * g)
-
-# Make top layer impermeable (represents caprock)
-leakage_heights[9] <- Inf
-
 julia_call("configure_reservoir",
-           porosity = rep(0.4, 9),
-           residual_co2_sat = rep(0.2, 9),
-           irreducible_water_sat = rep(0.3, 9),
-           shale_pressure_threshold = rep(98000.0, 9),
-           leakage_height = leakage_heights,
-           residual_leakage_time = rep(1.0, 9),
+           porosity = rep(0.4, 3),
+           residual_co2_sat = rep(0.2, 3),
+           irreducible_water_sat = rep(0.3, 3),
+           shale_pressure_threshold = rep(98000.0, 3),
+           leakage_height = c(17.0, 17.0, Inf),
+           residual_leakage_time = rep(1.0, 3),
            layer_specific = TRUE)
 ```
 
 ---
 
-### `run_simulation()`
+#### `run_simulation()`
 
 Run a CO2 injection simulation.
 
@@ -209,56 +260,9 @@ Run a CO2 injection simulation.
 - `num_layers`: Number of layers
 - `num_traps_per_layer`: Vector of trap counts per layer
 
-**Example (single injection well):**
-```R
-# Create injection for bottom layer
-n_times <- 10
-layer1_injection <- array(0, dim = c(n_times, nx, ny))
-
-# Inject at (32, 59)
-rates <- rep(0.8, n_times) * 1e9 / 570  # 0.8 Mt/year constant
-for (i in 1:n_times) {
-  layer1_injection[i, 32, 59] <- rates[i]
-}
-
-# Zero injection for other layers
-zero_injection <- array(0, dim = c(1, nx, ny))
-
-injection_matrices <- list(
-  layer1_injection,
-  zero_injection, zero_injection, zero_injection,
-  zero_injection, zero_injection, zero_injection,
-  zero_injection, zero_injection
-)
-
-result <- julia_call("run_simulation",
-                     start_time = 0.0,
-                     end_time = 10.0,
-                     time_step = 1.0,
-                     injection_rate_matrices = injection_matrices,
-                     verbose = TRUE)
-```
-
-**Example (multiple injection wells with time-varying rates):**
-```R
-n_times <- 10
-layer1_injection <- array(0, dim = c(n_times, nx, ny))
-
-# Well 1: Ramping up from 0.5 to 1.0 Mt/year
-well1_rates <- seq(0.5, 1.0, length.out = n_times) * 1e9 / 570
-
-# Well 2: Constant 0.8 Mt/year
-well2_rates <- rep(0.8, n_times) * 1e9 / 570
-
-for (i in 1:n_times) {
-  layer1_injection[i, 32, 59] <- well1_rates[i]  # Well 1
-  layer1_injection[i, 35, 62] <- well2_rates[i]  # Well 2
-}
-```
-
 ---
 
-### `generate_birdseye_animation()`
+#### `generate_birdseye_animation()`
 
 Generate a bird's eye view animation showing CO2 distribution across all layers over time.
 
@@ -271,19 +275,42 @@ Generate a bird's eye view animation showing CO2 distribution across all layers 
 - `colormap`: Colormap name for CO2 heights (default: `"thermal"`)
 - `max_CO2_height`: Maximum CO2 height for colorscale in meters (default: `20.0`)
 
-**Returns:** Dictionary with `status`, `output_file`, `message`
+**Returns:** Dictionary with `status`, `output_file`
 
-**Example:**
+---
+
+### Sleipner Convenience API
+
+These functions are available after loading the Sleipner module:
 ```R
-# Must call run_simulation() first
-julia_call("generate_birdseye_animation",
-           output_file = "co2_animation.gif",
-           num_frames = 30L,
-           fps = 2L,
-           max_CO2_height = 20.0)
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
 ```
 
-**Note:** Both `generate_cross_section_animation()` and `generate_birdseye_animation()` currently generate the same bird's eye view animation. Cross-section views are not yet available.
+#### `setup_sleipner_simulator()`
+
+Load Sleipner topography and set up the simulator with Sleipner defaults.
+
+**Parameters:**
+- `data_path`: Path to depth surfaces (default: `"sleipner/depth_surfaces/"`)
+- `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
+
+**Returns:** Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_after_bc`, `ny_after_bc`
+
+---
+
+#### `setup_sleipner_reservoir()`
+
+Configure reservoir properties using Sleipner field default values:
+- Porosity: 0.4
+- Residual CO2 saturation: 0.2
+- Irreducible water saturation: 0.3
+- Shale pressure threshold: 98000.0 Pa
+- Leakage heights: Computed from density differences (brine: 1020 kg/m³, CO2: 460 kg/m³)
+- Residual leakage time: 5.0 years
+
+**Parameters:** None (must call `setup_sleipner_simulator()` first)
+
+**Returns:** Dictionary with `status`, `n_layers`
 
 ---
 
@@ -302,9 +329,8 @@ Simulation results include:
 
 ## Examples
 
-See [r_interface_example.R](r_interface_example.R) for complete examples demonstrating:
-1. Simple simulation with Sleipner defaults
-2. Custom reservoir properties with multiple injection wells
+- [example.R](example.R) — Sleipner convenience API (loads Sleipner data, uses defaults)
+- [advanced_example.R](advanced_example.R) — Generic API with custom surface arrays
 
 ## Notes
 

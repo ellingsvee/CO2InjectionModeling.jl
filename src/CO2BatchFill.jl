@@ -6,6 +6,9 @@ include("structs.jl")
 # Abstract topography interface
 include("topography_interface.jl")
 
+# Generic topography from raw arrays
+include("generic_topography.jl")
+
 # Core functionality
 include("layer_analysis.jl")
 include("volume_conversion.jl")
@@ -16,6 +19,8 @@ include("fill_layer.jl")
 include("fill_layers.jl")
 include("analysis.jl")
 include("visualization.jl")
-include("injection_optimization.jl")
+
+# R interface (generic, dataset-agnostic)
+include("r_interface.jl")
 
 end

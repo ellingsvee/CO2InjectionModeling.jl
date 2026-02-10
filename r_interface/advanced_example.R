@@ -1,137 +1,131 @@
- # CO2 Injection Simulation Example
-# Demonstrates the improved R interface for CO2InjectionModeling.jl
+ # CO2 Injection Simulation - Generic API Example
+# Demonstrates the generic (dataset-agnostic) R interface for CO2BatchFill
+# Uses setup_simulator_from_surfaces() to pass custom surface arrays directly
 
 library(JuliaCall)
 
 # Setup Julia and load package
 julia_setup()
 
-# REMEMBER TO SET WORKING DIR TO CO2InjectionModeling.jl
+# REMEMBER TO SET WORKING DIR TO CO2BatchFill
 # Alternatively: Install the package globally if you want to call the lib from
 # another project.
 julia_command('using Pkg; Pkg.activate(".")')
 
 # This line might take a bit of time...
-julia_command('using CO2InjectionModeling')
+julia_command('using CO2BatchFill')
 
 # ============================================================================
-# ADVANCED EXAMPLE: Custom leakage heights, multi-layer injection,
-#                   and time-varying rates
+# ADVANCED EXAMPLE: Generic API with custom surface data
 # ============================================================================
 
-cat("=== Advanced Example: Custom Reservoir Configuration ===\n\n")
+cat("=== Advanced Example: Generic API with Custom Surfaces ===\n\n")
 
-# Step 1: Setup simulator
-cat("Setting up simulator...\n")
-setup_result <- julia_call("setup_simulator", boundary_condition = "closed") # "open" for open or "closed" for closed BCs
+# Step 1: Create synthetic surface data
+# In practice, these would come from your own dataset (e.g., seismic interpretation)
+cat("Creating synthetic surface data...\n")
+
+nx <- 64
+ny <- 64
+dx <- 50.0   # 50m grid spacing
+dy <- 50.0
+
+# Create synthetic top and base surfaces for 3 layers
+# Layer 1 (deepest): a gently dipping surface with some structural traps
+x <- matrix(rep(1:nx, ny), nrow = nx, ncol = ny)
+y <- matrix(rep(1:ny, each = nx), nrow = nx, ncol = ny)
+
+# Base topography: gentle dip + dome structures
+base_depth <- 1000.0 + 0.5 * x + 0.3 * y
+dome1 <- 15.0 * exp(-((x - 20)^2 + (y - 30)^2) / 200)
+dome2 <- 10.0 * exp(-((x - 45)^2 + (y - 40)^2) / 150)
+
+layer1_top <- base_depth - dome1 - dome2  # top of layer 1 (structural traps at domes)
+layer1_base <- base_depth + 20.0          # 20m thick sand
+
+layer2_top <- base_depth - 30.0 - dome1 * 0.8 - dome2 * 0.5  # shallower layer
+layer2_base <- layer1_top - 5.0            # 5m shale between layers
+
+layer3_top <- base_depth - 60.0 - dome1 * 0.6   # shallowest layer
+layer3_base <- layer2_top - 5.0                   # 5m shale between layers
+
+# Step 2: Setup simulator using generic API
+cat("Setting up simulator from surface arrays...\n")
+setup_result <- julia_call("setup_simulator_from_surfaces",
+                           layer_tops = list(layer1_top, layer2_top, layer3_top),
+                           layer_bases = list(layer1_base, layer2_base, layer3_base),
+                           layer_names = c("Deep", "Middle", "Shallow"),
+                           dx = dx,
+                           dy = dy,
+                           boundary_condition = "closed")
 print(setup_result)
 
-
-# Note: use the nx_after_bc and ny_after_bc as the closed boundary conditions pads the domain by one
-nx <- setup_result$nx_after_bc
-ny <- setup_result$ny_after_bc
+nx_bc <- setup_result$nx_after_bc
+ny_bc <- setup_result$ny_after_bc
 n_layers <- setup_result$n_layers
 
-# Step 2: Configure custom reservoir properties with layer-specific leakage heights
-cat("\nConfiguring custom reservoir properties with layer-specific leakage heights...\n")
+# Step 3: Configure custom reservoir properties
+cat("\nConfiguring custom reservoir properties...\n")
 
 # Compute layer-specific leakage heights from density differences
-# This shows how different CO2 densities at different depths affect leakage behavior
 brine_density <- 1020  # kg/m³
-co2_densities <- rep(425, 9)  # kg/m³, decreasing with depth
+co2_densities <- rep(500, n_layers)  # kg/m³
 density_diffs <- brine_density - co2_densities
 g <- 9.81  # m/s²
-shale_threshold <- 98000.0  # Pa
+shale_threshold <- 80000.0  # Pa
 
-# Calculate leakage heights: h = P_threshold / (Δρ * g)
-# Lower density difference -> higher critical height before leakage
 leakage_heights <- shale_threshold / (density_diffs * g)
 
 # Make top layer impermeable (represents caprock)
-leakage_heights[9] <- Inf
-
-# Optionally, make layer 5 have a lower leakage height
-# This demonstrates how to create heterogeneous vertical permeability
-leakage_heights[5] <- leakage_heights[5] * 0.5  # 50% of normal
+leakage_heights[n_layers] <- Inf
 
 cat("Layer-specific leakage heights (m):\n")
 print(round(leakage_heights, 2))
 
-# Better contol over the spesific reservoir-parameters
 config_result <- julia_call("configure_reservoir",
-                             porosity = rep(0.4, 9),
-                             residual_co2_sat = rep(0.2, 9),
-                             irreducible_water_sat = rep(0.3, 9),
-                             shale_pressure_threshold = rep(shale_threshold, 9),
+                             porosity = rep(0.35, n_layers),
+                             residual_co2_sat = rep(0.15, n_layers),
+                             irreducible_water_sat = rep(0.25, n_layers),
+                             shale_pressure_threshold = rep(shale_threshold, n_layers),
                              leakage_height = leakage_heights,
-                             residual_leakage_time = rep(1.0, 9),
+                             residual_leakage_time = rep(2.0, n_layers),
                              layer_specific = TRUE)
 print(config_result)
 
-# Step 3: Setup advanced injection scenario
-cat("\nSetting up multi-layer, multi-location injection scenario...\n")
+# Step 4: Setup injection scenario
+cat("\nSetting up injection scenario...\n")
 
-# This example demonstrates:
-# 1. Multiple injection wells at different locations
-# 2. Injection in multiple layers simultaneously
-# 3. Time-varying injection rates (ramping up, constant, ramping down)
+n_times <- 10
+co2_density <- 500.0  # kg/m³
 
-n_times <- 15  # 20 years of injection
-co2_density <- 425.0  # kg/m³ # By now this is a "must". Sorry...
+# Inject at dome1 location in layer 1
+injection_rate_mt <- 0.5  # Mt/year constant
+injection_rate_m3 <- injection_rate_mt * 1e9 / co2_density
 
-# Define time-varying injection patterns
-time_vector <- 0:(n_times-1)
-
-# Well 1: Ramp up pattern (Layer 1, bottom)
-well1_rates_mt <- pmin(0.5 + 0.05 * time_vector, 1.0)  # Ramps from 0.5 to 1.0 Mt/year
-well1_rates_m3 <- well1_rates_mt * 1e9 / co2_density
-
-# Well 2: Constant rate (Layer 3)
-well2_rates_mt <- rep(0.8, n_times)  # Constant 0.8 Mt/year
-well2_rates_m3 <- well2_rates_mt * 1e9 / co2_density
-
-cat("\nInjection well configuration:\n")
-cat("  Well 1 (Layer 1): Ramp-up pattern, 0.5 -> 1.0 Mt/year\n")
-cat("  Well 2 (Layer 1): Constant rate, 0.8 Mt/year\n")
-
-# Layer 1:
-layer1_injection <- array(0, dim = c(n_times, nx, ny))
+layer1_injection <- array(0, dim = c(n_times, nx_bc, ny_bc))
 for (i in 1:n_times) {
-  layer1_injection[i, nx%/%2, ny%/%2] <- well1_rates_m3[i]      # Well 1: center
+  # Inject near dome1 center (offset by 1 for closed BC padding)
+  layer1_injection[i, 21, 31] <- injection_rate_m3
 }
 
-# Layer 3:
-layer3_injection <- array(0, dim = c(n_times, nx, ny))
-for (i in 1:n_times) {
-  layer3_injection[i, nx%/%2 + 5, ny%/%2 + 5] <- well2_rates_m3[i]  # Well 2: offset
-}
+zero_injection <- array(0, dim = c(1, nx_bc, ny_bc))
 
-# No injection array
-zero_injection <- array(0, dim = c(1, nx, ny))
-
-# Build list of injection matrices (one per layer)
 injection_matrices <- list(
-  layer1_injection,  # Layer 1 (bottom)
+  layer1_injection,  # Layer 1 (deepest)
   zero_injection,    # Layer 2
-  layer3_injection,  # Layer 3
-  zero_injection,    # Layer 4
-  zero_injection,    # Layer 5
-  zero_injection,    # Layer 6
-  zero_injection,    # Layer 7
-  zero_injection,    # Layer 8
-  zero_injection     # Layer 9 (top)
+  zero_injection     # Layer 3 (shallowest)
 )
 
-# Step 4: Run simulation
-cat("\nRunning advanced simulation (this may take a moment)...\n")
+# Step 5: Run simulation
+cat("\nRunning simulation...\n")
 sim_result <- julia_call("run_simulation",
                          start_time = 0.0,
-                         end_time = 15.0,  # 20 years
+                         end_time = 10.0,
                          time_step = 1.0,
                          injection_rate_matrices = injection_matrices,
                          verbose = FALSE)
 
-# Step 5: Check results
+# Step 6: Check results
 if (sim_result$status == "success") {
   cat("\n=== Simulation Successful! ===\n")
   cat("Timepoints:", sim_result$timepoints, "\n")
@@ -151,40 +145,28 @@ timepoints <- sim_result$timepoints
 total_volumes <- sim_result$total_co2_volumes
 plot(timepoints, total_volumes / 1e6, type = "b",
      xlab = "Time (years)", ylab = "Total CO2 Volume (million m³)",
-     main = "Total CO2 Volume Over Time (Multi-Well Scenario)",
+     main = "Total CO2 Volume Over Time (Generic API)",
      col = "blue", pch = 19)
 grid()
 
-# Plot 2: Layer-wise CO2 volumes highlighting multi-layer injection
+# Plot 2: Layer-wise CO2 volumes
 cat("\nPlotting layer-wise CO2 volumes...\n")
 layer_volumes <- sim_result$layer_co2_volumes
 matplot(timepoints, layer_volumes / 1e6, type = "b",
         xlab = "Time (years)", ylab = "CO2 Volume per Layer (million m³)",
-        main = "Layer-wise CO2 Volumes (Layers 1, 3, 5 have injection)",
+        main = "Layer-wise CO2 Volumes (Generic API)",
         col = rainbow(n_layers), pch = 19, lty = 1)
-legend("topleft", legend = paste("Layer", 1:n_layers),
+legend("topleft", legend = c("Deep", "Middle", "Shallow"),
        col = rainbow(n_layers), pch = 19, lty = 1, cex = 0.8)
 grid()
 
-# Plot 3: Injection rates over time for all wells
-cat("\nPlotting injection rate schedules...\n")
-plot(time_vector, well1_rates_mt, type = "l", lwd = 2, col = "red",
-     xlab = "Time (years)", ylab = "Injection Rate (Mt/year)",
-     main = "Time-Varying Injection Rates by Well",
-     ylim = c(0, 1.2))
-lines(time_vector, well2_rates_mt, lwd = 2, col = "blue")
-legend("topright",
-       legend = c("Well 1 (L1, ramp-up)", "Well 2 (L3, constant)"),
-       col = c("red", "blue", "green", "purple"), lwd = 2, cex = 0.8)
-grid()
-
-# Step 6: Generate animations
-cat("\nGenerating animation (this may take a moment)...\n")
+# Step 7: Generate animation
+cat("\nGenerating animation...\n")
 anim_result <- julia_call("generate_birdseye_animation",
-                          output_file = "co2_advanced_animation.gif",
-                          num_frames = 30L,
+                          output_file = "co2_generic_animation.gif",
+                          num_frames = 20L,
                           fps = 2L,
-                          max_CO2_height = 20.0)
+                          max_CO2_height = 15.0)
 
 if (anim_result$status == "success") {
   cat("Animation saved to:", anim_result$output_file, "\n")
@@ -194,4 +176,3 @@ if (anim_result$status == "success") {
     cat("Stacktrace:\n", anim_result$stacktrace, "\n")
   }
 }
-

@@ -1,18 +1,21 @@
- # CO2 Injection Simulation Example
-# Demonstrates the improved R interface for CO2InjectionModeling.jl
+ # CO2 Injection Simulation Example (Sleipner)
+# Uses the Sleipner convenience API via CO2BatchFill
 
 library(JuliaCall)
 
 # Setup Julia and load package
 julia_setup()
 
-# REMEMBER TO SET WORKING DIR TO CO2InjectionModeling.jl
+# REMEMBER TO SET WORKING DIR TO CO2BatchFill
 # Alternatively: Install the package globally if you want to call the lib from
 # another project.
 julia_command('using Pkg; Pkg.activate(".")')
 
 # This line might take a bit of time...
-julia_command('using CO2InjectionModeling')
+julia_command('using CO2BatchFill')
+
+# Load the Sleipner module (includes convenience wrappers)
+julia_command('include("examples/Sleipner/Sleipner.jl"); using .Sleipner; using .Sleipner.CO2RInterface')
 
 # ============================================================================
 # EXAMPLE 1: Simple simulation with Sleipner defaults
@@ -20,9 +23,9 @@ julia_command('using CO2InjectionModeling')
 
 cat("=== Example 1: Simple Simulation with Sleipner Defaults ===\n\n")
 
-# Step 1: Setup simulator
-cat("Setting up simulator...\n")
-setup_result <- julia_call("setup_simulator", boundary_condition = "closed") # "open" for open or "closed" for closed BCs
+# Step 1: Setup simulator using Sleipner convenience function
+cat("Setting up Sleipner simulator...\n")
+setup_result <- julia_call("setup_sleipner_simulator", boundary_condition = "closed") # "open" for open or "closed" for closed BCs
 print(setup_result)
 
 
@@ -106,9 +109,6 @@ plot(timepoints, total_volumes / 1e6, type = "b",
      main = "Total CO2 Volume Over Time",
      col = "blue", pch = 19)
 grid()
-# cat("Plot saved to 'total_co2_volume.png'\n")
-# dev.copy(png, filename = "total_co2_volume.png")
-# dev.off()
 
 cat("\nPlotting layer-wise CO2 volumes over time...\n")
 layer_volumes <- sim_result$layer_co2_volumes
@@ -118,9 +118,6 @@ matplot(timepoints, layer_volumes / 1e6, type = "b",
         col = rainbow(n_layers), pch = 19, lty = 1)
 legend("topleft", legend = paste("Layer", 1:n_layers), col = rainbow(n_layers), pch = 19, lty = 1)
 grid()
-# cat("Plot saved to 'layerwise_co2_volumes.png'\n")
-# dev.copy(png, filename = "layerwise_co2_volumes.png")
-# dev.off()
 
 # Step 6: Generate animations
 cat("\nGenerating animation (this may take a moment)...\n")
