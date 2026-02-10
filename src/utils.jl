@@ -25,7 +25,7 @@ function reconstruct_3d_lithology(topography::AbstractTopography, domain::Domain
     println("  Grid dimensions: $(nx) × $(ny) × $(nz)")
     println("  Depth range: $(depth_min) to $(depth_max) m")
     println("  Cell size: dx=$(domain.dx) m, dy=$(domain.dy) m, dz=$(dz) m")
-
+    # 
     # Initialize with shale (default)
     lithology = fill(2, nx, ny, nz)
 
@@ -200,7 +200,7 @@ function simulation_layer_snapshots_from_spill_events(
             total_contents[time_ix] += content
         end
     end
-    
+
     # TODO: Compute residual_trapped_co2_volume properly
     # Boolean vector indicating which traps have residual trapping
     # Length the same as the spill_event.filled, but all false for now
@@ -216,7 +216,7 @@ function simulation_layer_snapshots_from_spill_events(
 
         # Find the correct sequence index for this timepoint
         # Advance seq_ix until we find the last event at or before this timepoint
-        while seq_ix < length(seq) && seq[seq_ix + 1].timestamp <= tp
+        while seq_ix < length(seq) && seq[seq_ix+1].timestamp <= tp
             seq_ix += 1
         end
 
@@ -237,7 +237,7 @@ function simulation_layer_snapshots_from_spill_events(
             tstates[time_ix][1],
             injected_volume,
             total_co2_volume,
-        ));
+        ))
 
     end
 
@@ -249,7 +249,7 @@ function compute_total_injected_amount(injection_events::Vector{InjectionEvent},
     for event_idx in 1:length(injection_events)
         event = injection_events[event_idx]
         t_start = event.timestamp
-        t_end = event_idx < length(injection_events) ? injection_events[event_idx + 1].timestamp : time
+        t_end = event_idx < length(injection_events) ? injection_events[event_idx+1].timestamp : time
 
         # If the interval is entirely after the requested time, skip
         if time < t_start
@@ -306,10 +306,10 @@ end
 
 
 function convert_injection_event_to_weather_event(
-        injection_event::Vector{InjectionEvent},
-        reservoir_properties::ReservoirProperties,
-        domain::Domain3D
-    )::Vector{WeatherEvent}
+    injection_event::Vector{InjectionEvent},
+    reservoir_properties::ReservoirProperties,
+    domain::Domain3D
+)::Vector{WeatherEvent}
     weather_events = [WeatherEvent(ie.timestamp, physical_volume_to_swim_volume(ie.injection_rate, reservoir_properties, domain)) for ie in injection_event]
     return weather_events
 end
@@ -326,7 +326,7 @@ function compute_total_stored_volume(
     spill_events::Vector{SpillEvent},
     tstruct::TrapStructure,
     end_time::Float64;
-    leakage_state::Union{LeakageState, Nothing}=nothing
+    leakage_state::Union{LeakageState,Nothing}=nothing
 )::Float64
     # Get trap states at end time
     tstates = trap_states_at_timepoints(tstruct, spill_events, [end_time]; verbose=false)
@@ -394,9 +394,9 @@ function compute_total_leaked_volume(
         sort!(unique!(rate_change_times))
 
         # Integrate piecewise
-        for i in 1:(length(rate_change_times) - 1)
+        for i in 1:(length(rate_change_times)-1)
             t_start = rate_change_times[i]
-            t_end = rate_change_times[i + 1]
+            t_end = rate_change_times[i+1]
             dt = t_end - t_start
 
             if dt > 0
@@ -459,11 +459,11 @@ function verify_mass_conservation(
     conserved = relative_error < tolerance
 
     return (
-        conserved = conserved,
-        injected = injected,
-        stored = stored,
-        leaked = leaked,
-        error = error,
-        relative_error = relative_error
+        conserved=conserved,
+        injected=injected,
+        stored=stored,
+        leaked=leaked,
+        error=error,
+        relative_error=relative_error
     )
 end
