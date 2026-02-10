@@ -18,7 +18,7 @@ Load Sleipner topography from NPZ depth surface files.
 # Returns
 - `SleipnerTopography`: Loaded topography with all surfaces and layer definitions
 """
-function load_sleipner_topography(path::String="sleipner/depth_surfaces/")
+function load_sleipner_topography(path::String="examples/sleipner_analysis/depth_surfaces/")
     println("\nLoading Sleipner depth surfaces...")
 
     # Load individual .npy files instead of .npz
@@ -479,7 +479,7 @@ println("Feeder location: grid cell \$injection_cell at UTM (\$utm_x, \$utm_y)")
 """
 function load_feeder_location(
     topography::SleipnerTopography;
-    feeder_file::String="sleipner/feeders/data/Main_feeder_chimney",
+    feeder_file::String="examples/sleipner_analysis/feeders/data/Main_feeder_chimney",
     grid_origin_x::Float64=436800.0,
     grid_origin_y::Float64=6468100.0
 )::Tuple{CartesianIndex,Tuple{Float64,Float64,Float64}}
