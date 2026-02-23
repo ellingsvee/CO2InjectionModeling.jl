@@ -16,13 +16,13 @@ Returns:
 - `leakage_state`: LeakageState tracking which traps are leaking and when
 """
 function fill_layer(tstruct::TrapStructure{<:Real},
-            domain::Domain3D,
-            reservoir_properties::ReservoirProperties,
-            weather_events::Vector{WeatherEvent};
-            time_slack::Float64=0.0,
-            infiltration::Union{Matrix{<:Real}, Nothing} = nothing,
-            no_leakage::Bool=false,
-            verbose::Bool=false)
+    domain::Domain3D,
+    reservoir_properties::ReservoirProperties,
+    weather_events::Vector{WeatherEvent};
+    time_slack::Float64=0.0,
+    infiltration::Union{Matrix{<:Real},Nothing}=nothing,
+    no_leakage::Bool=false,
+    verbose::Bool=false)
 
 
     @assert !isempty(weather_events)
@@ -45,8 +45,8 @@ function fill_layer(tstruct::TrapStructure{<:Real},
     # Initialize infiltration map from user input
     infiltration =
         (typeof(infiltration) == Nothing) ? zeros(size(tstruct.topography)) :
-        (typeof(infiltration) <: Real)  ? ones(size(tstruct.topography)) * infiltration :
-                                          infiltration
+        (typeof(infiltration) <: Real) ? ones(size(tstruct.topography)) * infiltration :
+        infiltration
 
     # Compute tables to support computation of trap water volume as function of water level
     z_vol_tables = SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct)
@@ -100,8 +100,8 @@ function fill_layer(tstruct::TrapStructure{<:Real},
 
         # Compute initial time estimates for when a trap become filled, or split into subtraps
         changetimeest = SurfaceWaterIntegratedModeling._set_initial_changetime_estimates(rateinfo, cur_amounts,
-                                                          cur_time, filled_traps,
-                                                          tstruct)
+            cur_time, filled_traps,
+            tstruct)
 
         # Compute initial leakage time estimates
         leakage_time_est = set_initial_leakage_time_estimates(
@@ -110,8 +110,8 @@ function fill_layer(tstruct::TrapStructure{<:Real},
 
         # Register the start of this weather event as a new, fully computed, spill event
         push!(seq, SpillEvent(cur_time, copy(cur_amounts), copy(filled_traps),
-                              copy(rateinfo.trap_inflow), copy(we.rain_rate),
-                              copy(rateinfo.runoff)))
+            copy(rateinfo.trap_inflow), copy(we.rain_rate),
+            copy(rateinfo.runoff)))
 
         # Will add new events to `seq`. `sgraph`, `rateinfo`, `changetimeest`,
         # `filled_traps`, `cur_amounts`, and `leakage_state` are modified in the process
@@ -146,7 +146,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
     count = 0
     while cur_time < endtime
-        verbose && (mod(count+=1, 10) == 0) && println("Fill sequence iteration: ", count)
+        verbose && (mod(count += 1, 10) == 0) && println("Fill sequence iteration: ", count)
 
         # Find next fill/empty event (from SWIM)
         next_fill_time, fill_updates = SurfaceWaterIntegratedModeling._identify_next_status_change!(
@@ -270,8 +270,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
             # Record this as a spill event
             push!(seq, SpillEvent(cur_time, amount_updates, leak_fill_updates,
-                                  getinflowupdates(rateinfo), nothing,
-                                  getrunoffupdates(rateinfo)))
+                getinflowupdates(rateinfo), nothing,
+                getrunoffupdates(rateinfo)))
 
         elseif next_fill_time <= endtime && !isempty(fill_updates)
             # FILL/EMPTY EVENT occurs first (standard SWIM logic)
@@ -351,8 +351,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
             # Add current state to result
             push!(seq, SpillEvent(cur_time, amount_updates, fill_updates,
-                                  getinflowupdates(rateinfo), nothing,
-                                  getrunoffupdates(rateinfo)))
+                getinflowupdates(rateinfo), nothing,
+                getrunoffupdates(rateinfo)))
         else
             # No more events
             break
