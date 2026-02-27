@@ -81,9 +81,14 @@ function fill_layer(tstruct::TrapStructure{<:Real},
     end
 
     if verbose
-        mean_height = mean(leakage_state.leakage_height[isfinite.(leakage_state.leakage_height)])
-        std_height = std(leakage_state.leakage_height[isfinite.(leakage_state.leakage_height)])
-        println("Leakage height: mean=$(round(mean_height, digits=2)) m, std=$(round(std_height, digits=2)) m")
+        finite_heights = leakage_state.leakage_height[isfinite.(leakage_state.leakage_height)]
+        if isempty(finite_heights)
+            println("Leakage height: sealed (all Inf)")
+        else
+            mean_height = mean(finite_heights)
+            std_height = std(finite_heights)
+            println("Leakage height: mean=$(round(mean_height, digits=2)) m, std=$(round(std_height, digits=2)) m")
+        end
     end
 
     # Compute development within the duration of each weather event
