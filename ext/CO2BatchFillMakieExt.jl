@@ -580,6 +580,9 @@ function plot_final_co2_distribution(
         time = isempty(max_times) ? 15.0 : maximum(max_times)
     end
 
+    # Precompute CO2 masks for all layers at the specified timepoint
+    co2_masks = create_plume_extent_masks(layers, seqs, domain, time; return_3d=false)
+
     # Precompute data for each layer
     layer_data = []
     for (layer_idx, layer) in enumerate(layers)
@@ -593,13 +596,9 @@ function plot_final_co2_distribution(
             continue
         end
 
-        # Get trap states at the specified timepoint
-        tstates = trap_states_at_timepoints(tstruct, seq, [time]; verbose=false)
-
         push!(layer_data, (
             tstruct=tstruct,
             num_traps=num_traps,
-            tstate=tstates[1],  # Only one timepoint
             pad=layer.boundary_padding,
             name=layer.name
         ))
@@ -721,22 +720,8 @@ function plot_final_co2_distribution(
         topo_padded = ld.tstruct.topography
         topo_raw = topo_padded[pad+1:end-pad, pad+1:end-pad]
 
-        # Create CO2 presence map
-        filled, volumes, _ = ld.tstate
-        co2_map_padded = zeros(Float64, nx_padded, ny_padded)
-
-        for trap_id in 1:ld.num_traps
-            volume = volumes[trap_id]
-            if volume > 0.0 || filled[trap_id]
-                footprint = ld.tstruct.footprints[trap_id]
-                for idx in footprint
-                    co2_map_padded[idx] = 1.0
-                end
-            end
-        end
-
-        # Remove padding
-        co2_map_raw = co2_map_padded[pad+1:end-pad, pad+1:end-pad]
+        # Get precomputed CO2 mask for this layer (already unpadded, convert to Float64)
+        co2_map_raw = Float64.(co2_masks[layer_idx])
 
         # Transpose data if needed (rotate 90 degrees)
         if transpose_layout

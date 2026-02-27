@@ -2,6 +2,7 @@ import Graphs
 
 export reconstruct_3d_lithology, create_trap_mask_3d, scale_unit_volume_to_physical, get_all_parents, get_all_descendants, convert_injection_event_to_weather_event
 export verify_mass_conservation, compute_total_stored_volume, compute_total_leaked_volume
+export create_plume_extent_masks
 
 """
 Reconstruct 3D lithology grid from topography surfaces.
@@ -466,4 +467,118 @@ function verify_mass_conservation(
         error=error,
         relative_error=relative_error
     )
+end
+
+
+"""
+    create_plume_extent_masks(layers, seqs, domain, time; return_3d=false) -> Vector
+
+Create masks showing the spatial extent of CO2 plumes in each layer at a specific time.
+
+This function extracts the CO2 distribution at a given timepoint and returns boolean masks
+indicating where CO2 is present (volume > 0 or trap is filled).
+
+# Arguments
+- `layers::Vector{Layer}`: Vector of Layer structs
+- `seqs::Vector{Vector{SpillEvent}}`: Vector of spill event sequences from fill_layers
+- `domain::Domain3D`: Domain3D struct
+- `time::Float64`: Timepoint to evaluate plume extent
+
+# Keyword Arguments
+- `return_3d::Bool=false`: If true, returns 3D masks (nx, ny, nz). If false, returns 2D masks (nx, ny)
+
+# Returns
+- If `return_3d=false`: Vector{Array{Bool,2}} - one 2D mask per layer (nx, ny)
+- If `return_3d=true`: Vector{Array{Bool,3}} - one 3D mask per layer (nx, ny, nz)
+
+Masks have `true` where CO2 is present and `false` elsewhere. Boundary padding is automatically removed.
+
+# Example
+```julia
+# Get 2D plume footprints at t=10 years
+masks_2d = create_plume_extent_masks(layers, seqs, domain, 10.0)
+
+# Get 3D plume volumes at t=10 years
+masks_3d = create_plume_extent_masks(layers, seqs, domain, 10.0; return_3d=true)
+
+# Check plume extent in layer 1
+layer1_mask = masks_2d[1]
+plume_area_m2 = sum(layer1_mask) * domain.dx * domain.dy
+```
+"""
+function create_plume_extent_masks(
+    layers::Vector{Layer},
+    seqs::Vector{Vector{SpillEvent}},
+    domain::Domain3D,
+    time::Float64;
+    return_3d::Bool=false
+)
+    n_layers = length(layers)
+    @assert n_layers == length(seqs) "Number of layers must match number of sequences"
+
+    nx, ny, nz = domain.nx, domain.ny, domain.nz
+
+    masks = []
+
+    for (layer_idx, layer) in enumerate(layers)
+        tstruct = layer.trap_structure
+        num_traps = numtraps(tstruct)
+        seq = seqs[layer_idx]
+        pad = layer.boundary_padding
+
+        # Get padded grid size
+        topo_size = size(tstruct.topography)
+        nx_padded, ny_padded = topo_size
+
+        # Skip empty layers
+        if isempty(seq) || num_traps == 0
+            if return_3d
+                push!(masks, falses(nx, ny, nz))
+            else
+                push!(masks, falses(nx, ny))
+            end
+            continue
+        end
+
+        # Get trap states at the specified timepoint
+        tstates = trap_states_at_timepoints(tstruct, seq, [time]; verbose=false)
+        filled, volumes, _ = tstates[1]
+
+        if return_3d
+            # Create 3D mask by combining 2D footprint with vertical extent
+            mask_3d_padded = falses(nx_padded, ny_padded, nz)
+
+            for trap_id in 1:num_traps
+                volume = volumes[trap_id]
+                if volume > 0.0 || filled[trap_id]
+                    # Get the 3D extent for this trap
+                    trap_mask_3d = create_trap_mask_3d(layer, trap_id, domain)
+                    mask_3d_padded .|= trap_mask_3d
+                end
+            end
+
+            # Remove padding
+            mask_3d = mask_3d_padded[pad+1:end-pad, pad+1:end-pad, :]
+            push!(masks, mask_3d)
+        else
+            # Create 2D footprint mask
+            mask_2d_padded = falses(nx_padded, ny_padded)
+
+            for trap_id in 1:num_traps
+                volume = volumes[trap_id]
+                if volume > 0.0 || filled[trap_id]
+                    footprint = tstruct.footprints[trap_id]
+                    for idx in footprint
+                        mask_2d_padded[idx] = true
+                    end
+                end
+            end
+
+            # Remove padding
+            mask_2d = mask_2d_padded[pad+1:end-pad, pad+1:end-pad]
+            push!(masks, mask_2d)
+        end
+    end
+
+    return masks
 end
