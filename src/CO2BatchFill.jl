@@ -1,5 +1,9 @@
 module CO2BatchFill
 
+using Statistics
+using Printf
+
+
 # Core types (must come first as other modules depend on them)
 include("structs.jl")
 

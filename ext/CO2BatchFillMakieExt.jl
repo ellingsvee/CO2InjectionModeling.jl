@@ -2,8 +2,6 @@ module CO2BatchFillMakieExt
 
 using CO2BatchFill
 using Makie
-using Statistics
-using Printf
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_timepoints, SpillEvent
 
 # Import the function stubs to extend them

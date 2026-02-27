@@ -1,6 +1,5 @@
 using SurfaceWaterIntegratedModeling
 import Interpolations
-using DifferentialEquations: solve, ODEProblem, VectorContinuousCallback, terminate!
 using Statistics: mean, std
 export fill_layer, InjectionEvent, get_effective_leakage_cap
 
