@@ -76,7 +76,13 @@ function analyze_base_surfaces(topography::AbstractTopography; boundary_conditio
         padded_length_x = original_length_x + 2 * pad_width * dx
         padded_length_y = original_length_y + 2 * pad_width * dy
 
-        trap_structure = spillanalysis(padded_surface, lengths = (padded_length_x, padded_length_y))
+        # Try 2-tuple lengths (newer SWIM), fall back to no lengths (older SWIM)
+        trap_structure = try
+            spillanalysis(padded_surface, lengths = (padded_length_x, padded_length_y))
+        catch e
+            e isa TypeError || rethrow()
+            spillanalysis(padded_surface)
+        end
         push!(layers, Layer(layer_name, trap_structure, pad_width))
     end
 
