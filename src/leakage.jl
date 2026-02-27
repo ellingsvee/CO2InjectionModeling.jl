@@ -64,21 +64,50 @@ function create_cached_interpolations(
         zvals, vvals = z_vol_tables[trap_id]
         true_bottoms[trap_id] = get_true_topography_bottom(trap_id, tstruct)
 
-        if length(zvals) <= 1 || length(vvals) <= 1
-            # Degenerate case
-            v2z_funcs[trap_id] = _ -> (length(zvals) > 0 ? zvals[1] : 0.0)
+        if length(zvals) <= 1 || length(vvals) <= 1 || any(isnan, zvals) || any(isnan, vvals)
+            # Degenerate case (too few points or NaN values)
+            v2z_funcs[trap_id] = _ -> (length(zvals) > 0 && !isnan(zvals[1]) ? zvals[1] : 0.0)
             z2v_funcs[trap_id] = _ -> 0.0
         else
-            v2z_funcs[trap_id] = Interpolations.linear_interpolation(
-                vvals, zvals, extrapolation_bc=Interpolations.Line()
-            )
-            z2v_funcs[trap_id] = Interpolations.linear_interpolation(
-                zvals, vvals, extrapolation_bc=Interpolations.Line()
-            )
+            # Ensure knots are strictly increasing by removing duplicate/non-monotonic entries.
+            # The z_vol_tables from SWIM can occasionally have non-monotonic volumes when
+            # multiple trap cells share the same elevation.
+            z_clean, v_clean = _make_strictly_increasing(zvals, vvals)
+
+            if length(z_clean) <= 1
+                v2z_funcs[trap_id] = _ -> z_clean[1]
+                z2v_funcs[trap_id] = _ -> 0.0
+            else
+                v2z_funcs[trap_id] = Interpolations.linear_interpolation(
+                    v_clean, z_clean, extrapolation_bc=Interpolations.Line()
+                )
+                z2v_funcs[trap_id] = Interpolations.linear_interpolation(
+                    z_clean, v_clean, extrapolation_bc=Interpolations.Line()
+                )
+            end
         end
     end
 
     return CachedInterpolations(v2z_funcs, z2v_funcs, true_bottoms)
+end
+
+"""
+    _make_strictly_increasing(zvals, vvals)
+
+Filter paired (z, v) vectors to keep only entries where both z and v are
+strictly increasing. This is needed because Interpolations.jl requires
+strictly monotonic knots.
+"""
+function _make_strictly_increasing(zvals::Vector{Float64}, vvals::Vector{Float64})
+    z_out = Float64[zvals[1]]
+    v_out = Float64[vvals[1]]
+    for i in 2:length(zvals)
+        if zvals[i] > z_out[end] && vvals[i] > v_out[end]
+            push!(z_out, zvals[i])
+            push!(v_out, vvals[i])
+        end
+    end
+    return z_out, v_out
 end
 
 
