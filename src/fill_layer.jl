@@ -7,6 +7,7 @@ export fill_sequence_with_leakage
 Modified version of the SWIM fill sequence algorithm that accounts for CO2 leakage.
 """
 function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
+    reservoir_properties::ReservoirProperties,
     weather_events::Vector{WeatherEvent};
     time_slack::Real=0.0,
     verbose::Bool=false)::Vector{SpillEvent}
@@ -26,6 +27,13 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
 
     # start with empty sequence
     seq = Vector{SpillEvent}()
+
+    # initialize leakage state
+    leakage_state = initialize_leakage_state(
+        tstruct, z_vol_tables, reservoir_properties,
+        reservoir_properties.sand_residual_co2_saturation,
+        reservoir_properties.residual_leakage_time
+    )
 
     # compute development within the duration of each weather event
     for (wix, we) in enumerate(weather_events)
@@ -54,7 +62,7 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
         # `filled_traps` and `cur_amounts` are also modified in the process
         _fill_sequence_with_leakage_for_weather_event!(seq, sgraph, rateinfo, changetimeest,
             filled_traps, cur_amounts, z_vol_tables,
-            tstruct, end_time, time_slack,
+            tstruct, end_time, time_slack, leakage_state,
             verbose)
     end
 
@@ -63,7 +71,7 @@ end
 
 function _fill_sequence_with_leakage_for_weather_event!(seq, sgraph, rateinfo, changetimeest,
     filled_traps, cur_amounts, z_vol_tables,
-    tstruct, endtime, time_slack,
+    tstruct, endtime, time_slack, leakage_state,
     verbose)
     cur_time = cur_amounts[1].time
 

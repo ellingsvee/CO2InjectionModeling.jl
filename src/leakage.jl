@@ -2,6 +2,10 @@ import Interpolations
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, FilledAmount
 using Distributions: Normal, LogNormal, Uniform, truncated
 
+export volume_to_height, compute_leakage_volume
+export find_leakage_location
+export initialize_leakage_state
+
 """
     find_leakage_location(trap_id::Int, tstruct::TrapStructure) -> CartesianIndex{2}
 
@@ -64,4 +68,41 @@ function compute_leakage_volume(
     z2v = Interpolations.linear_interpolation(zvals, vvals, extrapolation_bc=Interpolations.Line())
 
     return z2v(leakage_elevation)
+end
+
+"""
+Initialize the leakage state for a layer, precomputing leakage volumes for all traps.
+"""
+function initialize_leakage_state(
+    tstruct::TrapStructure,
+    z_vol_tables::Vector{Tuple{Vector{Float64},Vector{Float64}}},
+    reservoir_properties::ReservoirProperties,
+    residual_saturation::Float64,
+    residual_leakage_time::Float64
+)::LeakageState
+
+    num_traps = numtraps(tstruct)
+
+    # For now...can eventually support per-trap leakage heights
+    trap_leakage_heights = fill(reservoir_properties.leakage_height, num_traps)
+
+    # Precompute leakage volumes for all traps using their specific heights
+    leakage_volumes = zeros(Float64, num_traps)
+    for trap_id in 1:num_traps
+        trap_height = trap_leakage_heights[trap_id]
+        leakage_volume = compute_leakage_volume(trap_id, z_vol_tables[trap_id], tstruct, trap_height)
+        leakage_volumes[trap_id] = leakage_volume === nothing ? 0.0 : leakage_volume
+    end
+
+    return LeakageState(
+        fill(false, num_traps),           # leaking
+        fill(false, num_traps),           # draining
+        leakage_volumes,                   # leakage_volume
+        fill(Inf, num_traps),             # leakage_start_time
+        LeakageRecord[],                   # leakage_records
+        trap_leakage_heights,              # leakage_height 
+        fill(0.0, num_traps),             # initial_volume_at_leak (0 until leakage starts)
+        residual_saturation,               # residual_saturation
+        residual_leakage_time              # residual_leakage_time
+    )
 end
