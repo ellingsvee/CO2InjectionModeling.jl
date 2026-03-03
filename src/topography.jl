@@ -1,48 +1,9 @@
-"""
-    AbstractTopography
-
-Abstract base type for reservoir topography definitions.
-
-Users implementing custom reservoir topographies should subtype this and implement
-the required interface methods:
-- `get_sand_layers(t)` - Returns Vector of layer Dicts with "name", "top", "base" keys
-- `get_grid_dimensions(t)` - Returns (nx, ny) tuple
-- `get_grid_spacing(t)` - Returns (dx, dy) tuple
-- `get_depth_range(t)` - Returns (depth_min, depth_max) tuple
-
-Optional methods with defaults:
-- `get_caprock_surface(t)` - Returns caprock top surface or nothing
-- `get_coordinate_origin(t)` - Returns (x, y) coordinate origin tuple
-- `get_num_layers(t)` - Returns number of sand layers
-
-Example:
-```julia
-struct MyTopography <: AbstractTopography
-    layers::Vector{Dict{String,Any}}
-    nx::Int; ny::Int; dx::Float64; dy::Float64
-    depth_min::Float64; depth_max::Float64
-end
-
-CO2BatchFill.get_sand_layers(t::MyTopography) = t.layers
-CO2BatchFill.get_grid_dimensions(t::MyTopography) = (t.nx, t.ny)
-CO2BatchFill.get_grid_spacing(t::MyTopography) = (t.dx, t.dy)
-CO2BatchFill.get_depth_range(t::MyTopography) = (t.depth_min, t.depth_max)
-
-# Then use generic functions
-domain = create_domain(my_topo, 1.0)
-layers = analyze_base_surfaces(my_topo; boundary_condition=:closed)
-```
-"""
 abstract type AbstractTopography end
 
 export AbstractTopography, GenericTopography
 export get_sand_layers, get_grid_dimensions, get_grid_spacing, get_depth_range
 export get_caprock_surface, get_coordinate_origin, get_num_layers
 export create_domain
-
-# =============================================================================
-# Required interface methods (must be implemented by subtypes)
-# =============================================================================
 
 """
     get_sand_layers(topography::AbstractTopography) -> Vector{Dict{String,Any}}
@@ -76,10 +37,6 @@ depth_min is the shallowest depth, depth_max is the deepest.
 """
 function get_depth_range end
 
-# =============================================================================
-# Optional interface methods (with default implementations)
-# =============================================================================
-
 """
     get_caprock_surface(topography::AbstractTopography) -> Union{Matrix{Float64}, Nothing}
 
@@ -103,10 +60,6 @@ Return the number of sand layers.
 Default implementation returns the length of get_sand_layers(topography).
 """
 get_num_layers(t::AbstractTopography) = length(get_sand_layers(t))
-
-# =============================================================================
-# Generic domain creation
-# =============================================================================
 
 """
     create_domain(topography::AbstractTopography, dz::Float64) -> Domain3D
@@ -143,10 +96,6 @@ function create_domain(topography::AbstractTopography, dz::Float64)::Domain3D
     )
 end
 
-# =============================================================================
-# GenericTopography — concrete implementation from raw arrays
-# =============================================================================
-
 """
     GenericTopography <: AbstractTopography
 
@@ -169,8 +118,8 @@ struct GenericTopography <: AbstractTopography
     dy::Float64
     depth_min::Float64
     depth_max::Float64
-    caprock_surface::Union{Matrix{Float64}, Nothing}
-    coordinate_origin::Tuple{Float64, Float64}
+    caprock_surface::Union{Matrix{Float64},Nothing}
+    coordinate_origin::Tuple{Float64,Float64}
 end
 
 # Convenience constructor with keyword arguments for optional fields
@@ -179,8 +128,8 @@ function GenericTopography(
     nx::Int, ny::Int,
     dx::Float64, dy::Float64,
     depth_min::Float64, depth_max::Float64;
-    caprock_surface::Union{Matrix{Float64}, Nothing}=nothing,
-    coordinate_origin::Tuple{Float64, Float64}=(0.0, 0.0)
+    caprock_surface::Union{Matrix{Float64},Nothing}=nothing,
+    coordinate_origin::Tuple{Float64,Float64}=(0.0, 0.0)
 )
     GenericTopography(sand_layers, nx, ny, dx, dy, depth_min, depth_max, caprock_surface, coordinate_origin)
 end
