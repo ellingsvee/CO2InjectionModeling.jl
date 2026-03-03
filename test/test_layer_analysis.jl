@@ -27,3 +27,18 @@
         @test SurfaceWaterIntegratedModeling.numtraps(layer.trap_structure) > 0
     end
 end
+
+@testset "Two-dome topology creates multiple traps" begin
+    # The single-dome surface produces 1 trap per layer (no hierarchy)
+    single_dome_layer = analyze_base_surfaces(_topo; boundary_condition=:closed)[1]
+    n_single = SurfaceWaterIntegratedModeling.numtraps(single_dome_layer.trap_structure)
+
+    # Two-dome surface should produce more traps (at least 2: the two domes, possibly more with a parent)
+    n_two_dome = SurfaceWaterIntegratedModeling.numtraps(td_layers[1].trap_structure)
+    @test n_two_dome >= 2
+    @test n_two_dome > n_single
+
+    # Both domes have the same grid size, so dimensions are preserved
+    @test get_grid_dimensions(td_topo) == (TEST_NX, TEST_NY)
+    @test get_num_layers(td_topo) == 2
+end
