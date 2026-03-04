@@ -63,7 +63,6 @@ const _dome2 = _make_dome(TEST_NX, TEST_NY, TEST_DX, TEST_DY, 900.0)
 dome_topo, dome_domain, dome_layers = create_domain_and_layers(_dome1, _dome2, _thick, TEST_NX, TEST_NY, TEST_DX, TEST_DY, boundary_condition)
 
 
-
 # ---------------------------------------------------------------------------
 # Realistic scenario: Topography sampled from a GRF
 # ---------------------------------------------------------------------------
@@ -80,9 +79,8 @@ grf_topo, grf_domain, grf_layers = create_domain_and_layers(_grf1, _grf2, _thick
 # Reservoir properties
 # ---------------------------------------------------------------------------
 
-const rp_leaky = ReservoirProperties(0.3, 0.2, 0.1, 12_000.0, 5.0)
 const rp_sealed = ReservoirProperties(0.3, 0.2, 0.1, Inf, 5.0)
-# rp_quick: very small threshold (~0.18m) to guarantee leakage in tests without large injection
+# very small threshold (~0.18m)
 const rp_quick = ReservoirProperties(0.3, 0.2, 0.1, 1000.0, 5.0)
 
 # ---------------------------------------------------------------------------
