@@ -42,10 +42,11 @@ function animate_layer_filling(
     max_co2_height::Float64=20.0,
     show_contours::Bool=true,
     contour_levels::Int=10,
+    pad_width::Int=2,
 )
     tstruct = layer.trap_structure
     num_traps = numtraps(tstruct)
-    pad = layer.boundary_condition == :closed ? 1 : 0
+    pad = layer.boundary_condition == :closed ? pad_width : 0
 
     nx_padded, ny_padded = size(tstruct.topography)
     nx = nx_padded - 2 * pad

@@ -2,8 +2,8 @@ using SurfaceWaterIntegratedModeling: SpillEvent, WeatherEvent, inflow_at, numtr
     trap_states_at_timepoints
 
 export LayerSnapshot, generate_layer_snapshot, generate_layer_snapshots
-export total_to_next_layer, total_passthrough
-export compute_total_injected, compute_total_drained
+export total_to_next_layer, total_passthrough, total_upward_leakage
+export compute_total_injected, compute_total_drained, compute_total_passthrough
 
 """
 A snapshot of a layer's CO2 state at a specific point in time, computed from the
@@ -24,11 +24,12 @@ struct LayerSnapshot
     total_injected::Float64         # Cumulative CO2 injected into this layer up to timestamp
     total_stored::Float64           # CO2 currently held in traps (= sum of trap_volumes)
     total_drained::Float64          # CO2 that drained out via residual leakage
+    total_passthrough::Float64      # CO2 that flowed through leaking traps (fast path)
 end
 
 """
-Total CO2 that has left this layer up to `s.timestamp`.
-Equal to `total_injected - total_stored` by mass conservation.
+Total CO2 that has left this layer up to `s.timestamp` via any path
+(lateral domain spillage + upward leakage). Equal to `total_injected - total_stored`.
 """
 total_to_next_layer(s::LayerSnapshot) = s.total_injected - s.total_stored
 
@@ -37,9 +38,16 @@ total_to_next_layer(s::LayerSnapshot) = s.total_injected - s.total_stored
 
 CO2 that flowed directly through leaking traps to the next layer (fast path),
 as opposed to the slow residual drainage path.
-Derived as `total_to_next_layer - total_drained`.
 """
-total_passthrough(s::LayerSnapshot) = total_to_next_layer(s) - s.total_drained
+total_passthrough(s::LayerSnapshot) = s.total_passthrough
+
+"""
+    total_upward_leakage(s::LayerSnapshot) -> Float64
+
+Total CO2 that leaked upward to the next layer via caprock failure.
+Equals residual drainage + passthrough. Does NOT include lateral domain spillage.
+"""
+total_upward_leakage(s::LayerSnapshot) = s.total_drained + s.total_passthrough
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -67,6 +75,33 @@ function compute_total_injected(
 
         @assert rr isa Matrix "rain_rate must be a matrix of per-cell rates"
         total += sum(rr) * duration
+    end
+    return total
+end
+
+"""
+Compute the total CO2 that flowed through leaking traps (passthrough) up to time `t`.
+This is the "fast path": inflow to a leaking trap exits immediately upward to the next layer.
+"""
+function compute_total_passthrough(
+    t::Float64,
+    seq::Vector{SpillEvent},
+    leakage_state::LeakageState,
+    n_traps::Int
+)::Float64
+    total = 0.0
+    for i in eachindex(seq)
+        t_start = seq[i].timestamp
+        t_start >= t && break
+        t_end = (i == lastindex(seq)) ? t : min(seq[i+1].timestamp, t)
+        duration = t_end - t_start
+        duration <= 0 && continue
+        inflows = inflow_at(seq, i)
+        for trap in 1:n_traps
+            !leakage_state.leaking[trap] && continue
+            leakage_state.leakage_start_time[trap] > t_start && continue
+            total += max(0.0, inflows[trap]) * duration
+        end
     end
     return total
 end
@@ -169,6 +204,7 @@ function generate_layer_snapshot(
     total_stored = sum(volumes)
     total_inj = compute_total_injected(weather_events, t)
     total_drained_ = compute_total_drained(t, leakage_state)
+    total_passthrough_ = compute_total_passthrough(t, seq, leakage_state, numtraps(tstruct))
 
     return LayerSnapshot(
         layer_idx,
@@ -180,7 +216,8 @@ function generate_layer_snapshot(
         draining,
         total_inj,
         total_stored,
-        total_drained_
+        total_drained_,
+        total_passthrough_
     )
 end
 

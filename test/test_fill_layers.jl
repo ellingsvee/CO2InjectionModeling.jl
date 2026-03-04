@@ -105,8 +105,8 @@ end
             layer1, layer_idx, seq1, ls1, we1, timepoints)
 
         for (snap, t) in zip(snaps1, timepoints)
-            # CO2 that left layer 1 by time t
-            left_layer1 = total_to_next_layer(snap)
+            # CO2 that leaked upward from layer 1 by time t (excludes lateral domain spillage)
+            left_layer1 = total_upward_leakage(snap)
 
             # CO2 received by layer 2 by time t (from combined weather events)
             received_layer2 = total_received(we2_combined, t)
@@ -139,9 +139,9 @@ end
         # leakage_total ≥ total_drained (passthrough ≥ 0)
         @test leakage_total >= total_drained_layer1 - LAYER_MASS_ATOL
 
-        # And from the layer-1 snapshot, total_to_next_layer = leakage_total
+        # And from the layer-1 snapshot, total_upward_leakage = leakage_total
         snaps1 = generate_layer_snapshots(layer1, layer_idx, seq1, ls1, we1, [t_after])
-        @test total_to_next_layer(snaps1[1]) ≈ leakage_total atol = LAYER_MASS_ATOL
+        @test total_upward_leakage(snaps1[1]) ≈ leakage_total atol = LAYER_MASS_ATOL
     end
 
 
@@ -201,7 +201,7 @@ end
             SWIM.trap_states_at_timepoints(layer1_grf.trap_structure, seq_grf, [t_late]; verbose=false)[1])
 
         received = total_received(we2_grf, t_late) - total_received(we2_grf_direct, t_late)
-        @test received ≈ total_to_next_layer(snap1_grf) atol = LAYER_MASS_ATOL
+        @test received ≈ total_upward_leakage(snap1_grf) atol = LAYER_MASS_ATOL
     end
 
 end

@@ -10,9 +10,7 @@ end
 """
 Add wall padding around a topography surface for closed boundary conditions.
 """
-function add_boundary_wall(surface::Matrix{<:Real})
-    pad_width = 1  # For closed BC, we add a 1-cell wall around the edges    
-
+function add_boundary_wall(surface::Matrix{<:Real}, pad_width::Int)
     nx, ny = size(surface)
     padded_nx = nx + 2 * pad_width
     padded_ny = ny + 2 * pad_width
@@ -34,10 +32,9 @@ end
 """
 Use SWIM to analyze the base surfaces
 """
-function analyze_base_surfaces(topography::AbstractTopography; boundary_condition::Symbol=:open)::Vector{Layer}
+function analyze_base_surfaces(topography::AbstractTopography; boundary_condition::Symbol=:open, pad_width::Int=2)::Vector{Layer}
     @assert boundary_condition in [:open, :closed] "boundary_condition must be :open or :closed"
 
-    # Determine padding width: 0 for open BC, 1 for closed BC
 
     # Get topography properties via interface methods
     sand_layers = get_sand_layers(topography)
@@ -46,8 +43,9 @@ function analyze_base_surfaces(topography::AbstractTopography; boundary_conditio
 
 
     # The spillanalysis function in SWIM expects the physical dimensions of the domain.
-    length_x = nx * dx + (boundary_condition == :closed ? 2 * dx : 0)
-    length_y = ny * dy + (boundary_condition == :closed ? 2 * dy : 0)
+    pad = boundary_condition == :closed ? pad_width : 0
+    length_x = nx * dx + 2 * pad * dx
+    length_y = ny * dy + 2 * pad * dy
 
     # Initialize empty vector (will grow as we push)
     layers = Vector{Layer}()
@@ -59,7 +57,7 @@ function analyze_base_surfaces(topography::AbstractTopography; boundary_conditio
 
         # Add boundary walls if closed BC
         if boundary_condition == :closed
-            surface = add_boundary_wall(surface)
+            surface = add_boundary_wall(surface, pad_width)
         end
 
         # Use spillanalysis from SWIM

@@ -19,6 +19,7 @@ const TOTAL_INJECTION_RATE = 20_000.0
 const INJECTION_START_T = 0.0
 const INJECTION_END_T = 15.0
 
+const pad_width = 2
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -37,7 +38,7 @@ function create_domain_and_layers(
     ]
     topo = GenericTopography(_layers, nx, ny, dx, dy, minimum(top_layer), maximum(bottom_layer) + thickness)
     domain = create_domain(topo, 1.0)
-    analyzed_layers = analyze_base_surfaces(topo; boundary_condition=boundary_condition)
+    analyzed_layers = analyze_base_surfaces(topo; boundary_condition=boundary_condition, pad_width=pad_width)
     return topo, domain, analyzed_layers
 end
 
@@ -94,7 +95,7 @@ const rp_quick = ReservoirProperties(0.3, 0.2, 0.1, 1000.0, 5.0)
 # Inject at a sigle location
 injection_events = Vector{Vector{InjectionEvent}}()
 for i in 1:2
-    pad = boundary_condition == :closed ? 1 : 0
+    pad = boundary_condition == :closed ? pad_width : 0
     topo_size = (TEST_NX + 2 * pad, TEST_NY + 2 * pad)
     if i == 1
         rate = zeros(topo_size)
@@ -111,7 +112,7 @@ end
 # Inject at two locations at the same time.
 dual_injection_events = Vector{Vector{InjectionEvent}}()
 for i in 1:2
-    pad = boundary_condition == :closed ? 1 : 0
+    pad = boundary_condition == :closed ? pad_width : 0
     topo_size = (TEST_NX + 2 * pad, TEST_NY + 2 * pad)
     if i == 1
         rate = zeros(topo_size)
@@ -125,7 +126,7 @@ for i in 1:2
         push!(dual_injection_events, [InjectionEvent(INJECTION_START_T, zeros(topo_size))])
     end
 end
-# injection_events = dual_injection_events
+injection_events = dual_injection_events
 
 
 @testset "CO2BatchFill.jl" begin
