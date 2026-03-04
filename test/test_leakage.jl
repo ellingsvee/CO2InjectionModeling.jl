@@ -2,7 +2,7 @@ import SurfaceWaterIntegratedModeling as SWIM
 
 @testset "Leakage unit tests" begin
 
-    tstruct = layers[1].trap_structure
+    tstruct = dome_layers[1].trap_structure
     z_vol_tables = SWIM._compute_z_vol_tables(tstruct)
     n_traps = SWIM.numtraps(tstruct)
 
@@ -43,7 +43,7 @@ import SurfaceWaterIntegratedModeling as SWIM
         @test result < maximum(z_vol_tables[1][2])
     end
 
-    @testset "initialize_leakage_state - sealed" begin
+    @testset "Sealed layer: initialize_leakage_state" begin
         state = initialize_leakage_state(
             tstruct, z_vol_tables, rp_sealed,
             rp_sealed.sand_residual_co2_saturation,
@@ -62,7 +62,7 @@ import SurfaceWaterIntegratedModeling as SWIM
         @test all(state.leakage_height .== Inf)
     end
 
-    @testset "initialize_leakage_state - leaky (rp_quick)" begin
+    @testset "Leaky layer: initialize_leakage_state" begin
         state = initialize_leakage_state(
             tstruct, z_vol_tables, rp_quick,
             rp_quick.sand_residual_co2_saturation,
@@ -80,9 +80,9 @@ import SurfaceWaterIntegratedModeling as SWIM
         @test all(isfinite.(state.leakage_volume))
     end
 
-    @testset "initialize_leakage_state - two-dome topology" begin
+    @testset "GRF topology: initialize_leakage_state" begin
         # Multi-trap topology: all traps should be initialized correctly
-        tstruct_td = td_layers[1].trap_structure
+        tstruct_td = grf_layers[1].trap_structure
         z_vol_td = SWIM._compute_z_vol_tables(tstruct_td)
         n_td = SWIM.numtraps(tstruct_td)
 

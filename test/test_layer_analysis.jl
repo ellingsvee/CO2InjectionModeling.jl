@@ -1,7 +1,7 @@
 # Tests for src/layer_analysis.jl
 
 @testset "Topography interface and layer analysis" begin
-    topo_local = GenericTopography(_sand_layers, TEST_NX, TEST_NY, TEST_DX, TEST_DY, minimum(_s2), maximum(_s1 .+ _thick))
+    topo_local = dome_topo
 
     @test get_grid_dimensions(topo_local) == (TEST_NX, TEST_NY)
     @test get_grid_spacing(topo_local) == (TEST_DX, TEST_DY)
@@ -28,17 +28,11 @@
     end
 end
 
-@testset "Two-dome topology creates multiple traps" begin
-    # The single-dome surface produces 1 trap per layer (no hierarchy)
-    single_dome_layer = analyze_base_surfaces(_topo; boundary_condition=:closed)[1]
-    n_single = SurfaceWaterIntegratedModeling.numtraps(single_dome_layer.trap_structure)
-
-    # Two-dome surface should produce more traps (at least 2: the two domes, possibly more with a parent)
-    n_two_dome = SurfaceWaterIntegratedModeling.numtraps(td_layers[1].trap_structure)
-    @test n_two_dome >= 2
-    @test n_two_dome > n_single
+@testset "GRF topology" begin
+    n_grf_traps = SurfaceWaterIntegratedModeling.numtraps(grf_layers[1].trap_structure)
+    @test n_grf_traps > 1
 
     # Both domes have the same grid size, so dimensions are preserved
-    @test get_grid_dimensions(td_topo) == (TEST_NX, TEST_NY)
-    @test get_num_layers(td_topo) == 2
+    @test get_grid_dimensions(grf_topo) == (TEST_NX, TEST_NY)
+    @test get_num_layers(grf_topo) == 2
 end
