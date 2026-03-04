@@ -1,0 +1,5 @@
+[deps]
+CO2BatchFill = "7ea0d275-a78e-480a-8e35-6aa88f365d2b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+GaussianRandomFields = "e4b2fa32-6e09-5554-b718-106ed5adafe9"
+SurfaceWaterIntegratedModeling = "71e2a337-b4d4-4738-9f2b-3c37e1d3d462"
