@@ -18,7 +18,7 @@ include("leakage.jl")
 
 include("fill_layer.jl")
 # include("fill_layers.jl")
-# include("analysis.jl")
+include("analysis.jl")
 
 # # R interface (generic, dataset-agnostic)
 # include("r_interface.jl")
