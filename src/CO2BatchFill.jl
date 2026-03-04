@@ -15,12 +15,11 @@ include("layer_analysis.jl")
 include("unit_conversion.jl")
 include("utils.jl")
 include("leakage.jl")
-
 include("fill_layer.jl")
-# include("fill_layers.jl")
+include("fill_layers.jl")
 include("analysis.jl")
 
-# # R interface (generic, dataset-agnostic)
+# R interface (generic, dataset-agnostic)
 # include("r_interface.jl")
 
 # Visualization function stubs (implementations provided by extension)

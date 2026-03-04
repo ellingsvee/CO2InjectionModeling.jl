@@ -4,6 +4,8 @@ using SurfaceWaterIntegratedModeling: SpillEvent, WeatherEvent, inflow_at, numtr
 export LayerSnapshot, generate_layer_snapshot, generate_layer_snapshots
 export total_to_next_layer, total_passthrough, total_upward_leakage
 export compute_total_injected, compute_total_drained, compute_total_passthrough
+export MultiLayerSnapshot, generate_multi_layer_snapshot, generate_multi_layer_snapshots
+export print_summary
 
 """
 A snapshot of a layer's CO2 state at a specific point in time, computed from the
@@ -235,3 +237,120 @@ function generate_layer_snapshots(
     return [generate_layer_snapshot(layer, layer_idx, seq, leakage_state, weather_events, t, tstates[i])
             for (i, t) in enumerate(timepoints)]
 end
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MultiLayerSnapshot
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+A snapshot of the entire multi-layer CO2 stack at a specific point in time.
+
+# Fields
+- `timestamp`              : simulation time
+- `layers`                 : per-layer snapshots (index 1 = deepest / injection layer)
+- `total_injected`         : cumulative CO2 injected into the system (= `layers[1].total_injected`)
+- `total_stored`           : CO2 currently held in all traps across all layers
+- `total_surface_leakage`  : CO2 that has escaped from the top layer
+
+# Key mass-conservation invariant (closed BC, injection only in layer 1):
+```
+total_injected ≈ total_stored + total_surface_leakage
+```
+"""
+struct MultiLayerSnapshot
+    timestamp::Float64
+    layers::Vector{LayerSnapshot}   # index 1 = deepest (injection) layer
+    total_injected::Float64         # = layers[1].total_injected
+    total_stored::Float64           # sum(s.total_stored for s in layers)
+    total_surface_leakage::Float64  # total_to_next_layer(layers[end])
+end
+
+"""
+Compute a [`MultiLayerSnapshot`](@ref) at time `t`.
+"""
+function generate_multi_layer_snapshot(
+    layers::Vector{Layer},
+    seqs::Vector{Vector{SpillEvent}},
+    leakage_states::Vector{LeakageState},
+    weather_events_per_layer::Vector{Vector{WeatherEvent}},
+    t::Float64
+)::MultiLayerSnapshot
+    n = length(layers)
+    layer_snaps = Vector{LayerSnapshot}(undef, n)
+    for i in 1:n
+        tstruct = layers[i].trap_structure
+        tstate = trap_states_at_timepoints(tstruct, seqs[i], [t]; verbose=false)[1]
+        layer_snaps[i] = generate_layer_snapshot(
+            layers[i], i, seqs[i], leakage_states[i], weather_events_per_layer[i], t, tstate
+        )
+    end
+
+    total_inj = layer_snaps[1].total_injected
+    total_stored = sum(s.total_stored for s in layer_snaps)
+    total_surface_leakage = total_to_next_layer(layer_snaps[end])
+
+    return MultiLayerSnapshot(t, layer_snaps, total_inj, total_stored, total_surface_leakage)
+end
+
+"""
+Compute [`MultiLayerSnapshot`](@ref)s at each time in `timepoints`.
+"""
+function generate_multi_layer_snapshots(
+    layers::Vector{Layer},
+    seqs::Vector{Vector{SpillEvent}},
+    leakage_states::Vector{LeakageState},
+    weather_events_per_layer::Vector{Vector{WeatherEvent}},
+    timepoints::Vector{Float64}
+)::Vector{MultiLayerSnapshot}
+    n = length(layers)
+    # Pre-compute trap states for each layer over all timepoints
+    layer_snap_vectors = Vector{Vector{LayerSnapshot}}(undef, n)
+    for i in 1:n
+        layer_snap_vectors[i] = generate_layer_snapshots(
+            layers[i], i, seqs[i], leakage_states[i], weather_events_per_layer[i], timepoints
+        )
+    end
+
+    return [
+        begin
+            snaps_at_t = [layer_snap_vectors[i][ti] for i in 1:n]
+            total_inj = snaps_at_t[1].total_injected
+            total_stored = sum(s.total_stored for s in snaps_at_t)
+            total_surface_leakage = total_to_next_layer(snaps_at_t[end])
+            MultiLayerSnapshot(t, snaps_at_t, total_inj, total_stored, total_surface_leakage)
+        end
+        for (ti, t) in enumerate(timepoints)
+    ]
+end
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# print_summary
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+Print a compact human-readable summary of a [`MultiLayerSnapshot`](@ref).
+"""
+function print_summary(io::IO, snap::MultiLayerSnapshot)
+    @printf(io, "MultiLayerSnapshot  t = %.4g\n", snap.timestamp)
+    @printf(io, "  %-6s  %12s  %12s  %12s  %12s  %12s\n",
+        "Layer", "Injected", "Stored", "Drained", "Passthru", "→NextLayer")
+    @printf(io, "  %s\n", "-"^74)
+    for s in snap.layers
+        @printf(io, "  %-6s  %12.4g  %12.4g  %12.4g  %12.4g  %12.4g\n",
+            s.layer_name,
+            s.total_injected,
+            s.total_stored,
+            s.total_drained,
+            s.total_passthrough,
+            total_to_next_layer(s))
+    end
+    @printf(io, "  %s\n", "-"^74)
+    imbalance = snap.total_injected - snap.total_stored - snap.total_surface_leakage
+    @printf(io, "  %-6s  %12.4g  %12.4g  %12s  %12s  %12.4g\n",
+        "TOTAL", snap.total_injected, snap.total_stored, "", "", snap.total_surface_leakage)
+    @printf(io, "  Mass imbalance: %.4g\n", imbalance)
+end
+
+print_summary(snap::MultiLayerSnapshot) = print_summary(stdout, snap)

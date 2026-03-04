@@ -1,7 +1,7 @@
 # Tests for src/layer_analysis.jl
 
 @testset "Topography interface and layer analysis" begin
-    topo_local = dome_topo
+    topo_local = DOME_SCENARIO.topo
 
     @test get_grid_dimensions(topo_local) == (TEST_NX, TEST_NY)
     @test get_grid_spacing(topo_local) == (TEST_DX, TEST_DY)
@@ -29,10 +29,9 @@
 end
 
 @testset "GRF topology" begin
-    n_grf_traps = SurfaceWaterIntegratedModeling.numtraps(grf_layers[1].trap_structure)
+    n_grf_traps = SurfaceWaterIntegratedModeling.numtraps(GRF_SCENARIO.layers[1].trap_structure)
     @test n_grf_traps > 1
 
-    # Both domes have the same grid size, so dimensions are preserved
-    @test get_grid_dimensions(grf_topo) == (TEST_NX, TEST_NY)
-    @test get_num_layers(grf_topo) == 2
+    @test get_grid_dimensions(GRF_SCENARIO.topo) == (TEST_NX, TEST_NY)
+    @test get_num_layers(GRF_SCENARIO.topo) == 2
 end
