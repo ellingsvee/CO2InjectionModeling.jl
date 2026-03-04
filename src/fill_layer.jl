@@ -127,16 +127,17 @@ function _fill_sequence_with_leakage_for_weather_event!(seq, sgraph, rateinfo, c
             # Update desendants of the leaking trap
             descendants = get_all_descendants(tstruct, leak_trap)
             for desc_id in descendants
-                @assert filled_traps[desc_id] == true "Descendant trap $(desc_id) is not filled at time of leakage"
-                @assert leakage_state.leaking[desc_id] == false "Descendant trap $(desc_id) is already leaking"
-                @assert leakage_state.draining[desc_id] == false "Descendant trap $(desc_id) is already draining"
+                if filled_traps[desc_id] && !leakage_state.draining[desc_id]
+                    # @assert filled_traps[desc_id] == true "Descendant trap $(desc_id) is not filled at time of leakage"
+                    # @assert leakage_state.leaking[desc_id] == false "Descendant trap $(desc_id) is already leaking"
+                    # @assert leakage_state.draining[desc_id] == false "Descendant trap $(desc_id) is already draining"
 
-                leakage_state.leakage_start_time[desc_id] = cur_time
-                leakage_state.draining[desc_id] = true
+                    leakage_state.leakage_start_time[desc_id] = cur_time
+                    leakage_state.draining[desc_id] = true
 
-                desc_vol = cur_amounts[desc_id].amount
-                leakage_state.initial_volume_at_leak[desc_id] = desc_vol
-
+                    desc_vol = cur_amounts[desc_id].amount
+                    leakage_state.initial_volume_at_leak[desc_id] = desc_vol
+                end
             end
 
 

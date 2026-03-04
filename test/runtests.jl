@@ -6,14 +6,18 @@ using Test
 
 Random.seed!(1)
 
-# # ---------------------------------------------------------------------------
-# # Test grid parameters 
-# # ---------------------------------------------------------------------------
-const TEST_NX, TEST_NY = 20, 20
+# ---------------------------------------------------------------------------
+# Test grid parameters 
+# ---------------------------------------------------------------------------
+const TEST_NX, TEST_NY = 200, 200
 const TEST_LENGTH_X, TEST_LENGTH_Y = 1000.0, 1000.0
 const TEST_DX, TEST_DY = TEST_LENGTH_X / TEST_NX, TEST_LENGTH_Y / TEST_NY
 const _thick = 10.0
 const boundary_condition = :closed # :open or :closed
+
+const TOTAL_INJECTION_RATE = 20_000.0
+const INJECTION_START_T = 0.0
+const INJECTION_END_T = 15.0
 
 
 # ---------------------------------------------------------------------------
@@ -67,11 +71,11 @@ dome_topo, dome_domain, dome_layers = create_domain_and_layers(_dome1, _dome2, _
 # Realistic scenario: Topography sampled from a GRF
 # ---------------------------------------------------------------------------
 cov = CovarianceFunction(2, Matern(100, 2, σ=1.0))
-pts_x = range(0, stop=TEST_NX * (TEST_DX - 1), step=TEST_DX)
-pts_y = range(0, stop=TEST_NY * (TEST_DY - 1), step=TEST_DY)
+pts_x = range(0, stop=(TEST_NX - 1) * TEST_DX, step=TEST_DX)
+pts_y = range(0, stop=(TEST_NY - 1) * TEST_DY, step=TEST_DY)
 
-const _grf1 = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y)) .+ 900.0
-const _grf2 = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y)) .+ 850.0
+const _grf1 = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 900.0
+const _grf2 = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 850.0
 
 grf_topo, grf_domain, grf_layers = create_domain_and_layers(_grf1, _grf2, _thick, TEST_NX, TEST_NY, TEST_DX, TEST_DY, boundary_condition)
 
@@ -87,30 +91,50 @@ const rp_quick = ReservoirProperties(0.3, 0.2, 0.1, 1000.0, 5.0)
 # Injection events
 # ---------------------------------------------------------------------------
 
+# Inject at a sigle location
 injection_events = Vector{Vector{InjectionEvent}}()
 for i in 1:2
     pad = boundary_condition == :closed ? 1 : 0
     topo_size = (TEST_NX + 2 * pad, TEST_NY + 2 * pad)
     if i == 1
         rate = zeros(topo_size)
-        rate[div(TEST_NX, 2)+pad, div(TEST_NY, 2)+pad] = 2_000.0
+        rate[div(TEST_NX, 2)+pad, div(TEST_NY, 2)+pad] = TOTAL_INJECTION_RATE
         push!(injection_events, [
-            InjectionEvent(0.0, rate),
-            InjectionEvent(10.0, zeros(topo_size)),
+            InjectionEvent(INJECTION_START_T, rate),
+            InjectionEvent(INJECTION_END_T, zeros(topo_size)),
         ])
     else
-        push!(injection_events, [InjectionEvent(0.0, zeros(topo_size))])
+        push!(injection_events, [InjectionEvent(INJECTION_START_T, zeros(topo_size))])
     end
 end
 
-# ---------------------------------------------------------------------------
+# Inject at two locations at the same time.
+dual_injection_events = Vector{Vector{InjectionEvent}}()
+for i in 1:2
+    pad = boundary_condition == :closed ? 1 : 0
+    topo_size = (TEST_NX + 2 * pad, TEST_NY + 2 * pad)
+    if i == 1
+        rate = zeros(topo_size)
+        rate[1+pad, 1+pad] = TOTAL_INJECTION_RATE / 2
+        rate[TEST_NX+pad, TEST_NY+pad] = TOTAL_INJECTION_RATE / 2
+        push!(dual_injection_events, [
+            InjectionEvent(INJECTION_START_T, rate),
+            InjectionEvent(INJECTION_END_T, zeros(topo_size)),
+        ])
+    else
+        push!(dual_injection_events, [InjectionEvent(INJECTION_START_T, zeros(topo_size))])
+    end
+end
+# injection_events = dual_injection_events
+
+
 @testset "CO2BatchFill.jl" begin
     include("test_structs.jl")
     include("test_unit_conversion.jl")
     include("test_layer_analysis.jl")
     include("test_utils.jl")
-    # include("test_fill_layers.jl")
+    include("test_fill_layers.jl")
     include("test_leakage.jl")
     include("test_fill_layer.jl")
-    # include("test_analysis.jl")
+    include("test_analysis.jl")
 end

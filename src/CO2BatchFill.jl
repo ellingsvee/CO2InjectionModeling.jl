@@ -23,7 +23,7 @@ include("analysis.jl")
 # # R interface (generic, dataset-agnostic)
 # include("r_interface.jl")
 
-# # Visualization function stubs (implementations provided by extension)
-# include("visualization.jl")
+# Visualization function stubs (implementations provided by extension)
+include("visualization.jl")
 
 end

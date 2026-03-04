@@ -1,43 +1,200 @@
-# Some structs for "snapshots" of the simulation state at a given time, used for analysis and visualization
+using SurfaceWaterIntegratedModeling: SpillEvent, WeatherEvent, inflow_at, numtraps,
+    trap_states_at_timepoints
 
-# Note the SurfaceWaterIntegratedModeling.trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false) is very usefull for getting trap states at spesific time-points.
+export LayerSnapshot, generate_layer_snapshot, generate_layer_snapshots
+export total_to_next_layer, total_passthrough
+export compute_total_injected, compute_total_drained
 
+"""
+A snapshot of a layer's CO2 state at a specific point in time, computed from the
+fill sequence and leakage state. Designed to support mass balance analysis.
+"""
 struct LayerSnapshot
-    # Basic info
     layer_idx::Int
     layer_name::String
     timestamp::Float64
 
-    # Trap states
-    num_traps::Int
-    num_filled_traps::Int
-    # Maybe something related to the leakage and drainage states?
+    # Per-trap state (indexed by trap ID, in SWIM volume units)
+    trap_volumes::Vector{Float64}   # Current stored volume, corrected for residual drainage
+    trap_filled::Vector{Bool}       # Structurally full (at spillpoint)
+    trap_leaking::Vector{Bool}      # Has reached leakage threshold (edge = 0)
+    trap_draining::Vector{Bool}     # Currently experiencing residual drainage
 
-    # Volumes
-    total_injected_volume::Float64 # In SWIM units
-    total_stored_volume::Float64 # In SWIM units
-    total_drained_volume::Float64 # In SWIM units
+    # Mass balance quantities (all in SWIM volume units)
+    total_injected::Float64         # Cumulative CO2 injected into this layer up to timestamp
+    total_stored::Float64           # CO2 currently held in traps (= sum of trap_volumes)
+    total_drained::Float64          # CO2 that drained out via residual leakage
+end
 
-    # Maybe something more as well
+"""
+Total CO2 that has left this layer up to `s.timestamp`.
+Equal to `total_injected - total_stored` by mass conservation.
+"""
+total_to_next_layer(s::LayerSnapshot) = s.total_injected - s.total_stored
+
+"""
+    total_passthrough(s::LayerSnapshot) -> Float64
+
+CO2 that flowed directly through leaking traps to the next layer (fast path),
+as opposed to the slow residual drainage path.
+Derived as `total_to_next_layer - total_drained`.
+"""
+total_passthrough(s::LayerSnapshot) = total_to_next_layer(s) - s.total_drained
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Internal helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+Integrate the injection rate over all weather events up to time `t`.
+Returns total CO2 injected in SWIM volume units.
+"""
+function compute_total_injected(
+    weather_events::Vector{WeatherEvent},
+    t::Float64,
+)::Float64
+    total = 0.0
+    for i in eachindex(weather_events)
+        t_start = weather_events[i].timestamp
+        t_start >= t && break
+
+        t_end = (i == lastindex(weather_events)) ? t : min(weather_events[i+1].timestamp, t)
+        duration = t_end - t_start
+        duration <= 0 && continue
+
+        rr = weather_events[i].rain_rate
+
+        @assert rr isa Matrix "rain_rate must be a matrix of per-cell rates"
+        total += sum(rr) * duration
+    end
+    return total
+end
+
+"""
+Compute the total CO2 that has drained from traps via residual leakage up to time `t`.
+This is the "slow path": CO2 that was stored in a trap and gradually drains after
+the leakage threshold is crossed.
+"""
+function compute_total_drained(t::Float64, leakage_state::LeakageState)::Float64
+    total = 0.0
+    for trap in eachindex(leakage_state.draining)
+        !leakage_state.draining[trap] && continue
+        t < leakage_state.leakage_start_time[trap] && continue
+
+        current_vol = compute_volume_with_drainage(trap, t, leakage_state)
+        isnothing(current_vol) && continue
+
+        drained = leakage_state.initial_volume_at_leak[trap] - current_vol
+        total += max(0.0, drained)
+    end
+    return total
+end
+
+"""
+Get per-trap volumes at time `t`, correcting SWIM's output for residual drainage in
+draining traps. Returns four vectors indexed by trap ID.
+"""
+function _compute_trap_volumes_at_time(
+    t::Float64,
+    seq::Vector{SpillEvent},
+    leakage_state::LeakageState,
+    tstruct,
+    tstate
+)
+    n = numtraps(tstruct)
+    # tstates = trap_states_at_timepoints(tstruct, seq, [t]; verbose=false)
+    swim_filled, swim_volumes, _ = tstate
+
+    volumes = copy(swim_volumes)
+    leaking = copy(leakage_state.leaking)
+    draining = copy(leakage_state.draining)
+
+    # Override SWIM volumes for traps that have started draining by time t.
+    # SWIM keeps the volume constant at the value set when leakage was detected;
+    # the true volume decreases linearly over residual_leakage_time.
+    for trap in 1:n
+        !draining[trap] && continue
+        t < leakage_state.leakage_start_time[trap] && continue
+
+        corrected = compute_volume_with_drainage(trap, t, leakage_state)
+        isnothing(corrected) && continue
+        volumes[trap] = corrected
+
+        # If the trap hasn't started draining yet from SWIM's perspective
+        # (leakage_start_time is in future relative to SWIM's seq), clear the flag.
+        # (This shouldn't happen in practice but guards against edge cases.)
+    end
+
+    # Leaking/draining state: mask out traps whose leakage hadn't started yet at t
+    for trap in 1:n
+        if leaking[trap] && t < leakage_state.leakage_start_time[trap]
+            leaking[trap] = false
+        end
+        if draining[trap] && t < leakage_state.leakage_start_time[trap]
+            draining[trap] = false
+        end
+    end
+
+    return volumes, swim_filled, leaking, draining
 end
 
 
+"""
+Compute a [`LayerSnapshot`](@ref) for `layer` at time `t`.
+
+# Arguments
+- `layer`          : the analyzed layer (contains `trap_structure`)
+- `layer_idx`      : index of this layer in the multi-layer stack (1 = deepest)
+- `seq`            : fill-sequence produced by `fill_sequence_with_leakage`
+- `leakage_state`  : leakage state produced by `fill_sequence_with_leakage`
+- `weather_events` : the `WeatherEvent` vector passed to `fill_sequence_with_leakage`
+- `t`              : the time at which to compute the snapshot (must be ≥ seq[1].timestamp)
+"""
+function generate_layer_snapshot(
+    layer::Layer,
+    layer_idx::Int,
+    seq::Vector{SpillEvent},
+    leakage_state::LeakageState,
+    weather_events::Vector{WeatherEvent},
+    t::Float64,
+    tstate
+)::LayerSnapshot
+
+    tstruct = layer.trap_structure
+
+    volumes, filled, leaking, draining =
+        _compute_trap_volumes_at_time(t, seq, leakage_state, tstruct, tstate)
+
+    total_stored = sum(volumes)
+    total_inj = compute_total_injected(weather_events, t)
+    total_drained_ = compute_total_drained(t, leakage_state)
+
+    return LayerSnapshot(
+        layer_idx,
+        layer.name,
+        t,
+        volumes,
+        filled,
+        leaking,
+        draining,
+        total_inj,
+        total_stored,
+        total_drained_
+    )
+end
+
 function generate_layer_snapshots(
     layer::Layer,
-    seqs::Vector{SpillEvent},
+    layer_idx::Int,
+    seq::Vector{SpillEvent},
     leakage_state::LeakageState,
+    weather_events::Vector{WeatherEvent},
     timepoints::Vector{Float64}
-)
-    layer_snapshots = Vector{LayerSnapshot}(undef, length(timepoints))
-    trap_states = SurfaceWaterIntegratedModeling.trap_states_at_timepoints(layer.trap_structure, seqs, timepoints; verbose=false)[1]
+)::Vector{LayerSnapshot}
 
-
-    for (i, t) in enumerate(timepoints)
-        # Get trap states at this timepoint
-        filled, volumes, _ = trap_states[i]
-
-        # TODO: Not finished
-    end
-
-    return layer_snapshots
+    tstruct = layer.trap_structure
+    tstates = trap_states_at_timepoints(tstruct, seq, timepoints; verbose=false)
+    return [generate_layer_snapshot(layer, layer_idx, seq, leakage_state, weather_events, t, tstates[i])
+            for (i, t) in enumerate(timepoints)]
 end

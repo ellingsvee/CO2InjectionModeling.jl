@@ -1,11 +1,13 @@
 import Interpolations
-using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, FilledAmount
+using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, FilledAmount,
+    SpillEvent, WeatherEvent, inflow_at
 using Distributions: Normal, LogNormal, Uniform, truncated
 
 export volume_to_height, compute_leakage_volume
 export find_leakage_location, find_next_leakage_event
 export initialize_leakage_state, create_empty_leakage_state
 export LeakageTimeEstimate, get_initial_leakage_time_estimates, update_leakage_time_estimates!
+export generate_leakage_weather_events
 
 """
 Stores the estimated time when a trap will reach its leakage volume. Similar to SWIM's ChangeTimeEstimate.
@@ -329,4 +331,177 @@ function compute_volume_with_drainage(
         fraction_drained = time_since_leak / residual_time
         return initial_vol - drainable_vol * fraction_drained
     end
+end
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+"""
+    generate_leakage_weather_events(seq, leakage_state, tstruct,
+                                    rp_source, rp_target, direct_events)
+
+Generate `WeatherEvent`s for an overlying layer that receives CO2 leaked from
+the layer below.
+
+CO2 exits the source layer at each trap's `leakage_location` via two paths:
+
+- **Residual drainage** (slow): stored volume in draining traps decreases
+  linearly over `residual_leakage_time`. Contributes a constant rate at the
+  leakage location for the duration of the drainage window.
+
+- **Passthrough** (fast): CO2 flowing into a leaking trap (edge = 0) exits
+  immediately. Rate equals the trap's total inflow as tracked by SWIM at
+  each SpillEvent.
+
+CO2 from filled sub-traps (descendants) of a leaking trap drains through the
+same caprock failure point, so it is attributed to the leaking trap's location.
+
+The result merges leakage contributions with `direct_events` (direct injection
+into the target layer, already in target-layer SWIM units).
+
+# Arguments
+- `seq`           : SpillEvent sequence from `fill_sequence_with_leakage` on the source layer
+- `leakage_state` : leakage state returned by the same simulation
+- `tstruct`       : trap structure of the source layer
+- `rp_source`     : reservoir properties of the source layer
+- `rp_target`     : reservoir properties of the target layer
+- `direct_events` : WeatherEvents for direct injection into the target layer
+                    (may be empty; must already be in target-layer SWIM units)
+
+# Returns
+A `Vector{WeatherEvent}` for the target layer, valid as input to
+`fill_sequence_with_leakage`.
+"""
+function generate_leakage_weather_events(
+    seq::Vector{SpillEvent},
+    leakage_state::LeakageState,
+    tstruct::TrapStructure,
+    rp_source::ReservoirProperties,
+    rp_target::ReservoirProperties,
+    direct_events::Vector{WeatherEvent},
+)::Vector{WeatherEvent}
+
+    n_traps   = numtraps(tstruct)
+    grid_size = size(tstruct.topography)
+
+    # Quick exit: nothing drains or leaks in the source layer.
+    if !any(leakage_state.draining) && !any(leakage_state.leaking)
+        return copy(direct_events)
+    end
+
+    # Unit conversion: source-layer SWIM volume → target-layer SWIM volume.
+    # Physical CO2 vol = SWIM_vol × porosity × (1 − Swi) × dx × dy, so the
+    # ratio of SWIM units between layers is:
+    unit_factor = full_volume_to_rock_volume_scaling(rp_source) /
+                  full_volume_to_rock_volume_scaling(rp_target)
+
+    # ── Map each draining trap to its caprock exit location ──────────────────
+    # Draining sub-traps (descendants) exit through their leaking ancestor's
+    # caprock failure point.
+    drain_loc = Dict{Int, CartesianIndex{2}}()
+    for record in leakage_state.leakage_records
+        trap = record.trap_id
+        loc  = record.leakage_location
+        drain_loc[trap] = loc
+        for desc in get_all_descendants(tstruct, trap)
+            leakage_state.draining[desc] && (drain_loc[desc] = loc)
+        end
+    end
+
+    # ── Residual drainage: constant rate per draining trap ───────────────────
+    T_res = leakage_state.residual_leakage_time
+    sat   = leakage_state.residual_saturation
+    has_finite_drainage = isfinite(T_res) && T_res > 0.0 && sat < 1.0
+
+    # Rate at which each draining trap releases CO2 (source-layer SWIM units).
+    drain_rates = zeros(Float64, n_traps)
+    if has_finite_drainage
+        for trap in 1:n_traps
+            leakage_state.draining[trap] || continue
+            haskey(drain_loc, trap)        || continue
+            drain_rates[trap] =
+                leakage_state.initial_volume_at_leak[trap] * (1 - sat) / T_res
+        end
+    end
+
+    # ── Collect all timestamps where the combined rate can change ─────────────
+    timestamps = Set{Float64}()
+    push!(timestamps, seq[1].timestamp)          # always start at sim beginning
+
+    for se in seq;          push!(timestamps, se.timestamp); end  # passthrough rate changes
+    for de in direct_events; push!(timestamps, de.timestamp); end  # direct injection changes
+
+    for trap in 1:n_traps
+        t0 = leakage_state.leakage_start_time[trap]
+        isfinite(t0) || continue
+        push!(timestamps, t0)                        # drainage/passthrough begins
+        has_finite_drainage && push!(timestamps, t0 + T_res)  # drainage ends
+    end
+
+    sorted_ts = sort(collect(timestamps))
+
+    # ── Build a WeatherEvent for each change point ────────────────────────────
+    result    = WeatherEvent[]
+    last_rain = nothing
+
+    for t in sorted_ts
+        rain = zeros(Float64, grid_size)
+
+        # 1. Direct injection into the target layer.
+        if !isempty(direct_events)
+            ix = findlast(de -> de.timestamp <= t, direct_events)
+            if !isnothing(ix)
+                rr = direct_events[ix].rain_rate
+                rain .+= (rr isa Matrix ? rr : fill(rr, grid_size))
+            end
+        end
+
+        # 2. Passthrough: CO2 flowing into leaking traps (edge = 0) at time t.
+        # The trap's SWIM inflow equals its pass-through rate: CO2 enters the
+        # trap and immediately exits through the caprock failure point.
+        seq_ix = findlast(se -> se.timestamp <= t, seq)
+        if !isnothing(seq_ix)
+            inflows = inflow_at(seq, seq_ix)
+            for trap in 1:n_traps
+                leakage_state.leaking[trap]              || continue
+                haskey(drain_loc, trap)                   || continue
+                leakage_state.leakage_start_time[trap] > t && continue
+                rate = max(0.0, inflows[trap]) * unit_factor
+                rate > 0.0 && (rain[drain_loc[trap]] += rate)
+            end
+        end
+
+        # 3. Residual drainage from all draining traps.
+        if has_finite_drainage
+            for trap in 1:n_traps
+                drain_rates[trap] == 0.0 && continue
+                t0 = leakage_state.leakage_start_time[trap]
+                (t >= t0 && t < t0 + T_res) || continue
+                rain[drain_loc[trap]] += drain_rates[trap] * unit_factor
+            end
+        end
+
+        # Emit only when the combined rate actually changes.
+        if isnothing(last_rain) || rain != last_rain
+            push!(result, WeatherEvent(t, copy(rain)))
+            last_rain = copy(rain)
+        end
+    end
+
+    # Safety net: if the last emitted event still carries a positive rate, all
+    # leakage contributions must have ended by now, so append a zero-rate event
+    # at the latest drainage end time.
+    if !isempty(result) && any(result[end].rain_rate .> 0.0)
+        max_t_end = -Inf
+        for trap in 1:n_traps
+            leakage_state.draining[trap] || continue
+            t0 = leakage_state.leakage_start_time[trap]
+            isfinite(t0) || continue
+            max_t_end = max(max_t_end, t0 + T_res)
+        end
+        if isfinite(max_t_end) && max_t_end > result[end].timestamp
+            push!(result, WeatherEvent(max_t_end, zeros(Float64, grid_size)))
+        end
+    end
+
+    return result
 end
