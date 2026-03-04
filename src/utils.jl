@@ -3,6 +3,7 @@ import Interpolations
 
 export get_all_parents, get_all_descendants
 export get_min_topography_elevation, get_trap_bottom_elevation
+export volume_to_height
 
 """
 Get all parent trap IDs for a given trap ID in a trap structure.

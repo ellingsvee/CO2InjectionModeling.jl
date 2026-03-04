@@ -3,8 +3,8 @@ using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, subtrapsof, Fille
 using Distributions: Normal, LogNormal, Uniform, truncated
 
 export compute_leakage_volume, initialize_leakage_state, find_leakage_location
-export volume_to_height, compute_leakage_time_estimate, generate_leakage_weather_events
-export get_true_topography_bottom, get_trap_bottom_elevation
+export compute_leakage_time_estimate, generate_leakage_weather_events
+export get_true_topography_bottom
 export compute_drainable_volume, compute_volume_with_drainage, compute_residual_drainage_rate
 export get_initial_leakage_time_estimates
 
@@ -40,23 +40,23 @@ function get_true_topography_bottom(trap_id::Int, tstruct::TrapStructure)::Float
 end
 
 
-"""
-Get the effective bottom elevation of a trap for volume interpolation purposes.
-For parent traps, this is the maximum of the topography minimum and the child spillpoint elevation.
-"""
-function get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure)::Float64
-    footprint = tstruct.footprints[trap_id]
-    min_base_elevation = minimum(tstruct.topography[footprint])
+# """
+# Get the effective bottom elevation of a trap for volume interpolation purposes.
+# For parent traps, this is the maximum of the topography minimum and the child spillpoint elevation.
+# """
+# function get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure)::Float64
+#     footprint = tstruct.footprints[trap_id]
+#     min_base_elevation = minimum(tstruct.topography[footprint])
 
-    # For parent traps, the effective bottom is above child spillpoints
-    children = subtrapsof(tstruct, trap_id)
-    if !isempty(children)
-        child_spillpoint_elev = tstruct.spillpoints[children[1]].elevation
-        min_base_elevation = max(min_base_elevation, child_spillpoint_elev)
-    end
+#     # For parent traps, the effective bottom is above child spillpoints
+#     children = subtrapsof(tstruct, trap_id)
+#     if !isempty(children)
+#         child_spillpoint_elev = tstruct.spillpoints[children[1]].elevation
+#         min_base_elevation = max(min_base_elevation, child_spillpoint_elev)
+#     end
 
-    return min_base_elevation
-end
+#     return min_base_elevation
+# end
 
 """
 Compute the volume at which a trap reaches the leakage height threshold.
@@ -118,36 +118,6 @@ function compute_leakage_volume(
 
     return z2v(leakage_elevation)
 end
-
-
-"""
-Convert a volume in a trap to the CO2 column height above the TRUE topography bottom.
-"""
-function volume_to_height(
-    volume::Float64,
-    trap_id::Int,
-    z_vol_table::Tuple{Vector{Float64},Vector{Float64}},
-    tstruct::TrapStructure
-)::Float64
-
-    # Use the TRUE topography bottom for correct CO2 column height calculation
-    true_bottom = get_true_topography_bottom(trap_id, tstruct)
-
-    zvals, vvals = z_vol_table
-
-    if length(zvals) == 1 || volume <= 0.0
-        return 0.0
-    end
-
-    # Create interpolation function from volume to z
-    v2z = Interpolations.linear_interpolation(vvals, zvals, extrapolation_bc=Interpolations.Line())
-
-    water_level = v2z(volume)
-    height = max(0.0, water_level - true_bottom)
-
-    return height
-end
-
 
 """
 Compute the volume of CO2 that can drain from a trap during residual leakage.
