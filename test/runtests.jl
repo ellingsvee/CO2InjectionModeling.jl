@@ -6,9 +6,7 @@ using Test
 
 Random.seed!(1)
 
-# ---------------------------------------------------------------------------
 # Test grid parameters
-# ---------------------------------------------------------------------------
 const TEST_NX, TEST_NY = 200, 200
 const TEST_LENGTH_X, TEST_LENGTH_Y = 1000.0, 1000.0
 const TEST_DX, TEST_DY = TEST_LENGTH_X / TEST_NX, TEST_LENGTH_Y / TEST_NY
@@ -22,10 +20,7 @@ const INJECTION_END_T = 15.0
 
 const MASS_ATOL = 1e-8
 
-# ---------------------------------------------------------------------------
 # Scenario abstraction
-# ---------------------------------------------------------------------------
-
 struct TestScenario
     name::String
     topo::GenericTopography
@@ -34,10 +29,7 @@ struct TestScenario
     injection_events::Vector{Vector{InjectionEvent}}   # per-layer
 end
 
-# ---------------------------------------------------------------------------
 # Scenario factory helpers
-# ---------------------------------------------------------------------------
-
 function _make_dome(nx, ny, dx, dy, base_depth;
     dome_center=(0.5, 0.5), dome_sigma=150.0, dome_amp=4.0)
     xs = [(i - 0.5) * dx for i in 1:nx]
@@ -120,17 +112,12 @@ const DOME_SCENARIO = make_dome_scenario()
 const GRF_SCENARIO = make_grf_scenario()
 const ALL_SCENARIOS = [DOME_SCENARIO, GRF_SCENARIO]
 
-# ---------------------------------------------------------------------------
 # Reservoir properties (shared across all tests)
-# ---------------------------------------------------------------------------
 const rp_sealed = ReservoirProperties(0.3, 0.2, 0.1, Inf, 5.0)
 # very small leakage threshold (~0.18 m) — forces leakage in reasonable simulation time
 const rp_quick = ReservoirProperties(0.3, 0.2, 0.1, 1000.0, 5.0)
 
-# ---------------------------------------------------------------------------
 # Shared test helpers
-# ---------------------------------------------------------------------------
-
 """
 Assert that a LayerSnapshot satisfies exact mass conservation.
 """
@@ -163,10 +150,7 @@ function total_injected_from_schedule(
     return physical_volume_to_swim_volume(total_physical, rp, domain)
 end
 
-# ---------------------------------------------------------------------------
 # Run all tests
-# ---------------------------------------------------------------------------
-
 @testset "CO2BatchFill.jl" begin
     # Non-parameterized tests (scenario-independent)
     include("test_structs.jl")
