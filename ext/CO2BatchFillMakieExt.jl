@@ -4,6 +4,7 @@ using CO2BatchFill
 using Makie
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_timepoints,
     SpillEvent, _compute_z_vol_tables
+using Statistics: mean
 
 import CO2BatchFill: animate_layer_filling, animate_multi_layer_filling,
     plot_layer, plot_multi_layer,
@@ -86,7 +87,7 @@ function _layer_panel!(ax, layer, snap, domain;
         end
 
         # Split into major / minor
-        major_levels = all_levels[1:major_contour_every:end]
+        major_levels = all_levels[2:major_contour_every:end]
         minor_levels = setdiff(all_levels, major_levels)
 
         # Minor contours (thin, no labels)
@@ -172,13 +173,17 @@ function plot_multi_layer(
     contour_levels::Int=10,
     major_contour_every::Int=5,
     contour_opacity::Float64=0.8,
-    injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing, # per-layer list of injection locations. For now assume only bottom layer
+    injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing,
+    show_leakage_locations::Bool=false,
     figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
 )
     n = length(layers)
 
     figure_size = isnothing(figure_size) ? (700 * n, 600) : figure_size
     fig = Figure(size=figure_size)
+
+    has_injection = !isnothing(injection_locations)
+    has_any_leakage = false
 
     for i in 1:n
         ax = Axis(fig[1, i];
@@ -190,9 +195,29 @@ function plot_multi_layer(
         _layer_panel!(ax, layers[i], snap.layers[i], domain;
             pad_width, colormap, max_co2_height, show_contours, show_labels, contour_levels, major_contour_every, contour_opacity)
 
-        if !isnothing(injection_locations) && i == 1
+        if has_injection && i == 1
             scatter!(ax, [loc[1] for loc in injection_locations], [loc[2] for loc in injection_locations];
-                color=:black, marker=:xcross, markersize=35, label="Injection")
+                color=:black, marker=:xcross, markersize=35)
+        end
+
+        if show_leakage_locations
+            tstruct = layers[i].trap_structure
+            pad = layers[i].boundary_condition == :closed ? pad_width : 0
+            layer_snap = snap.layers[i]
+            leak_xs, leak_ys = Float64[], Float64[]
+            for trap_id in 1:numtraps(tstruct)
+                layer_snap.trap_leaking[trap_id] || continue
+                ci = find_leakage_location(trap_id, tstruct)
+                x = (ci[1] - 1 - pad) * domain.dx
+                y = (ci[2] - 1 - pad) * domain.dy
+                push!(leak_xs, x)
+                push!(leak_ys, y)
+            end
+            if !isempty(leak_xs)
+                scatter!(ax, leak_xs, leak_ys;
+                    color=:black, marker=:utriangle, markersize=30)
+                has_any_leakage = true
+            end
         end
     end
     Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="Column height", size=_CBAR_SIZE)

@@ -107,6 +107,7 @@ plot_multi_layer(
     figure_size=(500 * N_LAYERS, 500),
     colormap=:Blues,
     injection_locations=[injection_location_loc],
+    show_leakage_locations=true,
 )
 
 # Plot 2: volume time-series per layer
