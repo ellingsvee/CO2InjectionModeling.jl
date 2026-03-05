@@ -28,13 +28,15 @@ To model the physical processes behind $\text{CO}_2$ migration, full-physics sim
 
 `CO2BatchFill.jl` models multi-layer $\text{CO}_2$ migration by combining spill-point analysis with an invasion percolation (IP) approach for vertical migration. Spill-point analysis for $\text{CO}_2$ storage capacity estimation originates from the MATLAB-based MRST-co2lab toolbox [@Nilsen:2015a] and was later reimplemented in Julia as SWIM [@Andersen:2025], though with a focus on surface water flooding rather than subsurface $\text{CO}_2$ modeling. Both tools operate on individual layers only. The commercial software Permedia [@Permedia:2026] models multi-layer invasion percolation for $\text{CO}_2$ storage, but to our knowledge no other open-source package provides this functionality.
 
+NEED SOME MORE HERE
+
 # Principle of invasion percolation
 
 IP theory assumes that buoyancy and capillary pressure are the governing forces of $\text{CO}_2$ migration and entrapment in the subsurface [@CallioliInvasion:2025]. The $\text{CO}_2$ plume fills neighboring regions from lowest to highest capillary entry pressure. Assuming homogeneous properties within each sand layer, the filling order is determined by the topography of the layer, which can be represented as a spillgraph. This spillgraph is a directed graph where nodes represent structural traps and edges represent potential flow paths.
 
 Vertical migration occurs when the $\text{CO}_2$ column height in a trap exceeds the capillary entry pressure of the overlying shale. At that point, breaching the shale requires less pressure than filling the next horizontal trap, so the $\text{CO}_2$ migrates vertically. The breach location is then treated as a new injection point in the overlying layer, and the same filling algorithm is applied. As the $\text{CO}_2$ drains upward, a fraction is immobilized as residual trapping and left behind the migrating plume. \autoref{fig:ip_system} shows how this process works, and how the spillgraph is used to represent the migration paths.
 
-
+THIS CAN PROBABLY BE EXTENDED A BIT
 
 ![The figure to the left illustrates vertical $\text{CO}_2$ migration with residual trapping. To the right the structural traps in the two-layer system is represented as nodes in a graph.\label{fig:ip_system}](figures/combined_migration_illustration.svg)
 
@@ -60,6 +62,8 @@ $\text{CO}_2$ is injected at a constant rate over $10$ years into the center of 
 \autoref{fig:co2_timeseries} shows the $\text{CO}_2$ mass in each layer over time. Mass increases as traps fill, then decreases once migration begins — mobile $\text{CO}_2$ drains upward while the residual fraction remains. After injection ends at $10$ years, draining continues until the system stabilizes.
 
 ![Time series showing amounts of stored and drained $\text{CO}_2$ for the four layers.\label{fig:co2_timeseries}](figures/multi_layer_timeseries_per_layer.svg)
+
+MORE DISCUSSION OF THE RESULTS, OR SHOW ADDITIONAL FEATURES?
 
 # AI usage disclosure
 
