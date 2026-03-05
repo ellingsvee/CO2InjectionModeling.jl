@@ -4,7 +4,7 @@ on:
     branches:
       - joss
     paths:
-      # - joss/**
+      - joss/**
       - .github/workflows/draft-pdf.yml
 
 jobs:
