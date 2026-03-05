@@ -28,17 +28,15 @@ To model the physical processes behind $\text{CO}_2$ migration, full-physics sim
 
 `CO2BatchFill.jl` models multi-layer $\text{CO}_2$ migration by combining spill-point analysis with an invasion percolation (IP) approach for vertical migration. Spill-point analysis for $\text{CO}_2$ storage capacity estimation originates from the MATLAB-based MRST-co2lab toolbox [@Nilsen:2015a] and was later reimplemented in Julia as SWIM [@Andersen:2025], though with a focus on surface water flooding rather than subsurface $\text{CO}_2$ modeling. Both tools operate on individual layers only. The commercial software Permedia [@Permedia:2026] models multi-layer invasion percolation for $\text{CO}_2$ storage, but to our knowledge no other open-source package provides this functionality.
 
-NEED SOME MORE HERE
 
 # Principle of invasion percolation
 
 IP theory assumes that buoyancy and capillary pressure are the governing forces of $\text{CO}_2$ migration and entrapment in the subsurface [@CallioliInvasion:2025]. The $\text{CO}_2$ plume fills neighboring regions from lowest to highest capillary entry pressure. Assuming homogeneous properties within each sand layer, the filling order is determined by the topography of the layer, which can be represented as a spillgraph. This spillgraph is a directed graph where nodes represent structural traps and edges represent potential flow paths.
 
-Vertical migration occurs when the $\text{CO}_2$ column height in a trap exceeds the capillary entry pressure of the overlying shale. At that point, breaching the shale requires less pressure than filling the next horizontal trap, so the $\text{CO}_2$ migrates vertically. The breach location is then treated as a new injection point in the overlying layer, and the same filling algorithm is applied. As the $\text{CO}_2$ drains upward, a fraction is immobilized as residual trapping and left behind the migrating plume. \autoref{fig:ip_system} shows how this process works, and how the spillgraph is used to represent the migration paths.
+Vertical migration occurs when the $\text{CO}_2$ column height in a trap exceeds the capillary entry pressure of the overlying shale. At that point, breaching the shale requires less pressure than filling the next horizontal trap, so the $\text{CO}_2$ migrates vertically [@Carruthers:1998]. The breach location is then treated as a new injection point in the overlying layer, and the same filling algorithm is applied. As the $\text{CO}_2$ drains upward, a fraction is immobilized as residual trapping and left behind the migrating plume. \autoref{fig:ip_system} shows how this process works, and how the trap structure graph is used to represent the topography.
 
-THIS CAN PROBABLY BE EXTENDED A BIT
 
-![The figure to the left illustrates vertical $\text{CO}_2$ migration with residual trapping. To the right the structural traps in the two-layer system is represented as nodes in a graph.\label{fig:ip_system}](figures/combined_migration_illustration.svg)
+![Simple example of vertical $\text{CO}_2$ migration with residual trapping. The figure to the left shows the state of a two-layer system before and after migration. A solid color is used to represent the $\text{CO}_2$ before drainage, while the dashed color represents the residually trapped $\text{CO}_2$. To the right, the structural traps in the system is represented as nodes in a graph.\label{fig:ip_system}](figures/combined_migration_illustration.svg)
 
 # Implementation and features
 
@@ -57,13 +55,12 @@ We demonstrate `CO2BatchFill.jl` on a synthetic three-layer reservoir, and the f
 
 $\text{CO}_2$ is injected at a constant rate over $10$ years into the center of the bottom layer. \autoref{fig:co2_plume} shows the plumes after $15$ years. The $\text{CO}_2$ follows the topography and accumulates in structural traps, migrating all the way to the top layer. There, the impermeable caprock prevents further migration, resulting in a taller $\text{CO}_2$ column than in the underlying layers.
 
-![$\text{CO}_2$ plume extents after $15$ years.\label{fig:co2_plume}](figures/multi_layer_co2_final.svg)
+![$\text{CO}_2$ plume extents after $15$ years. Injection location is indicated by the black cross.\label{fig:co2_plume}](figures/multi_layer_co2_final.svg)
 
-\autoref{fig:co2_timeseries} shows the $\text{CO}_2$ mass in each layer over time. Mass increases as traps fill, then decreases once migration begins — mobile $\text{CO}_2$ drains upward while the residual fraction remains. After injection ends at $10$ years, draining continues until the system stabilizes.
+\autoref{fig:co2_timeseries} shows the $\text{CO}_2$ mass in each layer over time. Mass increases as traps fill, then decreases once migration begins — mobile $\text{CO}_2$ drains upward while the residual fraction remains. When injection ends after $10$ years, draining continues until the system stabilizes.
 
-![Time series showing amounts of stored and drained $\text{CO}_2$ for the four layers.\label{fig:co2_timeseries}](figures/multi_layer_timeseries_per_layer.svg)
+![Amounts of stored and drained $\text{CO}_2$ over time.\label{fig:co2_timeseries}](figures/multi_layer_timeseries_per_layer.svg)
 
-MORE DISCUSSION OF THE RESULTS, OR SHOW ADDITIONAL FEATURES?
 
 # AI usage disclosure
 
@@ -71,7 +68,7 @@ Generative AI tools (Claude Code and ChatGPT) were used as coding assistants dur
 
 # Acknowledgements
 
-We thank Odd A. Andersen (SINTEF) for developing `SurfaceWaterIntegratedModeling.jl`, which provides the spill-point analysis algorithms that `CO2BatchFill.jl` builds on. Also thanks to Philip Ringrose for his insights on $\text{CO}_2$ storage, which helped shape the package.
+We thank Odd A. Andersen (SINTEF) for developing SWIM, which provides the spill-point analysis algorithms that `CO2BatchFill.jl` builds on. Also thanks to Philip Ringrose for his insights on $\text{CO}_2$ storage, which helped shape the package.
 
 
 # References
