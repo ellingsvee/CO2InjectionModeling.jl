@@ -115,5 +115,6 @@ plot_multi_layer_volumes_timeseries(
     multi_snaps;
     output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),
     vol_scale=_phys_scale / 1e5,
-    ylabel=L"Volume $(\!\times\! 10^5\,\mathrm{m}^{3})$",
+    # ylabel=L"Volume $\left(\!\times\! 10^5\,\mathrm{m}^{3}\right)$",
+    ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
 )
