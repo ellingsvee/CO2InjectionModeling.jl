@@ -1,0 +1,5 @@
+*.svg
+*.pdf
+!combined_migration_illustration.svg
+!multi_layer_co2_final.svg
+!multi_layer_timeseries_per_layer.svg
