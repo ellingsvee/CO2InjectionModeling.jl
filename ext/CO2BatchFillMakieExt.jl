@@ -9,21 +9,17 @@ import CO2BatchFill: animate_layer_filling, animate_multi_layer_filling,
     plot_layer, plot_multi_layer,
     plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Shared style constants
-# ─────────────────────────────────────────────────────────────────────────────
 
 const _CMAP = :thermal
-const _MAXH = 20.0    # default max CO₂ height (m)
-const _LW = 2       # default linewidth
+const _MAXH = 20.0    # default max CO2 height (m)
+const _LW = 4       # default linewidth
 const _COLORS = (injected=:black, stored=:blue, drained=:orange, passthru=:green, to_next=:red)
+const _CBAR_SIZE = 25
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Private helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
-Build an unpadded 2-D CO₂ height array from per-trap volumes.
+Build an unpadded 2-D CO2 height array from per-trap volumes.
 """
 function _height_map(tstruct, z_vol_tables, volumes, pad, nx_p, ny_p)
     num_traps = numtraps(tstruct)
@@ -41,7 +37,7 @@ function _height_map(tstruct, z_vol_tables, volumes, pad, nx_p, ny_p)
 end
 
 """
-Draw a CO₂ height heatmap + topography contours for one `LayerSnapshot` onto `ax`.
+Draw a CO2 height heatmap + topography contours for one `LayerSnapshot` onto `ax`.
 Returns the heatmap object.
 """
 function _layer_panel!(ax, layer, snap, domain;
@@ -82,30 +78,35 @@ Draw stored/drained/passthrough/→next-layer volume lines for a vector of
 `LayerSnapshot`s onto `ax`.
 """
 function _timeseries_panel!(ax, snaps::Vector{LayerSnapshot};
-    show_injected=false, linewidth=_LW)
+    show_injected=false, linewidth=_LW, vol_scale=1.0)
 
     times = [s.timestamp for s in snaps]
 
     if show_injected
-        lines!(ax, times, [s.total_injected for s in snaps];
+        lines!(ax, times, [s.total_injected * vol_scale for s in snaps];
             label="Injected", color=_COLORS.injected, linewidth=linewidth)
     end
-    lines!(ax, times, [s.total_stored for s in snaps];
+    lines!(ax, times, [s.total_stored * vol_scale for s in snaps];
         label="Stored", color=_COLORS.stored, linewidth=linewidth)
-    lines!(ax, times, [s.total_drained for s in snaps];
+    lines!(ax, times, [s.total_drained * vol_scale for s in snaps];
         label="Drained", color=_COLORS.drained, linewidth=linewidth)
-    # lines!(ax, times, [s.total_passthrough for s in snaps];
+    # lines!(ax, times, [s.total_passthrough * vol_scale for s in snaps];
     #     label="Passthrough", color=_COLORS.passthru, linewidth=linewidth)
-    # lines!(ax, times, [total_to_next_layer(s) for s in snaps];
+    # lines!(ax, times, [total_to_next_layer(s) * vol_scale for s in snaps];
     #     label="→ Next layer", color=_COLORS.to_next, linewidth=linewidth)
 end
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Static spatial plots
-# ─────────────────────────────────────────────────────────────────────────────
+function _vol_scale_and_label(rp, domain)
+    if !isnothing(rp) && !isnothing(domain)
+        scale = swim_volume_to_physical_volume(1.0, rp, domain)
+        return scale, "Volume"
+    else
+        return 1.0, "Volume"
+    end
+end
 
 """
-Plot CO₂ height distribution for a single layer at a given snapshot time.
+Plot CO2 height distribution for a single layer at a given snapshot time.
 """
 function plot_layer(
     layer::CO2BatchFill.Layer,
@@ -120,14 +121,14 @@ function plot_layer(
 )
     fig = Figure(size=(700, 600))
     ax = Axis(fig[1, 1];
-        xlabel="x (m)",
-        ylabel="y (m)",
+        xlabel="x",
+        ylabel="y",
         title=snap.layer_name,
         aspect=DataAspect(),
     )
     _layer_panel!(ax, layer, snap, domain;
         pad_width, colormap, max_co2_height, show_contours, contour_levels)
-    Colorbar(fig[1, 2]; colormap, colorrange=(0.0, max_co2_height), label="CO₂ height (m)")
+    Colorbar(fig[1, 2]; colormap, colorrange=(0.0, max_co2_height), label="CO2 height", size=_CBAR_SIZE)
 
     save(output_file, fig)
     println("Saved layer plot to: $(output_file)")
@@ -135,7 +136,7 @@ function plot_layer(
 end
 
 """
-Plot CO₂ height distribution for multiple layers side-by-side with a shared colorbar.
+Plot CO2 height distribution for multiple layers side-by-side with a shared colorbar.
 """
 function plot_multi_layer(
     layers::Vector{CO2BatchFill.Layer},
@@ -147,48 +148,47 @@ function plot_multi_layer(
     max_co2_height::Float64=_MAXH,
     show_contours::Bool=true,
     contour_levels::Int=10,
+    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
 )
     n = length(layers)
-    fig = Figure(size=(700 * n, 600))
+
+    figure_size = isnothing(figure_size) ? (700 * n, 600) : figure_size
+    fig = Figure(size=figure_size)
 
     for i in 1:n
         ax = Axis(fig[1, i];
-            xlabel="x (m)",
-            ylabel=(i == 1 ? "y (m)" : ""),
+            xlabel="x",
+            ylabel=(i == 1 ? "y" : ""),
             title=snap.layers[i].layer_name,
             aspect=DataAspect(),
         )
         _layer_panel!(ax, layers[i], snap.layers[i], domain;
             pad_width, colormap, max_co2_height, show_contours, contour_levels)
     end
-    Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="CO₂ height (m)")
+    Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="CO2 height", size=_CBAR_SIZE)
 
     save(output_file, fig)
     println("Saved multi-layer plot to: $(output_file)")
     return nothing
 end
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Time-series plots
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
-Plot CO₂ volume time-series for a single layer.
+Plot CO2 volume time-series for a single layer.
 """
 function plot_layer_volumes_timeseries(
     snaps::Vector{CO2BatchFill.LayerSnapshot};
     output_file::String="layer_timeseries.svg",
-    show_injected::Bool=true,
+    reservoir_properties::Union{CO2BatchFill.ReservoirProperties,Nothing}=nothing,
+    domain::Union{CO2BatchFill.Domain3D,Nothing}=nothing,
+    show_injected::Bool=false,
     linewidth::Int=_LW,
 )
+    vol_scale, ylabel = _vol_scale_and_label(reservoir_properties, domain)
     title = isempty(snaps) ? "Layer Volumes" : snaps[1].layer_name
     fig = Figure(size=(700, 500))
-    ax = Axis(fig[1, 1];
-        xlabel="Time",
-        ylabel="Volume (SWIM units)",
-        title=title,
-    )
-    _timeseries_panel!(ax, snaps; show_injected, linewidth)
+    ax = Axis(fig[1, 1]; xlabel="Time", ylabel, title)
+    _timeseries_panel!(ax, snaps; show_injected, linewidth, vol_scale)
     axislegend(ax)
 
     save(output_file, fig)
@@ -197,7 +197,7 @@ function plot_layer_volumes_timeseries(
 end
 
 """
-Plot CO₂ volume time-series for a multi-layer simulation.
+Plot CO2 volume time-series for a multi-layer simulation.
 
 - `mode=:per_layer` (default): one panel per layer side-by-side; legend on last panel
 - `mode=:system`: single panel with system totals (Injected / Stored / Surface leakage)
@@ -205,57 +205,41 @@ Plot CO₂ volume time-series for a multi-layer simulation.
 function plot_multi_layer_volumes_timeseries(
     snaps::Vector{CO2BatchFill.MultiLayerSnapshot};
     output_file::String="multi_layer_timeseries.svg",
-    mode::Symbol=:per_layer,
-    show_injected::Bool=true,
+    reservoir_properties::Union{CO2BatchFill.ReservoirProperties,Nothing}=nothing,
+    domain::Union{CO2BatchFill.Domain3D,Nothing}=nothing,
+    show_injected::Bool=false,
     linewidth::Int=_LW,
+    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
 )
-    if mode == :per_layer
-        n = length(snaps[1].layers)
-        fig = Figure(size=(500 * n, 400))
-        for i in 1:n
-            layer_snaps = [s.layers[i] for s in snaps]
-            ax = Axis(fig[1, i];
-                xlabel="Time",
-                ylabel=(i == 1 ? "Volume (SWIM units)" : ""),
-                title=layer_snaps[1].layer_name,
-            )
-            _timeseries_panel!(ax, layer_snaps; show_injected, linewidth)
-            if i == n
-                axislegend(ax)
-            end
-        end
-    elseif mode == :system
-        fig = Figure(size=(700, 500))
-        ax = Axis(fig[1, 1];
+    vol_scale, ylabel = _vol_scale_and_label(reservoir_properties, domain)
+
+    n = length(snaps[1].layers)
+
+    figure_size = isnothing(figure_size) ? (500 * n, 400) : figure_size
+    fig = Figure(size=figure_size)
+    axes = Axis[]
+    for i in 1:n
+        layer_snaps = [s.layers[i] for s in snaps]
+        ax = Axis(fig[1, i];
             xlabel="Time",
-            ylabel="Volume (SWIM units)",
-            title="System Totals",
+            ylabel=(i == 1 ? ylabel : ""),
+            title=layer_snaps[1].layer_name,
         )
-        times = [s.timestamp for s in snaps]
-        if show_injected
-            lines!(ax, times, [s.total_injected for s in snaps];
-                label="Injected", color=_COLORS.injected, linewidth=linewidth)
+        _timeseries_panel!(ax, layer_snaps; show_injected, linewidth, vol_scale)
+        if i == n
+            axislegend(ax)
         end
-        lines!(ax, times, [s.total_stored for s in snaps];
-            label="Stored", color=_COLORS.stored, linewidth=linewidth)
-        lines!(ax, times, [s.total_surface_leakage for s in snaps];
-            label="Surface leakage", color=_COLORS.to_next, linewidth=linewidth)
-        axislegend(ax)
-    else
-        error("Unknown mode: $(mode). Use :per_layer or :system.")
+        push!(axes, ax)
     end
+    linkyaxes!(axes...)
 
     save(output_file, fig)
     println("Saved multi-layer volumes timeseries to: $(output_file)")
     return nothing
 end
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Animations
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
-Create an animated bird's eye view of CO₂ filling in a single layer.
+Create an animated bird's eye view of CO2 filling in a single layer.
 """
 function animate_layer_filling(
     layer::CO2BatchFill.Layer,
@@ -309,7 +293,7 @@ function animate_layer_filling(
         colormap=colormap,
         colorrange=(0.0, max_co2_height),
     )
-    Colorbar(fig[1, 2]; colormap, colorrange=(0.0, max_co2_height), label="CO₂ height (m)")
+    Colorbar(fig[1, 2]; colormap, colorrange=(0.0, max_co2_height), label="CO2 height (m)")
 
     if show_contours
         contour!(ax, x_coords, y_coords, topo;
@@ -319,15 +303,16 @@ function animate_layer_filling(
         )
     end
 
-    time_label = Observable("t = $(round(t_start, digits=2))")
-    Label(fig[0, :], time_label; fontsize=14)
+
+    # Running-max volumes: prevent drainage from causing colors to decrease
+    running_max_vols = zeros(Float64, numtraps(tstruct))
 
     println("Recording animation to: $(output_file)")
     record(fig, output_file, eachindex(timepoints); framerate=fps) do frame_idx
         tp = timepoints[frame_idx]
         _, volumes, _ = tstates[frame_idx]
-        height_data[] = _height_map(tstruct, z_vol_tables, volumes, pad, nx_padded, ny_padded)
-        time_label[] = "t = $(round(tp, digits=2))"
+        running_max_vols .= max.(running_max_vols, volumes)
+        height_data[] = _height_map(tstruct, z_vol_tables, running_max_vols, pad, nx_padded, ny_padded)
         if frame_idx % 10 == 0 || frame_idx == length(timepoints)
             println("  frame $(frame_idx)/$(length(timepoints))")
         end
@@ -338,7 +323,7 @@ function animate_layer_filling(
 end
 
 """
-Create an animated bird's eye view of CO₂ filling across multiple layers,
+Create an animated bird's eye view of CO2 filling across multiple layers,
 with N side-by-side panels and a shared time label.
 """
 function animate_multi_layer_filling(
@@ -386,8 +371,6 @@ function animate_multi_layer_filling(
     end
 
     fig = Figure(size=(700 * n, 650))
-    time_label = Observable("t = $(round(t_start, digits=2))")
-    Label(fig[0, 1:n], time_label; fontsize=14)
 
     height_observables = Vector{Observable{Matrix{Float64}}}(undef, n)
     for i in 1:n
@@ -412,7 +395,10 @@ function animate_multi_layer_filling(
                 levels=contour_levels, color=(:white, 0.5), linewidth=0.8)
         end
     end
-    Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="CO₂ height (m)")
+    Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="CO2 height (m)")
+
+    # Running-max volumes per layer: prevent drainage from causing colors to decrease
+    running_max_vols = [zeros(Float64, numtraps(layer_data[i].tstruct)) for i in 1:n]
 
     println("Recording animation to: $(output_file)")
     record(fig, output_file, eachindex(timepoints); framerate=fps) do frame_idx
@@ -420,10 +406,10 @@ function animate_multi_layer_filling(
         for i in 1:n
             ld = layer_data[i]
             _, volumes, _ = ld.tstates[frame_idx]
+            running_max_vols[i] .= max.(running_max_vols[i], volumes)
             height_observables[i][] = _height_map(
-                ld.tstruct, ld.z_vol_tables, volumes, ld.pad, ld.nx_p, ld.ny_p)
+                ld.tstruct, ld.z_vol_tables, running_max_vols[i], ld.pad, ld.nx_p, ld.ny_p)
         end
-        time_label[] = "t = $(round(tp, digits=2))"
         if frame_idx % 10 == 0 || frame_idx == length(timepoints)
             println("  frame $(frame_idx)/$(length(timepoints))")
         end
