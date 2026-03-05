@@ -67,28 +67,20 @@ n_layers <- setup_result$n_layers
 # Step 3: Configure custom reservoir properties
 cat("\nConfiguring custom reservoir properties...\n")
 
-# Compute layer-specific leakage heights from density differences
-brine_density <- 1020  # kg/m³
-co2_densities <- rep(500, n_layers)  # kg/m³
-density_diffs <- brine_density - co2_densities
-g <- 9.81  # m/s²
+# Set shale pressure threshold — leakage height is computed automatically
+# from shale_pressure_threshold / ((brine_density - co2_density) * g)
 shale_threshold <- 80000.0  # Pa
-
-leakage_heights <- shale_threshold / (density_diffs * g)
-
 # Make top layer impermeable (represents caprock)
-leakage_heights[n_layers] <- Inf
-
-cat("Layer-specific leakage heights (m):\n")
-print(round(leakage_heights, 2))
+shale_thresholds <- c(rep(shale_threshold, n_layers - 1), Inf)
 
 config_result <- julia_call("configure_reservoir",
                              porosity = rep(0.35, n_layers),
                              residual_co2_sat = rep(0.15, n_layers),
                              irreducible_water_sat = rep(0.25, n_layers),
-                             shale_pressure_threshold = rep(shale_threshold, n_layers),
-                             leakage_height = leakage_heights,
+                             shale_pressure_threshold = shale_thresholds,
                              residual_leakage_time = rep(2.0, n_layers),
+                             brine_density = rep(1020.0, n_layers),
+                             co2_density = rep(500.0, n_layers),
                              layer_specific = TRUE)
 print(config_result)
 
@@ -166,7 +158,7 @@ anim_result <- julia_call("generate_birdseye_animation",
                           output_file = "co2_generic_animation.gif",
                           num_frames = 20L,
                           fps = 2L,
-                          max_CO2_height = 15.0)
+                          max_co2_height = 15.0)
 
 if (anim_result$status == "success") {
   cat("Animation saved to:", anim_result$output_file, "\n")

@@ -125,7 +125,7 @@ anim_result <- julia_call("generate_birdseye_animation",
                           output_file = "co2_animation.gif",
                           num_frames = 30L,
                           fps = 2L,
-                          max_CO2_height = 20.0)
+                          max_co2_height = 20.0)
 
 if (anim_result$status == "success") {
   cat("Animation saved to:", anim_result$output_file, "\n")
