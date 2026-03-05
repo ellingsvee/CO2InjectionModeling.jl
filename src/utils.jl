@@ -3,7 +3,7 @@ import Interpolations
 
 export get_all_parents, get_all_descendants
 export get_min_topography_elevation, get_trap_bottom_elevation
-export volume_to_height
+export volume_to_height, height_map
 
 """
 Get all parent trap IDs for a given trap ID in a trap structure.
@@ -98,4 +98,19 @@ function volume_to_height(
     height = max(0.0, water_level - min_topography_elevation)
 
     return height
+end
+
+function height_map(tstruct, z_vol_tables, volumes)
+    num_traps = numtraps(tstruct)
+    height_map = zeros(Float64, size(tstruct.regions))
+    for trap_id in 1:num_traps
+        vol = volumes[trap_id]
+        vol <= 0.0 && continue
+        h = volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
+        h <= 0.0 && continue
+        for idx in tstruct.footprints[trap_id]
+            height_map[idx] = max(height_map[idx], h)
+        end
+    end
+    return height_map
 end
