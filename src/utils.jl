@@ -100,13 +100,26 @@ function volume_to_height(
     return height
 end
 
-function height_map(tstruct, z_vol_tables, volumes)
+"""
+Compute a 2-D CO2 column height map from per-trap volumes.
+
+Optional keyword arguments support physically-correct height reporting for traps
+that have leaked and are holding residually-trapped CO2.
+"""
+function height_map(tstruct, z_vol_tables, volumes;
+    leaking::Union{Nothing,AbstractVector{Bool}}=nothing,
+    leakage_heights::Union{Nothing,AbstractVector{Float64}}=nothing)
     num_traps = numtraps(tstruct)
     height_map = zeros(Float64, size(tstruct.regions))
+    use_leakage_correction = !isnothing(leaking) && !isnothing(leakage_heights)
     for trap_id in 1:num_traps
         vol = volumes[trap_id]
         vol <= 0.0 && continue
-        h = volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
+        h = if use_leakage_correction && leaking[trap_id] && isfinite(leakage_heights[trap_id])
+            leakage_heights[trap_id]
+        else
+            volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
+        end
         h <= 0.0 && continue
         for idx in tstruct.footprints[trap_id]
             height_map[idx] = max(height_map[idx], h)

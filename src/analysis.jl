@@ -21,6 +21,7 @@ struct LayerSnapshot
     trap_filled::Vector{Bool}       # Structurally full (at spillpoint)
     trap_leaking::Vector{Bool}      # Has reached leakage threshold (edge = 0)
     trap_draining::Vector{Bool}     # Currently experiencing residual drainage
+    trap_leakage_height::Vector{Float64}  # Per-trap CO2 column height threshold for leakage (Inf = cannot leak)
 
     # Mass balance quantities (all in SWIM volume units)
     total_injected::Float64         # Cumulative CO2 injected into this layer up to timestamp
@@ -216,6 +217,7 @@ function generate_layer_snapshot(
         filled,
         leaking,
         draining,
+        leakage_state.leakage_height,
         total_inj,
         total_stored,
         total_drained_,

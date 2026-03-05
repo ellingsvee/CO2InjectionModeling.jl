@@ -5,7 +5,6 @@ using CairoMakie
 using LaTeXStrings
 using Random
 
-# Random.seed!(3)
 Random.seed!(42)
 
 # Grid / domain settings
@@ -57,8 +56,9 @@ INJECTION_END = 10.0
 pad = PAD_WIDTH # since closed boundaries
 topo_size = (NX + 2 * pad, NY + 2 * pad)
 
+injection_location_idx = (div(NX, 2) + pad, div(NY, 2) + pad)
 rate_L1 = zeros(topo_size)
-rate_L1[div(NX, 2)+pad, div(NY, 2)+pad] = TOTAL_RATE
+rate_L1[injection_location_idx[1], injection_location_idx[2]] = TOTAL_RATE
 
 injection_events = [
     # Layer 1: inject then stop
@@ -93,23 +93,8 @@ update_theme!(
     )
 )
 
-for layer_idx in 1:N_LAYERS
-    tstruct = layers[layer_idx].trap_structure
-
-    max_height = maximum(height_map(
-        tstruct,
-        SurfaceWaterIntegratedModeling._compute_z_vol_tables(tstruct),
-        multi_snaps[end].layers[layer_idx].trap_volumes,
-    ))
-    println("Max CO2 height in layer $layer_idx at final time: $(round(max_height, digits=2)) m")
-
-end
-
-
-
-
 # Plot 1: static spatial distribution at final time (one panel per layer)
-println("\nPlotting spatial CO2 distribution...")
+injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
 plot_multi_layer(
     layers, multi_snaps[end], domain;
     output_file=joinpath(@__DIR__, "multi_layer_co2_final.svg"),
@@ -121,14 +106,14 @@ plot_multi_layer(
     contour_opacity=1.0,
     figure_size=(500 * N_LAYERS, 500),
     colormap=:Blues,
+    injection_locations=[injection_location_loc],
 )
 
 # Plot 2: volume time-series per layer
-println("Plotting per-layer volume time-series...")
 _phys_scale = swim_volume_to_physical_volume(1.0, rp, domain)
 plot_multi_layer_volumes_timeseries(
     multi_snaps;
     output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),
     vol_scale=_phys_scale / 1e5,
-    ylabel=L"Volume $(\times 10^5\,\mathrm{m}^3)$",
+    ylabel=L"Volume $(\!\times\! 10^5\,\mathrm{m}^{3})$",
 )

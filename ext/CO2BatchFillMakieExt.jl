@@ -22,14 +22,24 @@ const _CBAR_SIZE = 25
 # Private helpers
 """
 Build an unpadded 2-D CO2 height array from per-trap volumes.
+
+Optional `leaking` / `leakage_heights` keyword arguments enable physically-correct
+height reporting for residually-trapped CO2 (see `height_map` in utils.jl).
 """
-function _height_map(tstruct, z_vol_tables, volumes, pad, nx_p, ny_p)
+function _height_map(tstruct, z_vol_tables, volumes, pad, nx_p, ny_p;
+    leaking::Union{Nothing,AbstractVector{Bool}}=nothing,
+    leakage_heights::Union{Nothing,AbstractVector{Float64}}=nothing)
     num_traps = numtraps(tstruct)
     height_map_padded = zeros(Float64, nx_p, ny_p)
+    use_leakage_correction = !isnothing(leaking) && !isnothing(leakage_heights)
     for trap_id in 1:num_traps
         vol = volumes[trap_id]
         vol <= 0.0 && continue
-        h = volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
+        h = if use_leakage_correction && leaking[trap_id] && isfinite(leakage_heights[trap_id])
+            leakage_heights[trap_id]
+        else
+            volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
+        end
         h <= 0.0 && continue
         for idx in tstruct.footprints[trap_id]
             height_map_padded[idx] = max(height_map_padded[idx], h)
@@ -53,7 +63,9 @@ function _layer_panel!(ax, layer, snap, domain;
     ny = ny_padded - 2 * pad
 
     z_vol_tables = _compute_z_vol_tables(tstruct)
-    height_array = _height_map(tstruct, z_vol_tables, snap.trap_volumes, pad, nx_padded, ny_padded)
+    height_array = _height_map(tstruct, z_vol_tables, snap.trap_volumes, pad, nx_padded, ny_padded;
+        leaking=snap.trap_leaking,
+        leakage_heights=snap.trap_leakage_height)
 
     x_coords = range(0.0, nx * domain.dx, length=nx)
     y_coords = range(0.0, ny * domain.dy, length=ny)
@@ -160,6 +172,7 @@ function plot_multi_layer(
     contour_levels::Int=10,
     major_contour_every::Int=5,
     contour_opacity::Float64=0.8,
+    injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing, # per-layer list of injection locations. For now assume only bottom layer
     figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
 )
     n = length(layers)
@@ -176,6 +189,11 @@ function plot_multi_layer(
         )
         _layer_panel!(ax, layers[i], snap.layers[i], domain;
             pad_width, colormap, max_co2_height, show_contours, show_labels, contour_levels, major_contour_every, contour_opacity)
+
+        if !isnothing(injection_locations) && i == 1
+            scatter!(ax, [loc[1] for loc in injection_locations], [loc[2] for loc in injection_locations];
+                color=:black, marker=:xcross, markersize=35, label="Injection")
+        end
     end
     Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="Column height", size=_CBAR_SIZE)
 
