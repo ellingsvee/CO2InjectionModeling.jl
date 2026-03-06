@@ -109,7 +109,13 @@ function analyze_base_surfaces(topography::AbstractTopography; boundary_conditio
         end
 
         # Use spillanalysis from SWIM
-        trap_structure = spillanalysis(surface, lengths=(length_x, length_y))
+        # Newer SWIM accepts Tuple{<:Real, <:Real}; older SWIM only accepts Tuple{<:Real}
+        trap_structure = try
+            spillanalysis(surface, lengths=(length_x, length_y))
+        catch e
+            e isa TypeError || rethrow(e)
+            spillanalysis(surface, lengths=(length_x,))
+        end
         push!(layers, Layer(layer_name, trap_structure, boundary_condition))
     end
 
