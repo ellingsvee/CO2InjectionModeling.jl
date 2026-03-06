@@ -1,4 +1,4 @@
-/Manifest*.toml
+**/Manifest*.toml
 
 
 # Paper that has been used during development
