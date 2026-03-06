@@ -36,7 +36,7 @@ IP theory assumes that buoyancy and capillary pressure are the governing forces 
 Vertical migration occurs when the $\text{CO}_2$ column height in a trap exceeds the capillary entry pressure of the overlying shale. At that point, breaching the shale requires less pressure than filling the next horizontal trap, so the $\text{CO}_2$ migrates vertically [@Carruthers:1998]. The breach location is then treated as a new injection point in the overlying layer, and the same filling algorithm is applied. As the $\text{CO}_2$ drains upward, a fraction is immobilized as residual trapping and left behind the migrating plume. \autoref{fig:ip_system} shows how this process works, and how the trap structure graph is used to represent the topography.
 
 
-![Simple example of vertical $\text{CO}_2$ migration with residual trapping. The figure to the left shows the state of a two-layer system before and after migration. A solid color is used to represent the $\text{CO}_2$ before drainage, while the dashed color represents the residually trapped $\text{CO}_2$. To the right, the structural traps in the system is represented as nodes in a graph.\label{fig:ip_system}](figures/combined_migration_illustration.svg)
+![Simple example of vertical $\text{CO}_2$ migration with residual trapping. The figure to the left shows the state of a two-layer system before and after migration. A darb blue color is used to represent the $\text{CO}_2$ before drainage, while the light blue color represents the residually trapped $\text{CO}_2$. To the right, the structural traps in the system is represented as nodes in a graph.\label{fig:ip_system}](figures/combined_migration_illustration.svg)
 
 # Implementation and features
 
