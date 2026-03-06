@@ -4,6 +4,21 @@ export LeakageRecord, LeakageState
 export InjectionEvent
 export LeakageState, LeakageRecord
 
+"""
+    Domain3D
+
+3D domain describing the reservoir grid.
+
+# Fields
+- `nx`, `ny`, `nz`: Grid cell counts in x, y, and z directions
+- `length_x`, `length_y`, `length_z`: Physical domain extent in meters
+- `dx`, `dy`, `dz`: Cell sizes in meters (computed from length / n)
+- `depth_min`, `depth_max`: Shallowest and deepest depths in the domain (m)
+
+Construct via [`create_domain`](@ref) from a topography object, or directly:
+
+    Domain3D(nx, ny, nz, length_x, length_y, length_z, depth_min, depth_max)
+"""
 struct Domain3D
     nx::Int
     ny::Int
@@ -26,6 +41,28 @@ struct Domain3D
 end
 
 
+"""
+    InjectionEvent(timestamp, injection_rate)
+
+Defines a CO2 injection rate starting at `timestamp`.
+
+The simulation treats injection as piecewise-constant: a rate set at `timestamp`
+remains in effect until the next `InjectionEvent`.  To stop injection, add an
+event with `injection_rate` equal to zero.
+
+# Fields
+- `timestamp`: Time (in model time units) at which this rate becomes active
+- `injection_rate`: Physical injection rate in m³/year per grid cell,
+  either a scalar or a matrix of size `(nx + 2*pad, ny + 2*pad)`
+
+# Example
+```julia
+pad = 2
+rate = zeros(NX + 2pad, NY + 2pad)
+rate[div(NX,2)+pad, div(NY,2)+pad] = 25_000.0  # m³/yr at centre cell
+events = [InjectionEvent(0.0, rate), InjectionEvent(10.0, zeros(size(rate)))]
+```
+"""
 struct InjectionEvent
     timestamp::Float64
     injection_rate::Union{Matrix{Float64},Float64}
@@ -44,6 +81,34 @@ struct CellProperties
     end
 end
 
+"""
+    ReservoirProperties(sand_porosity, sand_residual_co2_saturation,
+                        sand_irreducible_water_saturation,
+                        shale_pressure_threshold, residual_leakage_time;
+                        brine_density=1020.0, co2_density=460.0)
+
+Physical properties of the reservoir rock and fluids.
+
+# Arguments
+- `sand_porosity`: Porosity of the sand (0–1)
+- `sand_residual_co2_saturation`: Residual (irreducible) CO2 saturation after drainage (0–1)
+- `sand_irreducible_water_saturation`: Irreducible water saturation in sand (0–1)
+- `shale_pressure_threshold`: Caprock entry pressure in Pa (`Inf` for impermeable caprock)
+- `residual_leakage_time`: Duration over which residual CO2 drains after leakage onset (years)
+- `brine_density`: Brine density in kg/m³ (default 1020.0)
+- `co2_density`: CO2 density in kg/m³ (default 460.0)
+
+# Derived fields
+- `leakage_height`: CO2 column height threshold that triggers leakage (m),
+  computed as `shale_pressure_threshold / ((brine_density - co2_density) * g)`.
+  Set to `Inf` when the caprock is impermeable.
+
+# Example
+```julia
+rp = ReservoirProperties(0.3, 0.4, 0.1, 15_000.0, 5.0)
+rp_cap = ReservoirProperties(0.3, 0.4, 0.1, Inf, 5.0)  # sealed caprock
+```
+"""
 struct ReservoirProperties
     sand_porosity::Float64
     sand_residual_co2_saturation::Float64

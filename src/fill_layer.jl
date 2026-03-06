@@ -4,14 +4,30 @@ export fill_sequence_with_leakage, InjectionEvent, get_effective_leakage_cap
 
 
 """
-    fill_layer(tstruct, domain, reservoir_properties, weather_events; kwargs...)
+    fill_sequence_with_leakage(tstruct, reservoir_properties, weather_events;
+                               time_slack=0.0, verbose=false)
+        -> (seq::Vector{SpillEvent}, leakage_state::LeakageState)
 
-Fill a layer with CO2 based on weather events (injection events converted to SWIM format).
-Detects and tracks leakage when CO2 height exceeds the leakage threshold.
+Simulate CO2 filling for a single layer represented by `tstruct`, driven by
+`weather_events` (injection rates in SWIM volume units).  Leakage through the
+caprock is detected and tracked: when the CO2 column height in a trap exceeds
+the threshold in `reservoir_properties`, that trap is flagged as leaking and
+its CO2 begins to drain residually.
 
-Returns:
-- `seq`: Vector of SpillEvents describing the filling sequence
-- `leakage_state`: LeakageState tracking which traps are leaking and when
+Normally called indirectly through [`fill_layers`](@ref).
+
+# Arguments
+- `tstruct`: SWIM `TrapStructure` for this layer (from [`analyze_base_surfaces`](@ref))
+- `reservoir_properties`: [`ReservoirProperties`](@ref) for this layer
+- `weather_events`: `Vector{WeatherEvent}` giving injection rates over time
+  (produced by [`convert_injection_event_to_weather_event`](@ref))
+- `time_slack`: Small time offset added to SWIM events (default `0.0`)
+- `verbose`: Print progress information (default `false`)
+
+# Returns
+- `seq`: `Vector{SpillEvent}` describing the trap-filling sequence (SWIM output)
+- `leakage_state`: [`LeakageState`](@ref) recording which traps leaked, when,
+  and how much
 """
 function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
     reservoir_properties::ReservoirProperties,

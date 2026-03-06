@@ -225,6 +225,24 @@ function generate_layer_snapshot(
     )
 end
 
+"""
+    generate_layer_snapshots(layer, layer_idx, seq, leakage_state,
+                             weather_events, timepoints) -> Vector{LayerSnapshot}
+
+Compute [`LayerSnapshot`](@ref)s for `layer` at every time in `timepoints`.
+
+SWIM trap states are evaluated in bulk via `trap_states_at_timepoints` for
+efficiency, making this much faster than calling [`generate_layer_snapshot`](@ref)
+in a loop.  This is the preferred method when multiple snapshots are needed.
+
+# Arguments
+- `layer`: [`Layer`](@ref)
+- `layer_idx`: Index of this layer in the multi-layer stack (1 = deepest)
+- `seq`: Fill sequence from [`fill_sequence_with_leakage`](@ref)
+- `leakage_state`: Leakage state from [`fill_sequence_with_leakage`](@ref)
+- `weather_events`: Effective weather events for this layer
+- `timepoints`: Sorted vector of query times
+"""
 function generate_layer_snapshots(
     layer::Layer,
     layer_idx::Int,
@@ -269,7 +287,20 @@ struct MultiLayerSnapshot
 end
 
 """
-Compute a [`MultiLayerSnapshot`](@ref) at time `t`.
+    generate_multi_layer_snapshot(layers, seqs, leakage_states,
+                                  weather_events_per_layer, t) -> MultiLayerSnapshot
+
+Compute a [`MultiLayerSnapshot`](@ref) for the entire layer stack at time `t`.
+
+# Arguments
+- `layers`: `Vector{Layer}` (deepest first)
+- `seqs`: Fill sequences from [`fill_layers`](@ref)
+- `leakage_states`: Leakage states from [`fill_layers`](@ref)
+- `weather_events_per_layer`: Weather events per layer from [`fill_layers`](@ref)
+- `t`: Query time
+
+See also [`generate_multi_layer_snapshots`](@ref) for computing many snapshots
+efficiently.
 """
 function generate_multi_layer_snapshot(
     layers::Vector{Layer},
@@ -296,7 +327,29 @@ function generate_multi_layer_snapshot(
 end
 
 """
-Compute [`MultiLayerSnapshot`](@ref)s at each time in `timepoints`.
+    generate_multi_layer_snapshots(layers, seqs, leakage_states,
+                                   weather_events_per_layer, timepoints)
+        -> Vector{MultiLayerSnapshot}
+
+Compute [`MultiLayerSnapshot`](@ref)s for the entire layer stack at each time
+in `timepoints`.
+
+Trap states are pre-computed for all timepoints in bulk (per layer) for
+efficiency.  This is the standard entry point for post-processing after
+[`fill_layers`](@ref).
+
+# Arguments
+- `layers`: `Vector{Layer}` (deepest first)
+- `seqs`, `leakage_states`, `weather_events_per_layer`: outputs of [`fill_layers`](@ref)
+- `timepoints`: Sorted vector of query times
+
+# Example
+```julia
+timepoints = collect(range(0.0, 15.0, length=30))
+multi_snaps = generate_multi_layer_snapshots(
+    layers, seqs, leakage_states, weather_events_per_layer, timepoints)
+print_summary(multi_snaps[end])
+```
 """
 function generate_multi_layer_snapshots(
     layers::Vector{Layer},
@@ -332,7 +385,19 @@ end
 # ─────────────────────────────────────────────────────────────────────────────
 
 """
-Print a compact human-readable summary of a [`MultiLayerSnapshot`](@ref).
+    print_summary([io,] snap::MultiLayerSnapshot)
+
+Print a compact human-readable mass-balance table for `snap` to `io`
+(default: `stdout`).
+
+Columns: layer name, cumulative injected, currently stored, residually drained,
+passthrough, and volume leaving to the next layer.  A mass-imbalance line is
+printed at the bottom.
+
+# Example
+```julia
+print_summary(multi_snaps[end])
+```
 """
 function print_summary(io::IO, snap::MultiLayerSnapshot)
     @printf(io, "MultiLayerSnapshot  t = %.4g\n", snap.timestamp)
