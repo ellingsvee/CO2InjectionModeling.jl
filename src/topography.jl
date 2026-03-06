@@ -1,3 +1,19 @@
+"""
+    AbstractTopography
+
+Abstract base type for reservoir topography descriptions.
+
+Subtypes must implement:
+- [`get_sand_layers`](@ref)
+- [`get_grid_dimensions`](@ref)
+- [`get_grid_spacing`](@ref)
+- [`get_depth_range`](@ref)
+
+Default implementations are provided for [`get_caprock_surface`](@ref),
+[`get_coordinate_origin`](@ref), and [`get_num_layers`](@ref).
+
+See [`GenericTopography`](@ref) for the standard concrete implementation.
+"""
 abstract type AbstractTopography end
 
 export AbstractTopography, GenericTopography

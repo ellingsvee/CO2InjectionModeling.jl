@@ -6,6 +6,8 @@ export get_min_topography_elevation, get_trap_bottom_elevation
 export volume_to_height, height_map
 
 """
+    get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
+
 Get all parent trap IDs for a given trap ID in a trap structure.
 """
 function get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
@@ -24,6 +26,8 @@ function get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
 end
 
 """
+    get_all_descendants(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
+
 Get all descendants (children, grandchildren, etc.) of a trap.
 Returns a vector of trap IDs in breadth-first order.
 """
@@ -39,6 +43,8 @@ function get_all_descendants(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
 end
 
 """
+    get_min_topography_elevation(trap_id::Int, tstruct::TrapStructure)::Float64
+
 Get the minimum topography elevation in a trap's footprint.
 This is the actual lowest point in the footprint, including the area covered by child traps.
 """
@@ -48,6 +54,8 @@ function get_min_topography_elevation(trap_id::Int, tstruct::TrapStructure)::Flo
 end
 
 """
+    get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure)::Float64
+
 Get the effective bottom elevation of a trap for volume interpolation purposes.
 
 NOTE: This is used for z_vol_table interpolation, NOT for CO2 height calculation.
@@ -70,6 +78,8 @@ end
 
 
 """
+    volume_to_height(volume::Float64, trap_id::Int, z_vol_table::Tuple{Vector{Float64},Vector{Float64}}, tstruct::TrapStructure)::Float64
+
 Convert a volume in a trap to the CO2 column height above the topography bottom.
 
 For parent traps with filled children, the CO2 column extends from the true
@@ -101,6 +111,8 @@ function volume_to_height(
 end
 
 """
+    height_map(tstruct::TrapStructure, z_vol_tables::Vector{Tuple{Vector{Float64},Vector{Float64}}}, volumes::Vector{Float64};
+
 Compute a 2-D CO2 column height map from per-trap volumes.
 
 Optional keyword arguments support physically-correct height reporting for traps

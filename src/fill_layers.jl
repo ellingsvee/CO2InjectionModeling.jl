@@ -2,7 +2,37 @@ using SurfaceWaterIntegratedModeling
 export fill_layers
 
 """
-Extend the filling to multiple layers, accounting for leakage between layers.
+    fill_layers(layers, domain, reservoir_properties, injection_events; verbose=false)
+        -> (seqs, leakage_states, weather_events_per_layer)
+
+Simulate CO2 migration through a stack of geological layers, propagating
+leakage upward from each layer to the next.
+
+Layers are processed in index order: `layers[1]` (deepest) is filled first
+using `injection_events[1]`.  CO2 that leaks through the caprock of layer `i`
+is converted to [`InjectionEvent`](@ref)-equivalent `WeatherEvent`s and drives
+filling in layer `i+1`, and so on.
+
+# Arguments
+- `layers`: `Vector{Layer}` from [`analyze_base_surfaces`](@ref), deepest first
+- `domain`: [`Domain3D`](@ref) from [`create_domain`](@ref)
+- `reservoir_properties`: A single [`ReservoirProperties`](@ref) (applied to
+  all layers) or a `Vector{ReservoirProperties}` (one per layer)
+- `injection_events`: `Vector{Vector{InjectionEvent}}` — one inner vector per
+  layer.  Layers without direct injection receive a single zero-rate event.
+- `verbose`: Print per-layer progress (default `false`)
+
+# Returns
+- `seqs`: `Vector{Vector{SpillEvent}}` — fill sequence per layer
+- `leakage_states`: `Vector{LeakageState}` — leakage tracking per layer
+- `weather_events_per_layer`: `Vector{Vector{WeatherEvent}}` — effective
+  injection (including leakage from below) per layer
+
+# Example
+```julia
+seqs, leakage_states, weather_events_per_layer = fill_layers(
+    layers, domain, [rp, rp, rp_caprock], injection_events)
+```
 """
 function fill_layers(
     layers::Vector{Layer},
