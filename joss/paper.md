@@ -55,7 +55,7 @@ We demonstrate `CO2BatchFill.jl` on a synthetic three-layer reservoir, and the f
 
 $\text{CO}_2$ is injected at a constant rate over $10$ years into the center of the bottom layer. \autoref{fig:co2_plume} shows the plumes after $15$ years. The $\text{CO}_2$ follows the topography and accumulates in structural traps, migrating all the way to the top layer. There, the impermeable caprock prevents further migration, resulting in a taller $\text{CO}_2$ column than in the underlying layers.
 
-![$\text{CO}_2$ plume extents after $15$ years. Injection location is indicated by the black cross.\label{fig:co2_plume}](figures/multi_layer_co2_final.svg)
+![$\text{CO}_2$ plume extents after $15$ years. The injection location is marked by a cross, and the leakage locations are indicated by triangles.\label{fig:co2_plume}](figures/multi_layer_co2_final.svg)
 
 \autoref{fig:co2_timeseries} shows the $\text{CO}_2$ mass in each layer over time. Mass increases as traps fill, then decreases once migration begins — mobile $\text{CO}_2$ drains upward while the residual fraction remains. When injection ends after $10$ years, draining continues until the system stabilizes.
 
