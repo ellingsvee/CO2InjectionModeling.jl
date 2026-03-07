@@ -235,8 +235,31 @@ function _fill_sequence_for_weather_event_with_leakage!(
             setsavepoint!(rateinfo)
             SurfaceWaterIntegratedModeling._update_flow!(rateinfo, graph_updates, tstruct, sgraph)
 
-            # Create amount update for this trap
-            amount_updates = [IncrementalUpdate(leak_trap, FilledAmount(leakage_vol, cur_time))]
+            # Update amounts for all traps whose inflow rate changed due to the
+            # spillgraph modification.  
+            amount_updates = SurfaceWaterIntegratedModeling._update_affected_amounts(
+                rateinfo, cur_amounts, filled_traps,
+                tstruct, z_vol_tables, cur_time
+            )
+
+            # Also cap amounts for any leaking traps that were updated by
+            # _update_affected_amounts (e.g., pass-through parent traps).
+            for i in 1:length(amount_updates)
+                tix = amount_updates[i].index
+                if leakage_state.leaking[tix]
+                    cap_vol = get_effective_leakage_cap(leakage_state, tix)
+                    if amount_updates[i].value.amount > cap_vol
+                        amount_updates[i] = IncrementalUpdate(tix, FilledAmount(cap_vol, cur_time))
+                    end
+                end
+            end
+
+            # Add the amount update for the leaking trap itself
+            push!(amount_updates, IncrementalUpdate(leak_trap, FilledAmount(leakage_vol, cur_time)))
+
+            # Integrate amount changes into cur_amounts (must happen before
+            # leakage/changetime estimate updates which read cur_amounts)
+            SurfaceWaterIntegratedModeling._apply_updates!(cur_amounts, amount_updates)
 
             # Update leakage time estimate to Inf for the leaking trap (already leaking)
             leakage_time_est[leak_trap] = LeakageTimeEstimate(leak_trap, Inf, Inf)
