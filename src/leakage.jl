@@ -498,7 +498,10 @@ function generate_leakage_weather_events(
         t0 = leakage_state.leakage_start_time[trap]
         isfinite(t0) || continue
         push!(timestamps, t0)                        # drainage/passthrough begins
-        has_finite_drainage && push!(timestamps, t0 + T_res)  # drainage ends
+        # Only add drainage end time for traps that actually drain residually
+        if has_finite_drainage && leakage_state.draining[trap]
+            push!(timestamps, t0 + T_res)            # residual drainage ends
+        end
     end
 
     sorted_ts = sort(collect(timestamps))

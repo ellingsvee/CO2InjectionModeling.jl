@@ -163,15 +163,18 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
             verbose && println("Leakage event at time $(cur_time) in trap $(leak_trap)")
 
-            # Mark trap as leaking
+            # Mark trap as leaking and record start time.
+            # leakage_start_time must be set for ALL leaking traps (including pass-through
+            # ones with leakage_vol=0) so that generate_leakage_weather_events and
+            # compute_total_passthrough correctly account for CO2 flowing through them.
             leakage_state.leaking[leak_trap] = true
+            leakage_state.leakage_start_time[leak_trap] = cur_time
 
-            # Only mark as draining if trap has actual volume (not pass-through)
-            # Pass-through traps (volume=0) just forward CO2 to the leak point
+            # Only mark as draining if trap has actual volume (not pass-through).
+            # Pass-through traps (volume=0) forward CO2 directly to the next layer.
             leakage_vol_check = leakage_state.leakage_volume[leak_trap]
             if leakage_vol_check > 0
                 leakage_state.draining[leak_trap] = true
-                leakage_state.leakage_start_time[leak_trap] = cur_time
             end
 
             # Record the leakage for upstream layer
