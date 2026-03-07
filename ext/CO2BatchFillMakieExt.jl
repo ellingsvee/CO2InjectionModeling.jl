@@ -7,7 +7,7 @@ using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_ti
 using Statistics: mean
 
 import CO2BatchFill: animate_layer_filling, animate_multi_layer_filling,
-    plot_layer, plot_multi_layer,
+    plot_layer, plot_multi_layer, plot_multi_layer_ensemble,
     plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries
 
 # Shared style constants
@@ -471,6 +471,114 @@ function animate_multi_layer_filling(
     end
 
     println("Done.")
+    return nothing
+end
+
+# Wong (2011) colour palette — 7 colours that are readable by colour-blind viewers
+const _WONG_COLORS = [
+    RGBf(0.902, 0.624, 0.000),   # orange
+    RGBf(0.337, 0.706, 0.914),   # sky blue
+    RGBf(0.000, 0.620, 0.451),   # green
+    RGBf(0.941, 0.894, 0.259),   # yellow
+    RGBf(0.000, 0.447, 0.698),   # blue
+    RGBf(0.835, 0.369, 0.000),   # vermillion
+    RGBf(0.800, 0.475, 0.655),   # pink
+]
+
+"""
+Plot CO2 plume outlines for an ensemble of multi-layer simulations, with one
+coloured contour line per ensemble member per layer panel.
+"""
+function plot_multi_layer_ensemble(
+    layers::Vector{CO2BatchFill.Layer},
+    ensemble::Vector{CO2BatchFill.MultiLayerSnapshot},
+    domain::CO2BatchFill.Domain3D;
+    labels::Union{Nothing,Vector{String}}=nothing,
+    colors=nothing,
+    output_file::String="ensemble_co2.svg",
+    pad_width::Int=2,
+    contour_level::Float64=0.01,
+    linewidth::Real=2.5,
+    show_topography::Bool=true,
+    topo_contour_levels::Int=10,
+    major_contour_every::Int=5,
+    injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing,
+    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
+)
+    n_layers = length(layers)
+    n_ensemble = length(ensemble)
+
+    eff_labels = isnothing(labels) ? ["Member $i" for i in 1:n_ensemble] : labels
+    eff_colors = if isnothing(colors)
+        [_WONG_COLORS[((i - 1) % length(_WONG_COLORS)) + 1] for i in 1:n_ensemble]
+    else
+        colors
+    end
+
+    figure_size = isnothing(figure_size) ? (700 * n_layers, 600) : figure_size
+    fig = Figure(size=figure_size)
+
+    for i in 1:n_layers
+        layer = layers[i]
+        tstruct = layer.trap_structure
+        pad = layer.boundary_condition == :closed ? pad_width : 0
+        nx_padded, ny_padded = size(tstruct.topography)
+        nx = nx_padded - 2 * pad
+        ny = ny_padded - 2 * pad
+
+        x_coords = range(0.0, nx * domain.dx, length=nx)
+        y_coords = range(0.0, ny * domain.dy, length=ny)
+        topo = tstruct.topography[pad+1:end-pad, pad+1:end-pad]
+        z_vol_tables = _compute_z_vol_tables(tstruct)
+
+        layer_name = ensemble[1].layers[i].layer_name
+        ax = Axis(fig[1, i];
+            xlabel="x (m)",
+            ylabel=(i == 1 ? "y (m)" : ""),
+            title=layer_name,
+            aspect=DataAspect(),
+        )
+
+        if show_topography
+            mn, mx = extrema(topo)
+            all_levels = collect(range(mn, mx; length=topo_contour_levels))
+            major_levels = all_levels[2:major_contour_every:end]
+            minor_levels = setdiff(all_levels, major_levels)
+            contour!(ax, x_coords, y_coords, topo;
+                levels=minor_levels, color=(:black, 0.20), linewidth=0.6)
+            contour!(ax, x_coords, y_coords, topo;
+                levels=major_levels, color=(:black, 0.40), linewidth=1.2)
+        end
+
+        for (j, snap) in enumerate(ensemble)
+            layer_snap = snap.layers[i]
+            height_array = _height_map(
+                tstruct, z_vol_tables, layer_snap.trap_volumes, pad, nx_padded, ny_padded;
+                leaking=layer_snap.trap_leaking,
+                leakage_heights=layer_snap.trap_leakage_height)
+
+            any(>=(contour_level), height_array) || continue
+            contour!(ax, x_coords, y_coords, height_array;
+                levels=[contour_level],
+                color=eff_colors[j],
+                linewidth=linewidth,
+            )
+        end
+
+        if !isnothing(injection_locations) && i == 1
+            scatter!(ax,
+                [loc[1] for loc in injection_locations],
+                [loc[2] for loc in injection_locations];
+                color=:black, marker=:xcross, markersize=35)
+        end
+    end
+
+    # Build legend from LineElements — works regardless of which contours were drawn
+    legend_elements = [LineElement(color=eff_colors[j], linewidth=linewidth) for j in 1:n_ensemble]
+    Legend(fig[1, n_layers+1], legend_elements, eff_labels; framevisible=true)
+
+    save(output_file, fig)
+    println("Saved ensemble plot to: $(output_file)")
     return nothing
 end
 

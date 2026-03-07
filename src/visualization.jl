@@ -2,7 +2,7 @@
 # These functions are only available when Makie (or a Makie backend) is loaded
 
 export animate_layer_filling, animate_multi_layer_filling
-export plot_layer, plot_multi_layer
+export plot_layer, plot_multi_layer, plot_multi_layer_ensemble
 export plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries
 
 """
@@ -76,6 +76,38 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 - `figure_size`: `(width, height)` in pixels (default `(700*n_layers, 600)`)
 """
 function plot_multi_layer end
+
+"""
+    plot_multi_layer_ensemble(layers, ensemble, domain; kwargs...) -> nothing
+
+Plot CO2 plume outlines for an ensemble of multi-layer simulations.
+Each ensemble member is drawn as a single contour line (at `contour_level` metres of
+CO2 column height) in a distinct colour, giving a compact uncertainty overview.
+Panels are arranged side-by-side, one per geological layer.
+
+Requires a Makie backend (e.g. `using CairoMakie`).
+
+# Arguments
+- `layers`: `Vector{Layer}` from [`analyze_base_surfaces`](@ref)
+- `ensemble`: `Vector{MultiLayerSnapshot}`, one element per ensemble member
+- `domain`: [`Domain3D`](@ref)
+
+# Keyword arguments
+- `output_file`: Output file path (default `"ensemble_co2.svg"`)
+- `labels`: `Vector{String}` legend labels, one per member (default `"Member i"`)
+- `colors`: Override colours (default: Wong colour palette, cycling if needed)
+- `pad_width`: Boundary padding cells (default `2`)
+- `contour_level`: CO2 column height threshold that defines each plume outline in metres
+  (default `0.01`)
+- `linewidth`: Outline line width (default `2.5`)
+- `show_topography`: Overlay topography contours (default `true`)
+- `topo_contour_levels`: Number of topography contour levels (default `10`)
+- `major_contour_every`: Every nth level is drawn as a major contour (default `5`)
+- `injection_locations`: `Vector{Tuple{Float64,Float64}}` of (x, y) well locations
+  to mark on layer 1 (default `nothing`)
+- `figure_size`: `(width, height)` in pixels (default `(700*n_layers, 600)`)
+"""
+function plot_multi_layer_ensemble end
 
 """
     plot_layer_volumes_timeseries(snaps; kwargs...) -> nothing
