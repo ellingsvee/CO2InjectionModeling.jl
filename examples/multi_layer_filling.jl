@@ -18,7 +18,6 @@ const N_LAYERS = 3
 const RESIDUAL_TRAPPING = 0.4
 
 # Generate four GRF surfaces at increasing depth
-# cov = CovarianceFunction(2, Matern(100, 2, σ=3.0))
 cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
@@ -116,6 +115,5 @@ plot_multi_layer_volumes_timeseries(
     multi_snaps;
     output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),
     vol_scale=_phys_scale / 1e5,
-    # ylabel=L"Volume $\left(\!\times\! 10^5\,\mathrm{m}^{3}\right)$",
     ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
 )
