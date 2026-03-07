@@ -7,12 +7,13 @@ using Test
 Random.seed!(1)
 
 # Test grid parameters
-const TEST_NX, TEST_NY = 200, 200
+const TEST_NX, TEST_NY = 100, 100
 const TEST_LENGTH_X, TEST_LENGTH_Y = 1000.0, 1000.0
 const TEST_DX, TEST_DY = TEST_LENGTH_X / TEST_NX, TEST_LENGTH_Y / TEST_NY
 const _thick = 10.0
 const boundary_condition = :closed  # :open or :closed
 const pad_width = 2
+const RESIDUAL_TRAPPING = 0.4
 
 const TOTAL_INJECTION_RATE = 20_000.0
 const INJECTION_START_T = 0.0
@@ -99,7 +100,7 @@ end
 function make_grf_scenario(
     injection_events::Vector{Vector{InjectionEvent}}=_make_dual_injection_events()
 )
-    cov = CovarianceFunction(2, Matern(100, 2, σ=1.0))
+    cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
     pts_x = range(0, stop=(TEST_NX - 1) * TEST_DX, step=TEST_DX)
     pts_y = range(0, stop=(TEST_NY - 1) * TEST_DY, step=TEST_DY)
     top = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 900.0
@@ -113,9 +114,9 @@ const GRF_SCENARIO = make_grf_scenario()
 const ALL_SCENARIOS = [DOME_SCENARIO, GRF_SCENARIO]
 
 # Reservoir properties (shared across all tests)
-const rp_sealed = ReservoirProperties(0.3, 0.2, 0.1, Inf, 5.0)
+const rp_sealed = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 # very small leakage threshold (~0.18 m) — forces leakage in reasonable simulation time
-const rp_quick = ReservoirProperties(0.3, 0.2, 0.1, 1000.0, 5.0)
+const rp_quick = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1000.0, 5.0)
 
 # Shared test helpers
 """
