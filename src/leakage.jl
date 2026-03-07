@@ -39,25 +39,6 @@ function get_true_topography_bottom(trap_id::Int, tstruct::TrapStructure)::Float
     return minimum(tstruct.topography[footprint])
 end
 
-
-# """
-# Get the effective bottom elevation of a trap for volume interpolation purposes.
-# For parent traps, this is the maximum of the topography minimum and the child spillpoint elevation.
-# """
-# function get_trap_bottom_elevation(trap_id::Int, tstruct::TrapStructure)::Float64
-#     footprint = tstruct.footprints[trap_id]
-#     min_base_elevation = minimum(tstruct.topography[footprint])
-
-#     # For parent traps, the effective bottom is above child spillpoints
-#     children = subtrapsof(tstruct, trap_id)
-#     if !isempty(children)
-#         child_spillpoint_elev = tstruct.spillpoints[children[1]].elevation
-#         min_base_elevation = max(min_base_elevation, child_spillpoint_elev)
-#     end
-
-#     return min_base_elevation
-# end
-
 """
 Compute the volume at which a trap reaches the leakage height threshold.
 
@@ -454,7 +435,7 @@ function generate_leakage_weather_events(
     unit_factor = full_volume_to_rock_volume_scaling(rp_source) /
                   full_volume_to_rock_volume_scaling(rp_target)
 
-    # ── Map each draining trap to its caprock exit location ──────────────────
+    # Map each draining trap to its caprock exit location
     # Draining sub-traps (descendants) exit through their leaking ancestor's
     # caprock failure point.
     drain_loc = Dict{Int,CartesianIndex{2}}()
@@ -467,7 +448,7 @@ function generate_leakage_weather_events(
         end
     end
 
-    # ── Residual drainage: constant rate per draining trap ───────────────────
+    # Residual drainage: constant rate per draining trap
     T_res = leakage_state.residual_leakage_time
     sat = leakage_state.residual_saturation
     has_finite_drainage = isfinite(T_res) && T_res > 0.0 && sat < 1.0
@@ -483,7 +464,7 @@ function generate_leakage_weather_events(
         end
     end
 
-    # ── Collect all timestamps where the combined rate can change ─────────────
+    # Collect all timestamps where the combined rate can change
     timestamps = Set{Float64}()
     push!(timestamps, seq[1].timestamp)          # always start at sim beginning
 
@@ -498,12 +479,15 @@ function generate_leakage_weather_events(
         t0 = leakage_state.leakage_start_time[trap]
         isfinite(t0) || continue
         push!(timestamps, t0)                        # drainage/passthrough begins
-        has_finite_drainage && push!(timestamps, t0 + T_res)  # drainage ends
+        # Only add drainage end time for traps that actually drain residually
+        if has_finite_drainage && leakage_state.draining[trap]
+            push!(timestamps, t0 + T_res)            # residual drainage ends
+        end
     end
 
     sorted_ts = sort(collect(timestamps))
 
-    # ── Build a WeatherEvent for each change point ────────────────────────────
+    # Build a WeatherEvent for each change point
     result = WeatherEvent[]
     last_rain = nothing
 

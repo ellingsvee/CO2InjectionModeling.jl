@@ -53,10 +53,6 @@ Equals residual drainage + passthrough. Does NOT include lateral domain spillage
 total_upward_leakage(s::LayerSnapshot) = s.total_drained + s.total_passthrough
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Internal helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
 Integrate the injection rate over all weather events up to time `t`.
 Returns total CO2 injected in SWIM volume units.
@@ -259,10 +255,6 @@ function generate_layer_snapshots(
 end
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MultiLayerSnapshot
-# ─────────────────────────────────────────────────────────────────────────────
-
 """
 A snapshot of the entire multi-layer CO2 stack at a specific point in time.
 
@@ -379,10 +371,6 @@ function generate_multi_layer_snapshots(
     ]
 end
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# print_summary
-# ─────────────────────────────────────────────────────────────────────────────
 
 """
     print_summary([io,] snap::MultiLayerSnapshot)

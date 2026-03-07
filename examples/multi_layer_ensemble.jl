@@ -18,6 +18,7 @@ const N_LAYERS = 3
 const RESIDUAL_TRAPPING = 0.4
 
 # Generate four GRF surfaces at increasing depth
+# cov = CovarianceFunction(2, Matern(100, 2, σ=3.0))
 cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
@@ -42,12 +43,6 @@ domain = create_domain(topo, 1.0)
 boundary_condition = :closed
 layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
 
-# Reservoir properties
-rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 15_000.0, 5.0)
-rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
-
-println("Leakage height threshold: $(round(rp.leakage_height, digits=2)) m")
-
 # Injection — single central well in layer 1 (deepest) only
 TOTAL_RATE = 25_000.0
 INJECTION_END = 10.0
@@ -67,22 +62,32 @@ injection_events = [
     [InjectionEvent(0.0, zeros(topo_size))],
 ]
 
-# Run multi-layer simulation
-println("\nRunning multi-layer fill simulation...")
-seqs, leakage_states, weather_events_per_layer = fill_layers(
-    layers, domain, [rp, rp, rp_caprock], injection_events; verbose=false)
+rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 
-# Determine time range for snapshots
-t_end = 15.0
-timepoints = collect(range(0.0, stop=t_end, length=30))
+N_ENSEMBLE = 5
+capillary_entry_pressures = range(10_000.0, stop=20_000.0, length=N_ENSEMBLE)
 
-println("\nGenerating $(length(timepoints)) snapshots from t=0 to t=$(round(t_end, digits=2))...")
-multi_snaps = generate_multi_layer_snapshots(
-    layers, seqs, leakage_states, weather_events_per_layer, timepoints)
+mutli_snaps_ensemble = Vector{MultiLayerSnapshot}(undef, N_ENSEMBLE)
 
-# Print summary at final snapshot
-println()
-print_summary(multi_snaps[end])
+for i in 1:N_ENSEMBLE
+    rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, capillary_entry_pressures[i], 5.0)
+
+    # Run multi-layer simulation
+    seqs, leakage_states, weather_events_per_layer = fill_layers(
+        layers, domain, [rp, rp, rp_caprock], injection_events; verbose=false)
+
+    # Determine time range for snapshots
+    t_end = 15.0
+    timepoints = collect(range(0.0, stop=t_end, length=30))
+
+    multi_snaps = generate_multi_layer_snapshots(
+        layers, seqs, leakage_states, weather_events_per_layer, timepoints)
+
+    mutli_snaps_ensemble[i] = multi_snaps[end]
+
+    println()
+    print_summary(multi_snaps[end])
+end
 
 # Settings for plotting
 update_theme!(
@@ -92,28 +97,17 @@ update_theme!(
     )
 )
 
-# Plot 1: static spatial distribution at final time (one panel per layer)
+# Plot ensemble plume outlines — one contour line per ensemble member per layer
+ensemble_labels = ["Pce = $(round(Int, p / 1000)) kPa" for p in capillary_entry_pressures]
 injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
-plot_multi_layer(
-    layers, multi_snaps[end], domain;
-    output_file=joinpath(@__DIR__, "multi_layer_co2_final.svg"),
-    max_co2_height=6.0,
-    show_contours=true,
-    show_labels=true,
-    contour_levels=20,
+plot_multi_layer_ensemble(
+    layers, mutli_snaps_ensemble, domain;
+    labels=ensemble_labels,
+    output_file=joinpath(@__DIR__, "ensemble_co2_outlines.svg"),
+    contour_level=0.05,
+    show_topography=true,
+    topo_contour_levels=20,
     major_contour_every=5,
-    contour_opacity=1.0,
     figure_size=(500 * N_LAYERS, 500),
-    colormap=:Blues,
     injection_locations=[injection_location_loc],
-    show_leakage_locations=true,
-)
-
-# Plot 2: volume time-series per layer
-_phys_scale = swim_volume_to_physical_volume(1.0, rp, domain)
-plot_multi_layer_volumes_timeseries(
-    multi_snaps;
-    output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),
-    vol_scale=_phys_scale / 1e5,
-    ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
 )
