@@ -3,7 +3,8 @@
 
 export animate_layer_filling, animate_multi_layer_filling
 export plot_layer, plot_multi_layer, plot_multi_layer_ensemble
-export plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries
+export plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries,
+    plot_multi_layer_ensemble_timeseries
 
 """
     animate_layer_filling(layer, seq, leakage_state, weather_events, timepoints, domain; kwargs...)
@@ -149,3 +150,24 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 - `figure_size`: `(width, height)` in pixels (default `(500*n_layers, 400)`)
 """
 function plot_multi_layer_volumes_timeseries end
+
+"""
+    plot_multi_layer_ensemble_timeseries(ensemble; kwargs...) -> nothing
+
+Plot CO2 volume time-series with ensemble mean and ±1σ uncertainty bands for
+every layer in a multi-layer simulation, side-by-side.
+
+Requires a Makie backend (e.g. `using CairoMakie`).
+
+# Arguments
+- `ensemble`: `Vector{Vector{MultiLayerSnapshot}}`, outer index = ensemble member,
+  inner index = timepoint (all members must share the same timepoints)
+
+# Keyword arguments
+- `output_file`: Output file path (default `"ensemble_timeseries.svg"`)
+- `vol_scale`: Volume scaling factor (default `1.0`)
+- `ylabel`: Y-axis label (default `"Volume"`)
+- `linewidth`: Line width (default `4`)
+- `figure_size`: `(width, height)` in pixels (default `(500*n_layers, 400)`)
+"""
+function plot_multi_layer_ensemble_timeseries end

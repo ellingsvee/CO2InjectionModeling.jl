@@ -5,7 +5,7 @@ using CairoMakie
 using LaTeXStrings
 using Random
 
-Random.seed!(42)
+Random.seed!(101)
 
 # Grid / domain settings
 const NX, NY = 100, 100
@@ -18,7 +18,7 @@ const N_LAYERS = 3
 const RESIDUAL_TRAPPING = 0.4
 
 # Generate four GRF surfaces at increasing depth
-cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
+cov = CovarianceFunction(2, Matern(150, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
 function sample_surface(base_depth)
@@ -36,7 +36,7 @@ sand_layers = [
     Dict{String,Any}("name" => "Storage layer 1", "top" => surf_L1, "base" => surf_L1 .+ LAYER_THICK),
 ]
 topo = GenericTopography(sand_layers, NX, NY, DX, DY, minimum(surf_L3), maximum(surf_L1) + LAYER_THICK)
-domain = create_domain(topo, 1.0)
+domain = create_domain(topo, 0.1)
 
 # analyze_base_surfaces reverses the order → layers[1] = L1 (deepest, injection)
 boundary_condition = :closed

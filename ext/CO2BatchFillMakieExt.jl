@@ -4,11 +4,12 @@ using CO2BatchFill
 using Makie
 using SurfaceWaterIntegratedModeling: TrapStructure, numtraps, trap_states_at_timepoints,
     SpillEvent, _compute_z_vol_tables
-using Statistics: mean
+using Statistics: mean, std
 
 import CO2BatchFill: animate_layer_filling, animate_multi_layer_filling,
     plot_layer, plot_multi_layer, plot_multi_layer_ensemble,
-    plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries
+    plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries,
+    plot_multi_layer_ensemble_timeseries
 
 # Shared style constants
 const _CMAP = :thermal
@@ -50,6 +51,36 @@ function _height_map(tstruct, z_vol_tables, volumes, pad, nx_p, ny_p;
 end
 
 """
+Draw topography contours (major + minor) onto `ax`.
+"""
+function _topo_contours!(ax, x_coords, y_coords, topo;
+    contour_levels=10, major_contour_every=5, contour_opacity=0.8, show_labels=false)
+    if contour_levels isa Integer
+        mn, mx = extrema(topo)
+        all_levels = collect(range(mn, mx; length=contour_levels))
+    else
+        all_levels = collect(contour_levels)
+    end
+
+    major_levels = all_levels[2:major_contour_every:end]
+    minor_levels = setdiff(all_levels, major_levels)
+
+    contour!(ax, x_coords, y_coords, topo;
+        levels=minor_levels,
+        color=(:black, contour_opacity),
+        linewidth=0.8,
+        labels=false
+    )
+    contour!(ax, x_coords, y_coords, topo;
+        levels=major_levels,
+        color=(:black, contour_opacity),
+        linewidth=2.0,
+        labels=show_labels,
+        labelsize=12,
+    )
+end
+
+"""
 Draw a CO2 height heatmap + topography contours for one `LayerSnapshot` onto `ax`.
 Returns the heatmap object.
 """
@@ -78,34 +109,8 @@ function _layer_panel!(ax, layer, snap, domain;
     )
 
     if show_contours
-        # Determine all contour levels
-        if contour_levels isa Integer
-            mn, mx = extrema(topo)
-            all_levels = collect(range(mn, mx; length=contour_levels))
-        else
-            all_levels = collect(contour_levels)
-        end
-
-        # Split into major / minor
-        major_levels = all_levels[2:major_contour_every:end]
-        minor_levels = setdiff(all_levels, major_levels)
-
-        # Minor contours (thin, no labels)
-        contour!(ax, x_coords, y_coords, topo;
-            levels=minor_levels,
-            color=(:black, contour_opacity),
-            linewidth=0.8,
-            labels=false
-        )
-
-        # Major contours (thicker, optional labels)
-        contour!(ax, x_coords, y_coords, topo;
-            levels=major_levels,
-            color=(:black, contour_opacity),
-            linewidth=2.0,
-            labels=show_labels,
-            labelsize=12,
-        )
+        _topo_contours!(ax, x_coords, y_coords, topo;
+            contour_levels, major_contour_every, contour_opacity, show_labels)
     end
     return hm
 end
@@ -540,14 +545,8 @@ function plot_multi_layer_ensemble(
         )
 
         if show_topography
-            mn, mx = extrema(topo)
-            all_levels = collect(range(mn, mx; length=topo_contour_levels))
-            major_levels = all_levels[2:major_contour_every:end]
-            minor_levels = setdiff(all_levels, major_levels)
-            contour!(ax, x_coords, y_coords, topo;
-                levels=minor_levels, color=(:black, 0.20), linewidth=0.6)
-            contour!(ax, x_coords, y_coords, topo;
-                levels=major_levels, color=(:black, 0.40), linewidth=1.2)
+            _topo_contours!(ax, x_coords, y_coords, topo;
+                contour_levels=topo_contour_levels, major_contour_every, contour_opacity=0.8)
         end
 
         for (j, snap) in enumerate(ensemble)
@@ -579,6 +578,71 @@ function plot_multi_layer_ensemble(
 
     save(output_file, fig)
     println("Saved ensemble plot to: $(output_file)")
+    return nothing
+end
+
+"""
+Plot CO2 volume time-series with ensemble mean and uncertainty bands for a
+multi-layer simulation.
+"""
+function plot_multi_layer_ensemble_timeseries(
+    ensemble::Vector{Vector{CO2BatchFill.MultiLayerSnapshot}};
+    output_file::String="ensemble_timeseries.svg",
+    vol_scale::Float64=1.0,
+    ylabel="Volume",
+    linewidth::Int=_LW,
+    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
+)
+    n_layers = length(ensemble[1][1].layers)
+    n_ensemble = length(ensemble)
+    n_times = length(ensemble[1])
+
+    figure_size = isnothing(figure_size) ? (500 * n_layers, 400) : figure_size
+    fig = Figure(size=figure_size)
+    axes = Axis[]
+
+    times = [s.timestamp for s in ensemble[1]]
+
+    for i in 1:n_layers
+        ax = Axis(fig[1, i];
+            xlabel="Time",
+            ylabel=(i == 1 ? ylabel : ""),
+            title=ensemble[1][1].layers[i].layer_name,
+        )
+
+        stored_matrix = zeros(n_ensemble, n_times)
+        drained_matrix = zeros(n_ensemble, n_times)
+        for (j, member) in enumerate(ensemble)
+            for (k, snap) in enumerate(member)
+                stored_matrix[j, k] = snap.layers[i].total_stored * vol_scale
+                drained_matrix[j, k] = snap.layers[i].total_drained * vol_scale
+            end
+        end
+
+        stored_mean = vec(mean(stored_matrix; dims=1))
+        stored_std = vec(std(stored_matrix; dims=1))
+        drained_mean = vec(mean(drained_matrix; dims=1))
+        drained_std = vec(std(drained_matrix; dims=1))
+
+        band!(ax, times, stored_mean .- stored_std, stored_mean .+ stored_std;
+            color=(:black, 0.15))
+        lines!(ax, times, stored_mean;
+            label="Stored", color=:black, linewidth=linewidth, linestyle=:solid)
+
+        band!(ax, times, drained_mean .- drained_std, drained_mean .+ drained_std;
+            color=(:black, 0.15))
+        lines!(ax, times, drained_mean;
+            label="Drained", color=:black, linewidth=linewidth, linestyle=:dash)
+
+        if i == n_layers
+            axislegend(ax; patchsize=(40, 10), position=:lt)
+        end
+        push!(axes, ax)
+    end
+    linkyaxes!(axes...)
+
+    save(output_file, fig)
+    println("Saved ensemble timeseries plot to: $(output_file)")
     return nothing
 end
 
