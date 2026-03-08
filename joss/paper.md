@@ -63,7 +63,7 @@ $\text{CO}_2$ is injected at a constant rate over $10$ years into the center of 
 
 To investigate the impact of capillary entry pressure, the efficient simulator allows us to run an ensemble of $100$ simulations with entry pressures varying between $10$ and $20 \text{kPa}$. The total runtime of the ensemble is approximately $8$ seconds, and the implementation is available in `examples/multi_layer_ensemble.jl`. \autoref{fig:ensemble_timeseries} shows the mean and standard deviation of the total stored and drained $\text{CO}_2$ across the ensemble. Observe a relatively large variability in the results, which highlights the importance of uncertainty quantification.
 
-![Amounts of stored and drained $\text{CO}_2$ over time.\label{fig:ensemble_timeseries}](figures/ensemble_timeseries.svg)
+![Ensemble of $100$ simulations with varying capillary entry pressures. The mean and standard deviation of the total stored and drained $\text{CO}_2$ are shown.\label{fig:ensemble_timeseries}](figures/ensemble_timeseries.svg)
 
 
 # AI usage disclosure
@@ -72,7 +72,7 @@ Generative AI tools (Claude Code and ChatGPT) were used as coding assistants dur
 
 # Acknowledgements
 
-We thank Odd A. Andersen (SINTEF) for developing SWIM, which provides the spill-point analysis algorithms that `CO2BatchFill.jl` builds on. Also thanks to Philip Ringrose for his insights on $\text{CO}_2$ storage, which helped shape the package.
+We thank Odd A. Andersen (SINTEF) for developing SWIM, which provides the spill-point analysis algorithms that `CO2BatchFill.jl` builds upon. Also thanks to Philip Ringrose for his insights on $\text{CO}_2$ storage, which helped shape the package.
 
 
 # References
