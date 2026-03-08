@@ -216,8 +216,11 @@ function initialize_leakage_state(
 
     num_traps = numtraps(tstruct)
 
-    # TODO: This can later be extended to support spatial variability in the leakage heights...
-    trap_leakage_heights = fill(reservoir_properties.leakage_height, num_traps)
+    if reservoir_properties.leakage_height isa Float64
+        trap_leakage_heights = fill(reservoir_properties.leakage_height, num_traps)
+    else
+        trap_leakage_heights = reservoir_properties.leakage_height
+    end
 
     # Precompute leakage volumes for all traps using their specific heights
     leakage_volumes = zeros(Float64, num_traps)

@@ -113,8 +113,8 @@ struct ReservoirProperties
     sand_porosity::Float64
     sand_residual_co2_saturation::Float64
     sand_irreducible_water_saturation::Float64
-    shale_pressure_threshold::Float64  # Mean pressure threshold (Pa)
-    leakage_height::Float64  # Mean leakage height derived from pressure (m)
+    shale_pressure_threshold::Union{Float64,Vector{Float64}}  # Mean pressure threshold (Pa)
+    leakage_height::Union{Float64,Vector{Float64}}  # Mean leakage height derived from pressure (m)
     residual_leakage_time::Float64
     brine_density::Float64  # kg/m³
     co2_density::Float64    # kg/m³
@@ -123,18 +123,32 @@ struct ReservoirProperties
         sand_porosity::Float64,
         sand_residual_co2_saturation::Float64,
         sand_irreducible_water_saturation::Float64,
-        shale_pressure_threshold::Float64,
+        shale_pressure_threshold::Union{Float64,Vector{Float64}},
         residual_leakage_time::Float64;
         brine_density::Float64=1020.0,
         co2_density::Float64=460.0
     )
+
         # Compute leakage height from pressure if not provided
-        if isfinite(shale_pressure_threshold) && shale_pressure_threshold > 0.0
-            g = 9.81
-            density_diff = brine_density - co2_density
-            leakage_height = shale_pressure_threshold / (density_diff * g)
+        if isa(shale_pressure_threshold, Float64)
+            if isfinite(shale_pressure_threshold) && shale_pressure_threshold > 0.0
+                g = 9.81
+                density_diff = brine_density - co2_density
+                leakage_height = shale_pressure_threshold / (density_diff * g)
+            else
+                leakage_height = Inf  # Impermeable caprock
+            end
         else
-            leakage_height = Inf  # Impermeable caprock
+            leakage_height = similar(shale_pressure_threshold)
+            for i in eachindex(shale_pressure_threshold)
+                if isfinite(shale_pressure_threshold[i]) && shale_pressure_threshold[i] > 0.0
+                    g = 9.81
+                    density_diff = brine_density - co2_density
+                    leakage_height[i] = shale_pressure_threshold[i] / (density_diff * g)
+                else
+                    leakage_height[i] = Inf  # Impermeable caprock
+                end
+            end
         end
 
         new(
@@ -150,27 +164,6 @@ struct ReservoirProperties
     end
 
 end
-
-# struct SimulationLayerSnapshot
-#     timestamp::Float64
-#     spill_event::SpillEvent
-#     filled_traps::Vector{Bool}
-#     injected_volume::Float64
-#     co2_volume::Float64
-# end
-
-# """
-#     SimulationSnapshot
-
-# Represents the state of the entire simulation at a point in time.
-# Contains snapshots from all layers.
-# """
-# struct SimulationSnapshot
-#     timestamp::Float64
-#     total_injected_volume::Float64
-#     total_co2_volume::Float64
-#     layer_snapshots::Vector{SimulationLayerSnapshot}
-# end
 
 """
 LeakageRecord. Records a leakage event for generating WeatherEvents in the overlying layer.

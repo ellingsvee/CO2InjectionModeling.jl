@@ -74,6 +74,73 @@ import SurfaceWaterIntegratedModeling as SWIM
         @test all(isfinite.(state.leakage_volume))
     end
 
+    @testset "Per-trap leakage heights (rp_non_stat)" begin
+        rp_nt = rp_non_stat(tstruct)
+
+        @test rp_nt.leakage_height isa Vector{Float64}
+        @test length(rp_nt.leakage_height) == n_traps
+        @test all(isfinite.(rp_nt.leakage_height))
+        @test all(rp_nt.leakage_height .> 0.0)
+
+        state = initialize_leakage_state(
+            tstruct, z_vol_tables, rp_nt,
+            rp_nt.sand_residual_co2_saturation,
+            rp_nt.residual_leakage_time
+        )
+
+        @test length(state.leakage_height) == n_traps
+        @test state.leakage_height == rp_nt.leakage_height
+        @test all(.!state.leaking)
+
+        # Each trap's leakage volume must match its own height
+        for trap_id in 1:n_traps
+            expected_vol = compute_leakage_volume(
+                trap_id, z_vol_tables[trap_id], tstruct, rp_nt.leakage_height[trap_id]
+            )
+            if isnothing(expected_vol)
+                @test state.leakage_volume[trap_id] == Inf
+            else
+                @test state.leakage_volume[trap_id] ≈ expected_vol
+            end
+        end
+
+        # With multiple traps, per-trap heights should differ (random pressures)
+        if n_traps > 1
+            @test length(unique(state.leakage_height)) > 1
+        end
+    end
+
+    @testset "Per-trap leakage heights: mixed finite and Inf" begin
+        pressures = fill(1000.0, n_traps)
+        for i in 2:2:n_traps
+            pressures[i] = Inf
+        end
+        rp_mixed = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, pressures, 5.0)
+
+        @test rp_mixed.leakage_height isa Vector{Float64}
+        for i in 1:n_traps
+            if i % 2 == 0
+                @test rp_mixed.leakage_height[i] == Inf
+            else
+                @test isfinite(rp_mixed.leakage_height[i])
+            end
+        end
+
+        state = initialize_leakage_state(
+            tstruct, z_vol_tables, rp_mixed,
+            rp_mixed.sand_residual_co2_saturation,
+            rp_mixed.residual_leakage_time
+        )
+
+        for i in 2:2:n_traps
+            @test state.leakage_volume[i] == Inf
+        end
+        for i in 1:2:n_traps
+            @test isfinite(state.leakage_volume[i])
+            @test state.leakage_volume[i] >= 0.0
+        end
+    end
+
     @testset "GRF topology: initialize_leakage_state" begin
         tstruct_grf  = GRF_SCENARIO.layers[1].trap_structure
         z_vol_grf    = SWIM._compute_z_vol_tables(tstruct_grf)

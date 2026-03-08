@@ -139,4 +139,50 @@ function run_analysis_tests(scenario::TestScenario)
         end
 
     end
+
+    @testset "Per-trap pressure: mass conservation with drainage" begin
+        layer_idx = 1
+        layer     = scenario.layers[layer_idx]
+        tstruct   = layer.trap_structure
+        inj       = scenario.injection_events[layer_idx]
+        rp_nt     = rp_non_stat(tstruct)
+        we_events = convert_injection_event_to_weather_event(inj, rp_nt, scenario.domain)
+
+        seq, leakage_state = fill_sequence_with_leakage(
+            tstruct, rp_nt, we_events; verbose=false)
+
+        # Leakage heights should be per-trap
+        @test leakage_state.leakage_height isa Vector{Float64}
+
+        t_sim_start = seq[1].timestamp
+        # Build timepoints spanning the simulation
+        t_inj_dur = INJECTION_END_T - INJECTION_START_T
+        timepoints = sort(unique(filter(isfinite, [
+            t_sim_start,
+            t_sim_start + 0.5 * t_inj_dur,
+            t_sim_start + t_inj_dur,
+            t_sim_start + 2.0 * t_inj_dur,
+        ])))
+        timepoints = filter(t -> t >= t_sim_start, timepoints)
+
+        snaps = generate_layer_snapshots(layer, layer_idx, seq, leakage_state,
+            we_events, timepoints)
+
+        for snap in snaps
+            assert_mass_conservation(snap)
+        end
+
+        # Independent ground-truth check
+        for snap in snaps
+            expected = total_injected_from_schedule(inj, rp_nt, scenario.domain, snap.timestamp)
+            @test snap.total_injected ≈ expected atol = MASS_ATOL
+        end
+
+        # Monotonicity
+        for i in 2:length(snaps)
+            @test total_to_next_layer(snaps[i]) >= total_to_next_layer(snaps[i-1]) - MASS_ATOL
+            @test snaps[i].total_drained >= snaps[i-1].total_drained - MASS_ATOL
+        end
+    end
+
 end
