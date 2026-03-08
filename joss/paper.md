@@ -61,6 +61,10 @@ $\text{CO}_2$ is injected at a constant rate over $10$ years into the center of 
 
 ![Amounts of stored and drained $\text{CO}_2$ over time.\label{fig:co2_timeseries}](figures/multi_layer_timeseries_per_layer.svg)
 
+To investigate the impact of capillary entry pressure, the efficient simulator allows us to run an ensemble of $100$ simulations with entry pressures varying between $10$ and $20 \text{kPa}$. The total runtime of the ensemble is approximately $8$ seconds, and the implementation is available in `examples/multi_layer_ensemble.jl`. \autoref{fig:ensemble_timeseries} shows the mean and standard deviation of the total stored and drained $\text{CO}_2$ across the ensemble. Observe a relatively large variability in the results, which highlights the importance of uncertainty quantification.
+
+![Amounts of stored and drained $\text{CO}_2$ over time.\label{fig:ensemble_timeseries}](figures/ensemble_timeseries.svg)
+
 
 # AI usage disclosure
 
