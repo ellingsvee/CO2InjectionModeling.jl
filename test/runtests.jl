@@ -118,6 +118,20 @@ const rp_sealed = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 # very small leakage threshold (~0.18 m) — forces leakage in reasonable simulation time
 const rp_quick = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1000.0, 5.0)
 
+function rp_non_stat(tstruct::TrapStructure)
+    # Initialise a vector of random capillary entry pressures for each trap
+    num_traps = numtraps(tstruct)
+    random_pressures = rand(num_traps) .* 5000.0 .+ 500.0  # Random pressures between 500 Pa and 5500 Pa
+    return ReservoirProperties(
+        0.3, RESIDUAL_TRAPPING, 0.1,
+        random_pressures,
+        5.0
+    )
+end
+
+
+
+
 # Shared test helpers
 """
 Assert that a LayerSnapshot satisfies exact mass conservation.

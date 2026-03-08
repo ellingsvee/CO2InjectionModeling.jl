@@ -95,4 +95,54 @@ function run_multilayer_analysis_tests(scenario::TestScenario)
         end
 
     end
+
+    @testset "Per-trap pressure: multi-layer mass conservation" begin
+        layers = scenario.layers
+        n_layers = length(layers)
+
+        # Create per-trap pressures for each layer
+        rp_per_layer = [rp_non_stat(layers[i].trap_structure) for i in 1:n_layers]
+
+        seqs, leakage_states, weather_events_per_layer =
+            fill_layers(layers, scenario.domain, rp_per_layer, scenario.injection_events)
+
+        # Verify per-trap heights are stored
+        for i in 1:n_layers
+            @test leakage_states[i].leakage_height isa Vector{Float64}
+        end
+
+        t_sim_start = seqs[1][1].timestamp
+        t_inj_dur = INJECTION_END_T - INJECTION_START_T
+        timepoints = sort(unique([
+            t_sim_start,
+            t_sim_start + 0.5 * t_inj_dur,
+            t_sim_start + t_inj_dur,
+            t_sim_start + 2.0 * t_inj_dur,
+        ]))
+
+        multi_snaps = generate_multi_layer_snapshots(
+            layers, seqs, leakage_states, weather_events_per_layer, timepoints)
+
+        # Per-layer mass conservation
+        for msnap in multi_snaps
+            for layer_snap in msnap.layers
+                assert_mass_conservation(layer_snap)
+            end
+        end
+
+        # Cross-layer coupling: leakage from layer k = injection into layer k+1
+        for msnap in multi_snaps
+            for k in 1:(n_layers-1)
+                upward = total_upward_leakage(msnap.layers[k])
+                received = msnap.layers[k+1].total_injected
+                @test upward ≈ received atol = MASS_ATOL
+            end
+        end
+
+        # Global monotonicity
+        for i in 2:length(multi_snaps)
+            @test multi_snaps[i].total_injected >= multi_snaps[i-1].total_injected - MASS_ATOL
+        end
+    end
+
 end
