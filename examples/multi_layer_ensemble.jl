@@ -18,7 +18,7 @@ const N_LAYERS = 3
 const RESIDUAL_TRAPPING = 0.4
 
 # Generate four GRF surfaces at increasing depth
-cov = CovarianceFunction(2, Matern(150, 2, σ=3.0))
+cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
 function sample_surface(base_depth)
@@ -43,7 +43,7 @@ boundary_condition = :closed
 layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
 
 # Injection — single central well in layer 1 (deepest) only
-TOTAL_RATE = 25_000.0
+TOTAL_RATE = 80_000.0
 INJECTION_END = 10.0
 
 pad = PAD_WIDTH # since closed boundaries
@@ -64,7 +64,7 @@ injection_events = [
 rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 
 N_ENSEMBLE = 100
-capillary_entry_pressures = range(10_000.0, stop=20_000.0, length=N_ENSEMBLE)
+capillary_entry_pressures = range(15_000.0, stop=35_000.0, length=N_ENSEMBLE)
 println("Min meakage height threshold: $(round(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, minimum(capillary_entry_pressures), 5.0).leakage_height, digits=2))")
 println("Max meakage height threshold: $(round(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, maximum(capillary_entry_pressures), 5.0).leakage_height, digits=2))")
 
@@ -105,3 +105,22 @@ plot_multi_layer_ensemble_timeseries(
     vol_scale=_phys_scale / 1e5,
     ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
 )
+
+# # Get 4 evenly spaced snapshots from the 100 multi_snaps_ensemble_final
+# plot_indices = round.(Int, range(1, stop=N_ENSEMBLE, length=4))
+# multi_snaps_ensemble_plot = multi_snaps_ensemble_final[plot_indices]
+# plot_multi_layer_ensemble(
+#     layers,
+#     multi_snaps_ensemble_plot,
+#     domain;
+#     output_file=joinpath(@__DIR__, "ensemble_extents.svg"),
+#     show_topography=true,
+#     show_labels=false,
+#     contour_opacity=1.0,
+#     topo_contour_levels=20,
+#     major_contour_every=5,
+#     figure_size=(500 * N_LAYERS, 500),
+#     member_labels=["$(round(capillary_entry_pressures[i]/1000, digits=1)) kPa" for i in plot_indices],
+#     member_label_fontsize=14,
+#     contour_color=to_colormap(:Blues)[end],
+# )

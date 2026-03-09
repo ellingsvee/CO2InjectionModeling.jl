@@ -18,7 +18,7 @@ const N_LAYERS = 3
 const RESIDUAL_TRAPPING = 0.4
 
 # Generate four GRF surfaces at increasing depth
-cov = CovarianceFunction(2, Matern(150, 2, σ=3.0))
+cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
 function sample_surface(base_depth)
@@ -43,13 +43,13 @@ boundary_condition = :closed
 layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
 
 # Reservoir properties
-rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 15_000.0, 5.0)
+rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 25_000.0, 5.0)
 rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 
 println("Leakage height threshold: $(round(rp.leakage_height, digits=2)) m")
 
 # Injection — single central well in layer 1 (deepest) only
-TOTAL_RATE = 25_000.0
+TOTAL_RATE = 80_000.0
 INJECTION_END = 10.0
 
 pad = PAD_WIDTH # since closed boundaries
@@ -97,7 +97,7 @@ injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
 plot_multi_layer(
     layers, multi_snaps[end], domain;
     output_file=joinpath(@__DIR__, "multi_layer_co2_final.svg"),
-    max_co2_height=6.0,
+    max_co2_height=ceil(round(rp.leakage_height, digits=2)),
     show_contours=true,
     show_labels=true,
     contour_levels=20,
@@ -107,6 +107,7 @@ plot_multi_layer(
     colormap=:Blues,
     injection_locations=[injection_location_loc],
     show_leakage_locations=true,
+    show_extents=false,
 )
 
 # Plot 2: volume time-series per layer
