@@ -34,20 +34,22 @@ end
 const SIMULATOR = SimulatorState(nothing, nothing, nothing, nothing, :open, nothing, nothing, nothing)
 
 """
-    setup_simulator(topography::AbstractTopography; boundary_condition="open")
+    setup_simulator(topography::AbstractTopography; boundary_condition="open", pad_width=2)
 
 Set up the simulator from any `AbstractTopography` implementation.
 
 # Arguments
-- `topography`: Any `AbstractTopography` (e.g., `GenericTopography`, `SleipnerTopography`)
+- `topography`: Any `AbstractTopography` (e.g., `GenericTopography`)
 - `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
+- `pad_width`: Number of boundary wall cells on each side for closed BCs (default: `2`)
 
 # Returns
 Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_after_bc`, `ny_after_bc`
 """
 function setup_simulator(
     topography::AbstractTopography;
-    boundary_condition::String="open"
+    boundary_condition::String="open",
+    pad_width::Int=2
 )
     try
         bc_symbol = Symbol(boundary_condition)
@@ -57,20 +59,21 @@ function setup_simulator(
 
         SIMULATOR.topography = topography
         SIMULATOR.domain = create_domain(topography, 1.0)
-        SIMULATOR.layers = analyze_base_surfaces(topography; boundary_condition=bc_symbol)
+        SIMULATOR.layers = analyze_base_surfaces(topography; boundary_condition=bc_symbol, pad_width=pad_width)
         SIMULATOR.boundary_condition = bc_symbol
         SIMULATOR.reservoir_properties = nothing
 
         nx, ny = get_grid_dimensions(topography)
-        nx_after_bc = boundary_condition == "open" ? nx : nx + 2
-        ny_after_bc = boundary_condition == "open" ? ny : ny + 2
+        nx_after_bc = boundary_condition == "open" ? nx : nx + 2 * pad_width
+        ny_after_bc = boundary_condition == "open" ? ny : ny + 2 * pad_width
 
         return Dict(
             "status" => "success",
             "n_layers" => length(SIMULATOR.layers),
             "nx" => nx, "ny" => ny,
             "boundary_condition" => boundary_condition,
-            "nx_after_bc" => nx_after_bc, "ny_after_bc" => ny_after_bc
+            "nx_after_bc" => nx_after_bc, "ny_after_bc" => ny_after_bc,
+            "pad_width" => pad_width
         )
     catch e
         return Dict("status" => "error", "message" => string(e))
@@ -79,7 +82,7 @@ end
 
 """
     setup_simulator_from_surfaces(; layer_tops, layer_bases, layer_names, dx, dy,
-                                    boundary_condition="open", caprock_surface=nothing)
+                                    boundary_condition="open", pad_width=2, caprock_surface=nothing)
 
 Set up the simulator from raw surface arrays (primary entry point for R users with custom data).
 
@@ -90,6 +93,7 @@ Set up the simulator from raw surface arrays (primary entry point for R users wi
 - `dx`: Grid spacing in x direction (meters)
 - `dy`: Grid spacing in y direction (meters)
 - `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
+- `pad_width`: Number of boundary wall cells on each side for closed BCs (default: `2`)
 - `caprock_surface`: Optional caprock top surface matrix (nx × ny)
 
 # Returns
@@ -102,6 +106,7 @@ function setup_simulator_from_surfaces(;
     dx::Float64,
     dy::Float64,
     boundary_condition::String="open",
+    pad_width::Int=2,
     caprock_surface::Union{Matrix{Float64}, Nothing}=nothing
 )
     try
@@ -128,7 +133,7 @@ function setup_simulator_from_surfaces(;
         topo = GenericTopography(sand_layers, nx, ny, dx, dy, depth_min, depth_max;
                                 caprock_surface=caprock_surface)
 
-        return setup_simulator(topo; boundary_condition=boundary_condition)
+        return setup_simulator(topo; boundary_condition=boundary_condition, pad_width=pad_width)
     catch e
         return Dict("status" => "error", "message" => string(e))
     end
@@ -168,15 +173,15 @@ function configure_reservoir(;
 
         n_layers = length(SIMULATOR.layers)
 
-        if !layer_specific
-            porosity = fill(Float64(porosity), n_layers)
-            residual_co2_sat = fill(Float64(residual_co2_sat), n_layers)
-            irreducible_water_sat = fill(Float64(irreducible_water_sat), n_layers)
-            shale_pressure_threshold = fill(Float64(shale_pressure_threshold), n_layers)
-            residual_leakage_time = fill(Float64(residual_leakage_time), n_layers)
-            brine_density = fill(Float64(brine_density), n_layers)
-            co2_density = fill(Float64(co2_density), n_layers)
-        end
+        # Expand any scalar parameters to vectors of length n_layers
+        _expand(x, n) = x isa Float64 ? fill(x, n) : x
+        porosity = _expand(porosity, n_layers)
+        residual_co2_sat = _expand(residual_co2_sat, n_layers)
+        irreducible_water_sat = _expand(irreducible_water_sat, n_layers)
+        shale_pressure_threshold = _expand(shale_pressure_threshold, n_layers)
+        residual_leakage_time = _expand(residual_leakage_time, n_layers)
+        brine_density = _expand(brine_density, n_layers)
+        co2_density = _expand(co2_density, n_layers)
 
         SIMULATOR.reservoir_properties = [
             ReservoirProperties(
