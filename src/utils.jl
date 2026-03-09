@@ -4,6 +4,7 @@ import Interpolations
 export get_all_parents, get_all_descendants
 export get_min_topography_elevation, get_trap_bottom_elevation
 export volume_to_height, height_map
+export get_grid_size, create_injection_rate, create_no_injection, volume_scale
 
 """
     get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
@@ -133,9 +134,89 @@ function height_map(tstruct, z_vol_tables, volumes;
             volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
         end
         h <= 0.0 && continue
+        min_topo = get_min_topography_elevation(trap_id, tstruct)
+        water_level = min_topo + h
         for idx in tstruct.footprints[trap_id]
-            height_map[idx] = max(height_map[idx], h)
+            cell_h = max(0.0, water_level - tstruct.topography[idx])
+            height_map[idx] = max(height_map[idx], cell_h)
         end
     end
     return height_map
+end
+
+"""
+    get_grid_size(layers) -> Tuple{Int,Int}
+
+Return the (padded) grid size `(nx, ny)` from the first layer's trap structure topography.
+Eliminates the need for manual padding arithmetic when setting up injection rates.
+"""
+function get_grid_size(layers::Vector{Layer})::Tuple{Int,Int}
+    return size(layers[1].trap_structure.topography)
+end
+
+"""
+    create_injection_rate(layers, location_idx, rate) -> Matrix{Float64}
+
+Create an injection rate matrix of the correct (padded) grid size with `rate` placed
+at the specified *unpadded* `(i, j)` index. The padding offset for closed boundary
+conditions is applied automatically.
+
+For a zero-rate matrix, pass any index with `rate = 0.0`.
+
+# Arguments
+- `layers`: Vector of `Layer` from `analyze_base_surfaces`
+- `location_idx`: `(i, j)` tuple in the original (unpadded) grid coordinates
+- `rate`: Injection rate value to place at the specified location
+"""
+function create_injection_rate(layers::Vector{Layer}, location_idx::Tuple{Int,Int}, rate::Real)::Matrix{Float64}
+    grid_size = get_grid_size(layers)
+    rate_matrix = zeros(grid_size)
+    if rate != 0.0
+        if layers[1].boundary_condition == :closed
+            pad = _infer_pad_width(layers)
+            padded_idx = (location_idx[1] + pad, location_idx[2] + pad)
+        else
+            padded_idx = location_idx
+        end
+        rate_matrix[padded_idx[1], padded_idx[2]] = rate
+    end
+    return rate_matrix
+end
+
+# Infer pad_width from the layer: for closed BC, the topography border cells are walls
+function _infer_pad_width(layers::Vector{Layer})::Int
+    # The pad width is encoded in the grid: find how many border rows are constant (wall)
+    topo = layers[1].trap_structure.topography
+    nx = size(topo, 1)
+    wall_val = topo[1, 1]
+    pad = 0
+    for i in 1:div(nx, 2)
+        if all(topo[i, :] .== wall_val)
+            pad = i
+        else
+            break
+        end
+    end
+    return pad
+end
+
+"""
+    create_no_injection(layers) -> Vector{InjectionEvent}
+
+Return `[InjectionEvent(0.0, zeros(grid_size))]` — the standard "no direct injection"
+schedule for a non-injecting layer.
+"""
+function create_no_injection(layers::Vector{Layer})::Vector{InjectionEvent}
+    grid_size = get_grid_size(layers)
+    return [InjectionEvent(0.0, zeros(grid_size))]
+end
+
+"""
+    volume_scale(rp, domain) -> Float64
+
+Return the conversion factor from SWIM volume units to physical m³.
+Equivalent to `swim_volume_to_physical_volume(1.0, rp, domain)`.
+"""
+function volume_scale(rp::ReservoirProperties, domain::Domain3D)::Float64
+    return swim_volume_to_physical_volume(1.0, rp, domain)
 end

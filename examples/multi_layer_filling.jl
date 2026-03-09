@@ -5,7 +5,7 @@ using CairoMakie
 using LaTeXStrings
 using Random
 
-Random.seed!(42)
+Random.seed!(101)
 
 # Grid / domain settings
 const NX, NY = 100, 100
@@ -36,40 +36,36 @@ sand_layers = [
     Dict{String,Any}("name" => "Storage layer 1", "top" => surf_L1, "base" => surf_L1 .+ LAYER_THICK),
 ]
 topo = GenericTopography(sand_layers, NX, NY, DX, DY, minimum(surf_L3), maximum(surf_L1) + LAYER_THICK)
-domain = create_domain(topo, 1.0)
+domain = create_domain(topo, 0.1)
 
 # analyze_base_surfaces reverses the order → layers[1] = L1 (deepest, injection)
 boundary_condition = :closed
 layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
 
 # Reservoir properties
-rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 15_000.0, 5.0)
+rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 25_000.0, 5.0)
 rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 
 println("Leakage height threshold: $(round(rp.leakage_height, digits=2)) m")
 
 # Injection — single central well in layer 1 (deepest) only
-TOTAL_RATE = 25_000.0
+TOTAL_RATE = 80_000.0
 INJECTION_END = 10.0
 
-pad = PAD_WIDTH # since closed boundaries
-topo_size = (NX + 2 * pad, NY + 2 * pad)
-
-injection_location_idx = (div(NX, 2) + pad, div(NY, 2) + pad)
-rate_L1 = zeros(topo_size)
-rate_L1[injection_location_idx[1], injection_location_idx[2]] = TOTAL_RATE
+# create_injection_rate handles padding offset automatically
+rate_L1 = create_injection_rate(layers, (div(NX, 2), div(NY, 2)), TOTAL_RATE)
 
 injection_events = [
     # Layer 1: inject then stop
-    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, zeros(topo_size))],
+    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, create_injection_rate(layers, (1, 1), 0.0))],
     # Layers 2–3: no direct injection (CO2 arrives via leakage from below)
-    [InjectionEvent(0.0, zeros(topo_size))],
-    [InjectionEvent(0.0, zeros(topo_size))],
+    create_no_injection(layers),
+    create_no_injection(layers),
 ]
 
 # Run multi-layer simulation
 println("\nRunning multi-layer fill simulation...")
-seqs, leakage_states, weather_events_per_layer = fill_layers(
+@time seqs, leakage_states, weather_events_per_layer = fill_layers(
     layers, domain, [rp, rp, rp_caprock], injection_events; verbose=false)
 
 # Determine time range for snapshots
@@ -97,7 +93,7 @@ injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
 plot_multi_layer(
     layers, multi_snaps[end], domain;
     output_file=joinpath(@__DIR__, "multi_layer_co2_final.svg"),
-    max_co2_height=6.0,
+    max_co2_height=ceil(round(rp.leakage_height, digits=2)),
     show_contours=true,
     show_labels=true,
     contour_levels=20,
@@ -105,12 +101,15 @@ plot_multi_layer(
     contour_opacity=1.0,
     figure_size=(500 * N_LAYERS, 500),
     colormap=:Blues,
+    # colormap=:viridis,
     injection_locations=[injection_location_loc],
     show_leakage_locations=true,
+    show_extents=false,
+    colorbar_label=L"CO$_2$ column height",
 )
 
 # Plot 2: volume time-series per layer
-_phys_scale = swim_volume_to_physical_volume(1.0, rp, domain)
+_phys_scale = volume_scale(rp, domain)
 plot_multi_layer_volumes_timeseries(
     multi_snaps;
     output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),

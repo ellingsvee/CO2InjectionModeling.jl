@@ -5,7 +5,7 @@ using CairoMakie
 using LaTeXStrings
 using Random
 
-Random.seed!(42)
+Random.seed!(101)
 
 # Grid / domain settings
 const NX, NY = 100, 100
@@ -18,7 +18,6 @@ const N_LAYERS = 3
 const RESIDUAL_TRAPPING = 0.4
 
 # Generate four GRF surfaces at increasing depth
-# cov = CovarianceFunction(2, Matern(100, 2, σ=3.0))
 cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
@@ -37,56 +36,53 @@ sand_layers = [
     Dict{String,Any}("name" => "Storage layer 1", "top" => surf_L1, "base" => surf_L1 .+ LAYER_THICK),
 ]
 topo = GenericTopography(sand_layers, NX, NY, DX, DY, minimum(surf_L3), maximum(surf_L1) + LAYER_THICK)
-domain = create_domain(topo, 1.0)
+domain = create_domain(topo, 0.1)
 
 # analyze_base_surfaces reverses the order → layers[1] = L1 (deepest, injection)
 boundary_condition = :closed
 layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
 
 # Injection — single central well in layer 1 (deepest) only
-TOTAL_RATE = 25_000.0
+TOTAL_RATE = 80_000.0
 INJECTION_END = 10.0
 
-pad = PAD_WIDTH # since closed boundaries
-topo_size = (NX + 2 * pad, NY + 2 * pad)
-
-injection_location_idx = (div(NX, 2) + pad, div(NY, 2) + pad)
-rate_L1 = zeros(topo_size)
-rate_L1[injection_location_idx[1], injection_location_idx[2]] = TOTAL_RATE
+# create_injection_rate handles padding offset automatically
+rate_L1 = create_injection_rate(layers, (div(NX, 2), div(NY, 2)), TOTAL_RATE)
 
 injection_events = [
     # Layer 1: inject then stop
-    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, zeros(topo_size))],
+    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, create_injection_rate(layers, (1, 1), 0.0))],
     # Layers 2–3: no direct injection (CO2 arrives via leakage from below)
-    [InjectionEvent(0.0, zeros(topo_size))],
-    [InjectionEvent(0.0, zeros(topo_size))],
+    create_no_injection(layers),
+    create_no_injection(layers),
 ]
 
 rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 
-N_ENSEMBLE = 5
-capillary_entry_pressures = range(10_000.0, stop=20_000.0, length=N_ENSEMBLE)
+N_ENSEMBLE = 100
+capillary_entry_pressures = range(20_000.0, stop=30_000.0, length=N_ENSEMBLE)
+println("Min meakage height threshold: $(round(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, minimum(capillary_entry_pressures), 5.0).leakage_height, digits=2))")
+println("Max meakage height threshold: $(round(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, maximum(capillary_entry_pressures), 5.0).leakage_height, digits=2))")
 
-mutli_snaps_ensemble = Vector{MultiLayerSnapshot}(undef, N_ENSEMBLE)
+t_end = 15.0
+timepoints = collect(range(0.0, stop=t_end, length=30))
 
-for i in 1:N_ENSEMBLE
+multi_snaps_ensemble_final = Vector{MultiLayerSnapshot}(undef, N_ENSEMBLE)
+multi_snaps_ensemble_ts = Vector{Vector{MultiLayerSnapshot}}(undef, N_ENSEMBLE)
+
+# Time the ensemble runs
+@time for i in 1:N_ENSEMBLE
     rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, capillary_entry_pressures[i], 5.0)
 
     # Run multi-layer simulation
     seqs, leakage_states, weather_events_per_layer = fill_layers(
         layers, domain, [rp, rp, rp_caprock], injection_events; verbose=false)
 
-    # Determine time range for snapshots
-    t_end = 15.0
-    timepoints = collect(range(0.0, stop=t_end, length=30))
-
     multi_snaps = generate_multi_layer_snapshots(
         layers, seqs, leakage_states, weather_events_per_layer, timepoints)
 
-    mutli_snaps_ensemble[i] = multi_snaps[end]
-
-    println()
-    print_summary(multi_snaps[end])
+    multi_snaps_ensemble_final[i] = multi_snaps[end]
+    multi_snaps_ensemble_ts[i] = multi_snaps
 end
 
 # Settings for plotting
@@ -97,17 +93,11 @@ update_theme!(
     )
 )
 
-# Plot ensemble plume outlines — one contour line per ensemble member per layer
-ensemble_labels = ["Pce = $(round(Int, p / 1000)) kPa" for p in capillary_entry_pressures]
-injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
-plot_multi_layer_ensemble(
-    layers, mutli_snaps_ensemble, domain;
-    labels=ensemble_labels,
-    output_file=joinpath(@__DIR__, "ensemble_co2_outlines.svg"),
-    contour_level=0.05,
-    show_topography=true,
-    topo_contour_levels=20,
-    major_contour_every=5,
-    figure_size=(500 * N_LAYERS, 500),
-    injection_locations=[injection_location_loc],
+# Plot ensemble volume timeseries — mean ± 1σ bands per layer
+_phys_scale = volume_scale(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1.0, 5.0), domain)
+plot_multi_layer_ensemble_timeseries(
+    multi_snaps_ensemble_ts;
+    output_file=joinpath(@__DIR__, "ensemble_timeseries.svg"),
+    vol_scale=_phys_scale / 1e5,
+    ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
 )

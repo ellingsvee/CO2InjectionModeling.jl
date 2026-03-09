@@ -3,7 +3,8 @@
 
 export animate_layer_filling, animate_multi_layer_filling
 export plot_layer, plot_multi_layer, plot_multi_layer_ensemble
-export plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries
+export plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries,
+    plot_multi_layer_ensemble_timeseries
 
 """
     animate_layer_filling(layer, seq, leakage_state, weather_events, timepoints, domain; kwargs...)
@@ -82,7 +83,7 @@ function plot_multi_layer end
 
 Plot CO2 plume outlines for an ensemble of multi-layer simulations.
 Each ensemble member is drawn as a single contour line (at `contour_level` metres of
-CO2 column height) in a distinct colour, giving a compact uncertainty overview.
+CO2 column height), giving a compact uncertainty overview.
 Panels are arranged side-by-side, one per geological layer.
 
 Requires a Makie backend (e.g. `using CairoMakie`).
@@ -94,18 +95,23 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 
 # Keyword arguments
 - `output_file`: Output file path (default `"ensemble_co2.svg"`)
-- `labels`: `Vector{String}` legend labels, one per member (default `"Member i"`)
-- `colors`: Override colours (default: Wong colour palette, cycling if needed)
+- `contour_color`: Colour for all ensemble contour lines (default `:black`)
 - `pad_width`: Boundary padding cells (default `2`)
 - `contour_level`: CO2 column height threshold that defines each plume outline in metres
   (default `0.01`)
 - `linewidth`: Outline line width (default `2.5`)
 - `show_topography`: Overlay topography contours (default `true`)
+- `show_labels`: Label major topography contours (default `false`)
 - `topo_contour_levels`: Number of topography contour levels (default `10`)
 - `major_contour_every`: Every nth level is drawn as a major contour (default `5`)
+- `contour_opacity`: Topography contour line opacity (default `0.8`)
 - `injection_locations`: `Vector{Tuple{Float64,Float64}}` of (x, y) well locations
   to mark on layer 1 (default `nothing`)
+- `show_leakage_locations`: Mark leakage points with triangles (default `false`)
 - `figure_size`: `(width, height)` in pixels (default `(700*n_layers, 600)`)
+- `member_labels`: `Vector{String}` of labels to place on each ensemble member's
+  contour lines, using Makie's built-in contour labelling (default `nothing`, i.e. no labels)
+- `member_label_fontsize`: Font size for member labels (default `12`)
 """
 function plot_multi_layer_ensemble end
 
@@ -149,3 +155,24 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 - `figure_size`: `(width, height)` in pixels (default `(500*n_layers, 400)`)
 """
 function plot_multi_layer_volumes_timeseries end
+
+"""
+    plot_multi_layer_ensemble_timeseries(ensemble; kwargs...) -> nothing
+
+Plot CO2 volume time-series with ensemble mean and ±1σ uncertainty bands for
+every layer in a multi-layer simulation, side-by-side.
+
+Requires a Makie backend (e.g. `using CairoMakie`).
+
+# Arguments
+- `ensemble`: `Vector{Vector{MultiLayerSnapshot}}`, outer index = ensemble member,
+  inner index = timepoint (all members must share the same timepoints)
+
+# Keyword arguments
+- `output_file`: Output file path (default `"ensemble_timeseries.svg"`)
+- `vol_scale`: Volume scaling factor (default `1.0`)
+- `ylabel`: Y-axis label (default `"Volume"`)
+- `linewidth`: Line width (default `4`)
+- `figure_size`: `(width, height)` in pixels (default `(500*n_layers, 400)`)
+"""
+function plot_multi_layer_ensemble_timeseries end
