@@ -133,8 +133,11 @@ function height_map(tstruct, z_vol_tables, volumes;
             volume_to_height(vol, trap_id, z_vol_tables[trap_id], tstruct)
         end
         h <= 0.0 && continue
+        min_topo = get_min_topography_elevation(trap_id, tstruct)
+        water_level = min_topo + h
         for idx in tstruct.footprints[trap_id]
-            height_map[idx] = max(height_map[idx], h)
+            cell_h = max(0.0, water_level - tstruct.topography[idx])
+            height_map[idx] = max(height_map[idx], cell_h)
         end
     end
     return height_map
