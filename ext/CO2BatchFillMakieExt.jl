@@ -200,6 +200,7 @@ function plot_multi_layer(
     figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
     show_extents::Bool=false,
     extent_color=(:dodgerblue, 0.5),
+    colorbar_label="Column height",
 )
     n = length(layers)
 
@@ -246,7 +247,7 @@ function plot_multi_layer(
         end
     end
     if !show_extents
-        Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label="Column height", size=_CBAR_SIZE)
+        Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label=colorbar_label, size=_CBAR_SIZE)
     end
 
     save(output_file, fig)

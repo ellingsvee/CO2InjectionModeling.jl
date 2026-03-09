@@ -46,25 +46,21 @@ layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
 TOTAL_RATE = 80_000.0
 INJECTION_END = 10.0
 
-pad = PAD_WIDTH # since closed boundaries
-topo_size = (NX + 2 * pad, NY + 2 * pad)
-
-injection_location_idx = (div(NX, 2) + pad, div(NY, 2) + pad)
-rate_L1 = zeros(topo_size)
-rate_L1[injection_location_idx[1], injection_location_idx[2]] = TOTAL_RATE
+# create_injection_rate handles padding offset automatically
+rate_L1 = create_injection_rate(layers, (div(NX, 2), div(NY, 2)), TOTAL_RATE)
 
 injection_events = [
     # Layer 1: inject then stop
-    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, zeros(topo_size))],
+    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, create_injection_rate(layers, (1, 1), 0.0))],
     # Layers 2–3: no direct injection (CO2 arrives via leakage from below)
-    [InjectionEvent(0.0, zeros(topo_size))],
-    [InjectionEvent(0.0, zeros(topo_size))],
+    create_no_injection(layers),
+    create_no_injection(layers),
 ]
 
 rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
 
 N_ENSEMBLE = 100
-capillary_entry_pressures = range(15_000.0, stop=35_000.0, length=N_ENSEMBLE)
+capillary_entry_pressures = range(20_000.0, stop=30_000.0, length=N_ENSEMBLE)
 println("Min meakage height threshold: $(round(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, minimum(capillary_entry_pressures), 5.0).leakage_height, digits=2))")
 println("Max meakage height threshold: $(round(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, maximum(capillary_entry_pressures), 5.0).leakage_height, digits=2))")
 
@@ -98,29 +94,10 @@ update_theme!(
 )
 
 # Plot ensemble volume timeseries — mean ± 1σ bands per layer
-_phys_scale = swim_volume_to_physical_volume(1.0, ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1.0, 5.0), domain)
+_phys_scale = volume_scale(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1.0, 5.0), domain)
 plot_multi_layer_ensemble_timeseries(
     multi_snaps_ensemble_ts;
     output_file=joinpath(@__DIR__, "ensemble_timeseries.svg"),
     vol_scale=_phys_scale / 1e5,
     ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
 )
-
-# # Get 4 evenly spaced snapshots from the 100 multi_snaps_ensemble_final
-# plot_indices = round.(Int, range(1, stop=N_ENSEMBLE, length=4))
-# multi_snaps_ensemble_plot = multi_snaps_ensemble_final[plot_indices]
-# plot_multi_layer_ensemble(
-#     layers,
-#     multi_snaps_ensemble_plot,
-#     domain;
-#     output_file=joinpath(@__DIR__, "ensemble_extents.svg"),
-#     show_topography=true,
-#     show_labels=false,
-#     contour_opacity=1.0,
-#     topo_contour_levels=20,
-#     major_contour_every=5,
-#     figure_size=(500 * N_LAYERS, 500),
-#     member_labels=["$(round(capillary_entry_pressures[i]/1000, digits=1)) kPa" for i in plot_indices],
-#     member_label_fontsize=14,
-#     contour_color=to_colormap(:Blues)[end],
-# )

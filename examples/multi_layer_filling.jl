@@ -52,24 +52,20 @@ println("Leakage height threshold: $(round(rp.leakage_height, digits=2)) m")
 TOTAL_RATE = 80_000.0
 INJECTION_END = 10.0
 
-pad = PAD_WIDTH # since closed boundaries
-topo_size = (NX + 2 * pad, NY + 2 * pad)
-
-injection_location_idx = (div(NX, 2) + pad, div(NY, 2) + pad)
-rate_L1 = zeros(topo_size)
-rate_L1[injection_location_idx[1], injection_location_idx[2]] = TOTAL_RATE
+# create_injection_rate handles padding offset automatically
+rate_L1 = create_injection_rate(layers, (div(NX, 2), div(NY, 2)), TOTAL_RATE)
 
 injection_events = [
     # Layer 1: inject then stop
-    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, zeros(topo_size))],
+    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, create_injection_rate(layers, (1, 1), 0.0))],
     # Layers 2–3: no direct injection (CO2 arrives via leakage from below)
-    [InjectionEvent(0.0, zeros(topo_size))],
-    [InjectionEvent(0.0, zeros(topo_size))],
+    create_no_injection(layers),
+    create_no_injection(layers),
 ]
 
 # Run multi-layer simulation
 println("\nRunning multi-layer fill simulation...")
-seqs, leakage_states, weather_events_per_layer = fill_layers(
+@time seqs, leakage_states, weather_events_per_layer = fill_layers(
     layers, domain, [rp, rp, rp_caprock], injection_events; verbose=false)
 
 # Determine time range for snapshots
@@ -105,13 +101,15 @@ plot_multi_layer(
     contour_opacity=1.0,
     figure_size=(500 * N_LAYERS, 500),
     colormap=:Blues,
+    # colormap=:viridis,
     injection_locations=[injection_location_loc],
     show_leakage_locations=true,
     show_extents=false,
+    colorbar_label=L"CO$_2$ column height",
 )
 
 # Plot 2: volume time-series per layer
-_phys_scale = swim_volume_to_physical_volume(1.0, rp, domain)
+_phys_scale = volume_scale(rp, domain)
 plot_multi_layer_volumes_timeseries(
     multi_snaps;
     output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),
