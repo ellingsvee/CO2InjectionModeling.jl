@@ -1,23 +1,38 @@
+# # Multi-layer filling
+#
+# This example demonstrates the core functionality of `CO2BatchFill`. We generate a synthetic subsurface domain with three layers, simulate $\text{CO}_2$ injection into the deepest layer, and analyze the resulting $\text{CO}_2$ distribution and migration over time. 
+
+# ## Loading necessary packages
 using CO2BatchFill
 using SurfaceWaterIntegratedModeling
-using GaussianRandomFields
-using CairoMakie
+using GaussianRandomFields # for generating synthetic surfaces
+using CairoMakie # for visualization
 using LaTeXStrings
 using Random
 
-Random.seed!(101)
 
-# Grid / domain settings
+# ## Selecting physical properties
+const N_LAYERS = 3
 const NX, NY = 100, 100
 const LENGTH_X = 1000.0
 const LENGTH_Y = 1000.0
 const DX, DY = LENGTH_X / NX, LENGTH_Y / NY
 const LAYER_THICK = 10.0     # m (vertical thickness of each sand layer)
-const PAD_WIDTH = 2
-const N_LAYERS = 3
-const RESIDUAL_TRAPPING = 0.4
+const RESIDUAL_TRAPPING = 0.4 # fraction of CO2 volume that becomes immobile when a layer fills
+const CAPILLARY_ENTRY_PRESSURE = 25_000.0
+const boundary_condition = :closed
 
-# Generate four GRF surfaces at increasing depth
+# The `ReservoirProperties` struct defines the physical properties of each layer.
+rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, CAPILLARY_ENTRY_PRESSURE, 5.0)
+rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0) # Infinite entry pressure for caprock layer 
+all_layers_rp = [rp, rp, rp_caprock] # properties for each layer, in order from deepest to shallowest
+
+# Based on the `CAPILLARY_ENTRY_PRESSURE`, the `leakage_height` is the maximum $\text{CO}_2$ column height that can be supported before migration occurs. 
+println("Leakage height threshold: $(round(rp.leakage_height, digits=2)) m")
+
+# ## Generating synthetic topography
+# We create three synthetic layers using Gaussian random fields (GRFs) with a Matern covariance function. This will represent the topographies of the shale-layers.
+Random.seed!(101) # for reproducibility
 cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
 pts = range(0.0, stop=(NX - 1) * DX, step=DX)
 
@@ -29,7 +44,7 @@ surf_L1 = sample_surface(950.0)   # deepest  (injection layer)
 surf_L2 = sample_surface(900.0)
 surf_L3 = sample_surface(850.0)
 
-# Build topography — sand_layers ordered shallowest-first, deepest-last
+# We create a `GenericTopography` from the three surfaces, which implements the `AbstractTopography` interface required by `CO2BatchFill`. 
 sand_layers = [
     Dict{String,Any}("name" => "Storage layer 3", "top" => surf_L3, "base" => surf_L3 .+ LAYER_THICK),
     Dict{String,Any}("name" => "Storage layer 2", "top" => surf_L2, "base" => surf_L2 .+ LAYER_THICK),
@@ -38,49 +53,39 @@ sand_layers = [
 topo = GenericTopography(sand_layers, NX, NY, DX, DY, minimum(surf_L3), maximum(surf_L1) + LAYER_THICK)
 domain = create_domain(topo, 0.1)
 
-# analyze_base_surfaces reverses the order → layers[1] = L1 (deepest, injection)
-boundary_condition = :closed
-layers = analyze_base_surfaces(topo; boundary_condition, pad_width=PAD_WIDTH)
+# Using the `spillanalysis` algorithm from SWIM, the `analyze_base_surfaces` function identifies the spill points and leakage paths for each layer. The `boundary_condition` argument controls whether $\text{CO}_2$ can leave the domain (open BC) or if boundary walls are added to prevent outflow (closed BC). 
+layers = analyze_base_surfaces(topo; boundary_condition=boundary_condition)
 
-# Reservoir properties
-rp = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 25_000.0, 5.0)
-rp_caprock = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0)
-
-println("Leakage height threshold: $(round(rp.leakage_height, digits=2)) m")
-
-# Injection — single central well in layer 1 (deepest) only
+# ## Defining injection schedule
+# We define an injection schedule where $\text{CO}_2$ is injected into the deepest layer (Layer 1) at a constant rate over ten years. The upper layers (Layers 2–3) have no direct injection. The injection schedule is defined as a matrix specifying the injection rate for each layer. The `create_injection_rate` and `create_no_injection` are utility functions that generate the appropriate injection rate matrices based on grid dimensions.
 TOTAL_RATE = 80_000.0
-INJECTION_END = 10.0
-
-# create_injection_rate handles padding offset automatically
+INJECTION_END = 10.0 # injection up to 10 years, then stop
 rate_L1 = create_injection_rate(layers, (div(NX, 2), div(NY, 2)), TOTAL_RATE)
+null_rate = create_no_injection(layers)
 
+# We create an `injection_events` vector with one entry per layer, where each entry is a vector of `InjectionEvent`s.
 injection_events = [
-    # Layer 1: inject then stop
-    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, create_injection_rate(layers, (1, 1), 0.0))],
-    # Layers 2–3: no direct injection (CO2 arrives via leakage from below)
-    create_no_injection(layers),
-    create_no_injection(layers),
+    [InjectionEvent(0.0, rate_L1), InjectionEvent(INJECTION_END, create_injection_rate(layers, (1, 1), 0.0))], # Layer 1
+    null_rate, # Layer 2
+    null_rate, # Layer 3
 ]
 
-# Run multi-layer simulation
-println("\nRunning multi-layer fill simulation...")
-@time seqs, leakage_states, weather_events_per_layer = fill_layers(
-    layers, domain, [rp, rp, rp_caprock], injection_events; verbose=false)
+# ## Run simulation
+# The `fill_layers` function runs the simulation. 
+seqs, leakage_states, weather_events_per_layer = fill_layers(
+    layers, domain, all_layers_rp, injection_events; verbose=false)
 
-# Determine time range for snapshots
+# After the simulation is complete, we can generate snapshots at arbitrary time points. `generate_multi_layer_snapshots` creates a vector of `MultiLayerSnapshot`s containing information about the total $\text{CO}_2$ distribution across all layers, and a `LayerSnapshot`s for each individual layer.
 t_end = 15.0
 timepoints = collect(range(0.0, stop=t_end, length=30))
-
-println("\nGenerating $(length(timepoints)) snapshots from t=0 to t=$(round(t_end, digits=2))...")
 multi_snaps = generate_multi_layer_snapshots(
     layers, seqs, leakage_states, weather_events_per_layer, timepoints)
 
 # Print summary at final snapshot
-println()
 print_summary(multi_snaps[end])
 
-# Settings for plotting
+# ## Visualization
+# Optional defaults for making the plots look nicer.
 update_theme!(
     merge(
         theme_latexfonts(),
@@ -88,11 +93,10 @@ update_theme!(
     )
 )
 
-# Plot 1: static spatial distribution at final time (one panel per layer)
+# First plot the $\text{CO}_2$ plumes at the time of the final snapshot. The `show_extents` argument controls whether to visualize the $\text{CO}_2$ heights, or simply the extent of the plume
 injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
 plot_multi_layer(
     layers, multi_snaps[end], domain;
-    output_file=joinpath(@__DIR__, "multi_layer_co2_final.svg"),
     max_co2_height=ceil(round(rp.leakage_height, digits=2)),
     show_contours=true,
     show_labels=true,
@@ -101,18 +105,16 @@ plot_multi_layer(
     contour_opacity=1.0,
     figure_size=(500 * N_LAYERS, 500),
     colormap=:Blues,
-    # colormap=:viridis,
     injection_locations=[injection_location_loc],
     show_leakage_locations=true,
     show_extents=false,
-    colorbar_label=L"CO$_2$ column height",
+    colorbar_label="Column height",
 )
 
-# Plot 2: volume time-series per layer
+# Lastly, the `plot_multi_layer_volumes_timeseries` function plots the total $\text{CO}_2$ volume in each layer over time. The `vol_scale` argument can be used to convert the volumes to physical units (e.g. cubic meters) and adjust the y-axis scale accordingly.
 _phys_scale = volume_scale(rp, domain)
 plot_multi_layer_volumes_timeseries(
     multi_snaps;
-    output_file=joinpath(@__DIR__, "multi_layer_timeseries_per_layer.svg"),
     vol_scale=_phys_scale / 1e5,
-    ylabel=L"Volume $\left(\!\times\! 10^5\right)$",
+    ylabel="Volume 10^5",
 )

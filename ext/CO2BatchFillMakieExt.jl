@@ -151,7 +151,7 @@ function plot_layer(
     layer::CO2BatchFill.Layer,
     snap::CO2BatchFill.LayerSnapshot,
     domain::CO2BatchFill.Domain3D;
-    output_file::String="layer_co2.svg",
+    output_file::Union{String,Nothing}=nothing,
     pad_width::Int=2,
     colormap::Symbol=_CMAP,
     max_co2_height::Float64=_MAXH,
@@ -174,9 +174,11 @@ function plot_layer(
         Colorbar(fig[1, 2]; colormap, colorrange=(0.0, max_co2_height), label="Column height", size=_CBAR_SIZE)
     end
 
-    save(output_file, fig)
-    println("Saved layer plot to: $(output_file)")
-    return nothing
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved layer plot to: $(output_file)")
+    end
+    return fig
 end
 
 """
@@ -186,7 +188,7 @@ function plot_multi_layer(
     layers::Vector{CO2BatchFill.Layer},
     snap::CO2BatchFill.MultiLayerSnapshot,
     domain::CO2BatchFill.Domain3D;
-    output_file::String="multi_layer_co2.svg",
+    output_file::Union{String,Nothing}=nothing,
     pad_width::Int=2,
     colormap::Symbol=_CMAP,
     max_co2_height::Float64=_MAXH,
@@ -250,9 +252,11 @@ function plot_multi_layer(
         Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label=colorbar_label, size=_CBAR_SIZE)
     end
 
-    save(output_file, fig)
-    println("Saved multi-layer plot to: $(output_file)")
-    return nothing
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved multi-layer plot to: $(output_file)")
+    end
+    return fig
 end
 
 # Time-series plots
@@ -264,7 +268,7 @@ Plot CO2 volume time-series for a single layer.
 """
 function plot_layer_volumes_timeseries(
     snaps::Vector{CO2BatchFill.LayerSnapshot};
-    output_file::String="layer_timeseries.svg",
+    output_file::Union{String,Nothing}=nothing,
     vol_scale::Float64=1.0,
     ylabel="Volume",
     show_injected::Bool=false,
@@ -276,9 +280,11 @@ function plot_layer_volumes_timeseries(
     _timeseries_panel!(ax, snaps; show_injected, linewidth, vol_scale)
     axislegend(ax; patchsize=(40, 10), position=:lt)
 
-    save(output_file, fig)
-    println("Saved layer volumes timeseries to: $(output_file)")
-    return nothing
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved layer volumes timeseries to: $(output_file)")
+    end
+    return fig
 end
 
 """
@@ -316,9 +322,11 @@ function plot_multi_layer_volumes_timeseries(
     end
     linkyaxes!(axes...)
 
-    save(output_file, fig)
-    println("Saved multi-layer volumes timeseries to: $(output_file)")
-    return nothing
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved multi-layer volumes timeseries to: $(output_file)")
+    end
+    return fig
 end
 
 """
@@ -401,8 +409,8 @@ function animate_layer_filling(
         end
     end
 
-    println("Done.")
-    return nothing
+
+    return fig
 end
 
 """
@@ -498,8 +506,7 @@ function animate_multi_layer_filling(
         end
     end
 
-    println("Done.")
-    return nothing
+    return fig
 end
 
 """
@@ -532,7 +539,7 @@ function plot_multi_layer_ensemble(
     ensemble::Vector{CO2BatchFill.MultiLayerSnapshot},
     domain::CO2BatchFill.Domain3D;
     contour_color=nothing,
-    output_file::String="ensemble_co2.svg",
+    output_file::Union{String,Nothing}=nothing,
     pad_width::Int=2,
     contour_level::Float64=0.01,
     linewidth::Real=2.5,
@@ -614,9 +621,12 @@ function plot_multi_layer_ensemble(
         end
     end
 
-    save(output_file, fig)
-    println("Saved ensemble plot to: $(output_file)")
-    return nothing
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved ensemble plot to: $(output_file)")
+    end
+
+    return fig
 end
 
 """
@@ -625,7 +635,7 @@ multi-layer simulation.
 """
 function plot_multi_layer_ensemble_timeseries(
     ensemble::Vector{Vector{CO2BatchFill.MultiLayerSnapshot}};
-    output_file::String="ensemble_timeseries.svg",
+    output_file::Union{String,Nothing}=nothing,
     vol_scale::Float64=1.0,
     ylabel="Volume",
     linewidth::Int=_LW,
@@ -679,9 +689,12 @@ function plot_multi_layer_ensemble_timeseries(
     end
     linkyaxes!(axes...)
 
-    save(output_file, fig)
-    println("Saved ensemble timeseries plot to: $(output_file)")
-    return nothing
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved ensemble plot to: $(output_file)")
+    end
+
+    return fig
 end
 
 end # module

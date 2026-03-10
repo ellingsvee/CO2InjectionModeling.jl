@@ -1,3 +1,9 @@
 [deps]
 CO2BatchFill = "7ea0d275-a78e-480a-8e35-6aa88f365d2b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+GaussianRandomFields = "e4b2fa32-6e09-5554-b718-106ed5adafe9"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
+LiveServer = "16fef848-5104-11e9-1b77-fb7a48bbb589"
+SurfaceWaterIntegratedModeling = "71e2a337-b4d4-4738-9f2b-3c37e1d3d462"
