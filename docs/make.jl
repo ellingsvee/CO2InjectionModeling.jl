@@ -12,6 +12,7 @@ end
 
 Literate.markdown("examples/multi_layer_filling.jl", "docs/src/"; execute=false, preprocess=set_to_cairo)
 Literate.markdown("examples/multi_layer_ensemble.jl", "docs/src/"; execute=false, preprocess=set_to_cairo)
+Literate.markdown("examples/sleipner_analysis.jl", "docs/src/"; execute=false, preprocess=set_to_cairo)
 
 
 makedocs(
@@ -38,6 +39,7 @@ makedocs(
         "Examples" => [
             "Multi-layer Filling" => "multi_layer_filling.md",
             "Multi-layer Ensemble" => "multi_layer_ensemble.md",
+            "Sleipner Analysis" => "sleipner_analysis.md",
         ],
         "Index" => "indexlist.md",
     ]
