@@ -1,6 +1,6 @@
 name = "CO2BatchFill"
 uuid = "7ea0d275-a78e-480a-8e35-6aa88f365d2b"
-version = "1.0.0-DEV"
+version = "0.1.0"
 authors = ["Elling Svee <86355496+ellingsvee@users.noreply.github.com> and contributors"]
 
 [deps]
