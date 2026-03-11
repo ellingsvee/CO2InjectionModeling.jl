@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "../../examples/multi_layer_ensemble.jl"
+EditURL = "../../../examples/multi_layer_ensemble.jl"
 ```
 
 # Multi-layer ensemble

@@ -10,9 +10,9 @@ function set_to_cairo(content)
     return content
 end
 
-Literate.markdown("examples/multi_layer_filling.jl", "docs/src/"; execute=false, preprocess=set_to_cairo)
-Literate.markdown("examples/multi_layer_ensemble.jl", "docs/src/"; execute=false, preprocess=set_to_cairo)
-Literate.markdown("examples/sleipner_analysis.jl", "docs/src/"; execute=false, preprocess=set_to_cairo)
+Literate.markdown("examples/multi_layer_filling.jl", "docs/src/examples/"; execute=false, preprocess=set_to_cairo)
+Literate.markdown("examples/multi_layer_ensemble.jl", "docs/src/examples/"; execute=false, preprocess=set_to_cairo)
+Literate.markdown("examples/sleipner_analysis.jl", "docs/src/examples/"; execute=false, preprocess=set_to_cairo)
 
 
 makedocs(
@@ -20,7 +20,13 @@ makedocs(
     sitename="CO2BatchFill",
     format=Documenter.HTML(
         prettyurls=get(ENV, "CI", nothing) == "true",
-        edit_link="main"
+        edit_link="main",
+        # Do no check for larger pages.
+        size_threshold_ignore=[
+            "examples/multi_layer_filling.md",
+            "examples/multi_layer_ensemble.md",
+            "examples/sleipner_analysis.md",
+        ],
     ),
     warnonly=[:missing_docs, :docs_block, :cross_references],
     draft=false,
@@ -37,9 +43,9 @@ makedocs(
             "Utilities" => "utils.md",
         ],
         "Examples" => [
-            "Multi-layer Filling" => "multi_layer_filling.md",
-            "Multi-layer Ensemble" => "multi_layer_ensemble.md",
-            "Sleipner Analysis" => "sleipner_analysis.md",
+            "Multi-layer Filling" => "examples/multi_layer_filling.md",
+            "Multi-layer Ensemble" => "examples/multi_layer_ensemble.md",
+            "Sleipner Analysis" => "examples/sleipner_analysis.md",
         ],
         "Index" => "indexlist.md",
     ]

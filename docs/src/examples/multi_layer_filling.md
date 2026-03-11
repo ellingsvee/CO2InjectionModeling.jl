@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "../../examples/multi_layer_filling.jl"
+EditURL = "../../../examples/multi_layer_filling.jl"
 ```
 
 # Multi-layer filling

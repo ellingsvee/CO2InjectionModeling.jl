@@ -1,5 +1,5 @@
 ```@meta
-EditURL = "../../examples/sleipner_analysis.jl"
+EditURL = "../../../examples/sleipner_analysis.jl"
 ```
 
 # Sleipner Analysis
