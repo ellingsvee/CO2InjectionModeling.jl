@@ -1,0 +1,6 @@
+[sleipner]
+git-tree-sha1 = "0bc0768dcd5944d951a9a625cc39eb234ce5f76c"
+
+    [[sleipner.download]]
+    url = "https://zenodo.org/records/18944902/files/sleipner.tar.gz"
+    sha256 = "119a5dfd2226f8adf3f1aa09f71fef974d66aef72faf0a452ccafefa832c817f"

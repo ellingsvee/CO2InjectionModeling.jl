@@ -182,6 +182,15 @@ function plot_layer(
 end
 
 """
+Helper function to convert a linear index `i` into row/column indices for a given `figure_layout` (nrows, ncols).
+"""
+function i_to_layout(figure_layout, i)
+    row = (i - 1) ÷ figure_layout[2] + 1
+    col = (i - 1) % figure_layout[2] + 1
+    return row, col
+end
+
+"""
 Plot CO2 height distribution for multiple layers side-by-side with a shared colorbar.
 """
 function plot_multi_layer(
@@ -200,6 +209,8 @@ function plot_multi_layer(
     injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing,
     show_leakage_locations::Bool=false,
     figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
+    figure_layout::Union{Tuple{Int,Int},Nothing}=nothing,
+    cbar_location::Union{Tuple{Int,Int},Nothing}=nothing,
     show_extents::Bool=false,
     extent_color=(:dodgerblue, 0.5),
     colorbar_label="Column height",
@@ -207,13 +218,16 @@ function plot_multi_layer(
     n = length(layers)
 
     figure_size = isnothing(figure_size) ? (700 * n, 600) : figure_size
+    figure_layout = isnothing(figure_layout) ? (1, length(layers)) : figure_layout
+
     fig = Figure(size=figure_size)
 
     has_injection = !isnothing(injection_locations)
     has_any_leakage = false
 
     for i in 1:n
-        ax = Axis(fig[1, i];
+        figure_row, figure_col = i_to_layout(figure_layout, i)
+        ax = Axis(fig[figure_row, figure_col];
             xlabel="x",
             ylabel=(i == 1 ? "y" : ""),
             title=snap.layers[i].layer_name,
@@ -249,7 +263,8 @@ function plot_multi_layer(
         end
     end
     if !show_extents
-        Colorbar(fig[1, n+1]; colormap, colorrange=(0.0, max_co2_height), label=colorbar_label, size=_CBAR_SIZE)
+        cbar_location = isnothing(cbar_location) ? (1, n + 1) : cbar_location
+        Colorbar(fig[cbar_location[1], cbar_location[2]]; colormap, colorrange=(0.0, max_co2_height), label=colorbar_label, size=_CBAR_SIZE)
     end
 
     if output_file !== nothing
@@ -301,15 +316,19 @@ function plot_multi_layer_volumes_timeseries(
     show_injected::Bool=false,
     linewidth::Int=_LW,
     figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
+    figure_layout::Union{Tuple{Int,Int},Nothing}=nothing,
 )
     n = length(snaps[1].layers)
 
     figure_size = isnothing(figure_size) ? (500 * n, 400) : figure_size
+    figure_layout = isnothing(figure_layout) ? (1, n) : figure_layout
+
     fig = Figure(size=figure_size)
     axes = Axis[]
     for i in 1:n
         layer_snaps = [s.layers[i] for s in snaps]
-        ax = Axis(fig[1, i];
+        figure_row, figure_col = i_to_layout(figure_layout, i)
+        ax = Axis(fig[figure_row, figure_col];
             xlabel="Time",
             ylabel=(i == 1 ? ylabel : ""),
             title=layer_snaps[1].layer_name,
