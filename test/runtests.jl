@@ -99,11 +99,12 @@ end
 function make_grf_scenario(
     injection_events::Vector{Vector{InjectionEvent}}=_make_dual_injection_events()
 )
+    rng = MersenneTwister(1)
     cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
     pts_x = range(0, stop=(TEST_NX - 1) * TEST_DX, step=TEST_DX)
     pts_y = range(0, stop=(TEST_NY - 1) * TEST_DY, step=TEST_DY)
-    top = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 900.0
-    bottom = sample(GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 850.0
+    top = sample(rng, GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 900.0
+    bottom = sample(rng, GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 850.0
     return _assemble_scenario("grf", top, bottom, injection_events)
 end
 
