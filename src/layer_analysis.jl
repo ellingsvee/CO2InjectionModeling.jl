@@ -18,6 +18,7 @@ struct Layer
     name::String
     trap_structure::TrapStructure
     boundary_condition::Symbol  # :open or :closed
+    pad_width::Int
 end
 
 """
@@ -69,18 +70,16 @@ and `fill_layers` can propagate leakage upward in index order.
 - `topography`: Any [`AbstractTopography`](@ref) (e.g. [`GenericTopography`](@ref))
 - `boundary_condition`: `:open` — CO2 can leave the domain; `:closed` — boundary
   walls are added via [`add_boundary_wall`](@ref) with `pad_width` cells
-- `pad_width`: Width of the boundary wall in grid cells (only used when
-  `boundary_condition = :closed`)
 
 # Returns
 - `Vector{Layer}`, index 1 = deepest / injection layer
 
 # Example
 ```julia
-layers = analyze_base_surfaces(topo; boundary_condition=:closed, pad_width=2)
+layers = analyze_base_surfaces(topo; boundary_condition=:closed)
 ```
 """
-function analyze_base_surfaces(topography::AbstractTopography; boundary_condition::Symbol=:open, pad_width::Int=2)::Vector{Layer}
+function analyze_base_surfaces(topography::AbstractTopography; boundary_condition::Symbol=:open)::Vector{Layer}
     @assert boundary_condition in [:open, :closed] "boundary_condition must be :open or :closed"
 
 
@@ -91,9 +90,9 @@ function analyze_base_surfaces(topography::AbstractTopography; boundary_conditio
 
 
     # The spillanalysis function in SWIM expects the physical dimensions of the domain.
-    pad = boundary_condition == :closed ? pad_width : 0
-    length_x = nx * dx + 2 * pad * dx
-    length_y = ny * dy + 2 * pad * dy
+    pad_width = boundary_condition == :closed ? 1 : 0
+    length_x = nx * dx + 2 * pad_width * dx
+    length_y = ny * dy + 2 * pad_width * dy
 
     # Initialize empty vector (will grow as we push)
     layers = Vector{Layer}()
@@ -116,7 +115,7 @@ function analyze_base_surfaces(topography::AbstractTopography; boundary_conditio
             e isa TypeError || rethrow(e)
             spillanalysis(surface, lengths=(length_x,))
         end
-        push!(layers, Layer(layer_name, trap_structure, boundary_condition))
+        push!(layers, Layer(layer_name, trap_structure, boundary_condition, pad_width))
     end
 
     return layers

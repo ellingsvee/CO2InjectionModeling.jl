@@ -14,7 +14,7 @@ julia_setup()
 julia_command('using Pkg; Pkg.activate("..")')
 
 # Option B: if CO2BatchFill is installed as a package, just load it directly
-julia_command('using CO2BatchFill')
+julia_command("using CO2BatchFill")
 
 # Grid / domain settings
 NX <- 100L
@@ -23,8 +23,7 @@ LENGTH_X <- 1000.0
 LENGTH_Y <- 1000.0
 DX <- LENGTH_X / NX
 DY <- LENGTH_Y / NY
-LAYER_THICK <- 10.0     # m (vertical thickness of each sand layer)
-PAD_WIDTH <- 2L
+LAYER_THICK <- 10.0 # m (vertical thickness of each sand layer)
 N_LAYERS <- 3L
 RESIDUAL_TRAPPING <- 0.4
 
@@ -60,17 +59,21 @@ surf_L1 <- 950.0 + dip - dome1 - dome2 - dome3 - dome4
 
 cat("Setting up simulator...\n")
 setup_result <- julia_call("setup_simulator_from_surfaces",
-                           layer_tops = list(surf_L3, surf_L2, surf_L1),
-                           layer_bases = list(surf_L3 + LAYER_THICK,
-                                              surf_L2 + LAYER_THICK,
-                                              surf_L1 + LAYER_THICK),
-                           layer_names = c("Storage layer 3",
-                                           "Storage layer 2",
-                                           "Storage layer 1"),
-                           dx = DX,
-                           dy = DY,
-                           boundary_condition = "closed",
-                           pad_width = PAD_WIDTH)
+  layer_tops = list(surf_L3, surf_L2, surf_L1),
+  layer_bases = list(
+    surf_L3 + LAYER_THICK,
+    surf_L2 + LAYER_THICK,
+    surf_L1 + LAYER_THICK
+  ),
+  layer_names = c(
+    "Storage layer 3",
+    "Storage layer 2",
+    "Storage layer 1"
+  ),
+  dx = DX,
+  dy = DY,
+  boundary_condition = "closed"
+)
 
 cat("Setup result:\n")
 print(setup_result)
@@ -85,16 +88,17 @@ n_layers <- setup_result$n_layers
 cat("\nConfiguring reservoir properties...\n")
 
 residual_trapping <- 0.4
-shale_threshold <- 15000.0  # Pa
-shale_thresholds <- c(shale_threshold, shale_threshold, Inf)  # Layer 3 sealed (caprock)
+shale_threshold <- 15000.0 # Pa
+shale_thresholds <- c(shale_threshold, shale_threshold, Inf) # Layer 3 sealed (caprock)
 
 config_result <- julia_call("configure_reservoir",
-                             porosity = rep(0.3, n_layers),
-                             residual_co2_sat = rep(residual_trapping, n_layers),
-                             irreducible_water_sat = rep(0.1, n_layers),
-                             shale_pressure_threshold = shale_thresholds,
-                             residual_leakage_time = rep(5.0, n_layers),
-                             layer_specific = TRUE)
+  porosity = rep(0.3, n_layers),
+  residual_co2_sat = rep(residual_trapping, n_layers),
+  irreducible_water_sat = rep(0.1, n_layers),
+  shale_pressure_threshold = shale_thresholds,
+  residual_leakage_time = rep(5.0, n_layers),
+  layer_specific = TRUE
+)
 cat("config result:\n")
 print(config_result)
 
@@ -103,19 +107,19 @@ print(config_result)
 
 cat("\nSetting up injection scenario...\n")
 
-TOTAL_RATE <- 25000.0   # m^3/year
+TOTAL_RATE <- 25000.0 # m^3/year
 INJECTION_END <- 10.0
 TIME_STEP <- 1.0
 
 # Injection times: 0 to 9 years (rate active), then 10 years (rate = 0 = stop)
-n_inject_times <- as.integer(INJECTION_END / TIME_STEP) + 1L  # 11 time steps
+n_inject_times <- as.integer(INJECTION_END / TIME_STEP) + 1L # 11 time steps
 
 # Layer 1: inject at center
 layer1_injection <- array(0, dim = c(n_inject_times, nx_bc, ny_bc))
 
 # Center cell (accounting for boundary padding)
-cx <- NX %/% 2L + PAD_WIDTH
-cy <- NY %/% 2L + PAD_WIDTH
+cx <- NX %/% 2L + 1
+cy <- NY %/% 2L + 1
 
 for (i in 1:(n_inject_times - 1L)) {
   layer1_injection[i, cx, cy] <- TOTAL_RATE
@@ -127,20 +131,21 @@ for (i in 1:(n_inject_times - 1L)) {
 zero_injection <- array(0, dim = c(1L, nx_bc, ny_bc))
 
 injection_matrices <- list(
-  layer1_injection,  # Layer 1 (deepest, injection layer)
-  zero_injection,    # Layer 2 (CO2 arrives via leakage from below)
-  zero_injection     # Layer 3 (CO2 arrives via leakage from below)
+  layer1_injection, # Layer 1 (deepest, injection layer)
+  zero_injection, # Layer 2 (CO2 arrives via leakage from below)
+  zero_injection # Layer 3 (CO2 arrives via leakage from below)
 )
 
 # Run simulation
 cat("\nRunning multi-layer fill simulation...\n")
 
 sim_result <- julia_call("run_simulation",
-                         start_time = 0.0,
-                         end_time = 15.0,
-                         time_step = TIME_STEP,
-                         injection_rate_matrices = injection_matrices,
-                         verbose = FALSE)
+  start_time = 0.0,
+  end_time = 15.0,
+  time_step = TIME_STEP,
+  injection_rate_matrices = injection_matrices,
+  verbose = FALSE
+)
 
 if (sim_result$status == "success") {
   cat("\nSimulation Successful!\n")
@@ -164,10 +169,11 @@ layer_volumes <- sim_result$layer_co2_volumes
 # Plot 1: Total CO2 volume over time
 cat("\nPlotting total CO2 volume over time...\n")
 plot(timepoints, total_volumes,
-     type = "b", pch = 19, col = "blue",
-     xlab = "Time (years)",
-     ylab = expression("Total CO2 Volume"),
-     main = "Total CO2 Volume Over Time")
+  type = "b", pch = 19, col = "blue",
+  xlab = "Time (years)",
+  ylab = expression("Total CO2 Volume"),
+  main = "Total CO2 Volume Over Time"
+)
 grid()
 
 # Plot 2: CO2 volume per layer over time
@@ -176,11 +182,14 @@ colors <- c("blue", "red", "darkgreen")
 layer_labels <- c("Storage layer 1", "Storage layer 2", "Storage layer 3")
 
 matplot(timepoints, layer_volumes,
-        type = "b", pch = 19, lty = 1,
-        col = colors,
-        xlab = "Time (years)",
-        ylab = expression("CO2 Volume per Layer"),
-        main = "Layer-wise CO2 Volumes Over Time")
-legend("topleft", legend = layer_labels,
-       col = colors, pch = 19, lty = 1, cex = 0.8)
+  type = "b", pch = 19, lty = 1,
+  col = colors,
+  xlab = "Time (years)",
+  ylab = expression("CO2 Volume per Layer"),
+  main = "Layer-wise CO2 Volumes Over Time"
+)
+legend("topleft",
+  legend = layer_labels,
+  col = colors, pch = 19, lty = 1, cex = 0.8
+)
 grid()

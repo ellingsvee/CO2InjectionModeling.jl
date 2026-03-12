@@ -87,16 +87,14 @@ end
 Draw a CO2 height heatmap + topography contours for one `LayerSnapshot` onto `ax`.
 Returns the heatmap object.
 """
-function _layer_panel!(ax, layer, snap, domain;
-    pad_width=2, colormap=_CMAP, max_co2_height=_MAXH,
+function _layer_panel!(ax, layer, snap, domain; colormap=_CMAP, max_co2_height=_MAXH,
     show_contours=true, show_labels=false, contour_levels=10, major_contour_every=5, contour_opacity=0.8,
     show_extents=false, extent_color=(:dodgerblue, 0.5))
 
     tstruct = layer.trap_structure
-    pad = layer.boundary_condition == :closed ? pad_width : 0
-    nx_padded, ny_padded = size(tstruct.topography)
-    nx = nx_padded - 2 * pad
-    ny = ny_padded - 2 * pad
+    pad = layer.pad_width
+    nx_padded, ny_padded = get_padded_grid_size(layer)
+    nx, ny = get_grid_size(layer)
 
     z_vol_tables = _compute_z_vol_tables(tstruct)
     height_array = _height_map(tstruct, z_vol_tables, snap.trap_volumes, pad, nx_padded, ny_padded;
@@ -152,7 +150,6 @@ function plot_layer(
     snap::CO2BatchFill.LayerSnapshot,
     domain::CO2BatchFill.Domain3D;
     output_file::Union{String,Nothing}=nothing,
-    pad_width::Int=2,
     colormap::Symbol=_CMAP,
     max_co2_height::Float64=_MAXH,
     show_contours::Bool=true,
@@ -168,7 +165,7 @@ function plot_layer(
         aspect=DataAspect(),
     )
     _layer_panel!(ax, layer, snap, domain;
-        pad_width, colormap, max_co2_height, show_contours, contour_levels,
+        colormap, max_co2_height, show_contours, contour_levels,
         show_extents, extent_color)
     if !show_extents
         Colorbar(fig[1, 2]; colormap, colorrange=(0.0, max_co2_height), label="Column height", size=_CBAR_SIZE)
@@ -198,7 +195,6 @@ function plot_multi_layer(
     snap::CO2BatchFill.MultiLayerSnapshot,
     domain::CO2BatchFill.Domain3D;
     output_file::Union{String,Nothing}=nothing,
-    pad_width::Int=2,
     colormap::Symbol=_CMAP,
     max_co2_height::Float64=_MAXH,
     show_contours::Bool=true,
@@ -234,7 +230,7 @@ function plot_multi_layer(
             aspect=DataAspect(),
         )
         _layer_panel!(ax, layers[i], snap.layers[i], domain;
-            pad_width, colormap, max_co2_height, show_contours, show_labels, contour_levels, major_contour_every, contour_opacity,
+            colormap, max_co2_height, show_contours, show_labels, contour_levels, major_contour_every, contour_opacity,
             show_extents, extent_color)
 
         if has_injection && i == 1
@@ -244,7 +240,7 @@ function plot_multi_layer(
 
         if show_leakage_locations
             tstruct = layers[i].trap_structure
-            pad = layers[i].boundary_condition == :closed ? pad_width : 0
+            pad = layers[i].pad_width
             layer_snap = snap.layers[i]
             leak_xs, leak_ys = Float64[], Float64[]
             for trap_id in 1:numtraps(tstruct)
@@ -364,13 +360,11 @@ function animate_layer_filling(
     max_co2_height::Float64=_MAXH,
     show_contours::Bool=true,
     contour_levels::Int=10,
-    pad_width::Int=2,
 )
     tstruct = layer.trap_structure
-    pad = layer.boundary_condition == :closed ? pad_width : 0
-    nx_padded, ny_padded = size(tstruct.topography)
-    nx = nx_padded - 2 * pad
-    ny = ny_padded - 2 * pad
+    pad = layer.pad_width
+    nx_padded, ny_padded = get_padded_grid_size(layers)
+    nx, ny = get_grid_size(layers)
 
     t_start = isnothing(start_time) ? seq[1].timestamp : start_time
     if isnothing(end_time)
@@ -449,7 +443,6 @@ function animate_multi_layer_filling(
     max_co2_height::Float64=_MAXH,
     show_contours::Bool=true,
     contour_levels::Int=10,
-    pad_width::Int=2,
 )
     n = length(layers)
     @assert n == length(seqs) "Must have one seq per layer"
@@ -472,7 +465,7 @@ function animate_multi_layer_filling(
     println("Computing trap states for $(num_frames) frames per layer...")
     layer_data = map(1:n) do i
         tstruct = layers[i].trap_structure
-        pad = layers[i].boundary_condition == :closed ? pad_width : 0
+        pad = layers[i].pad_width
         nx_p, ny_p = size(tstruct.topography)
         tstates = trap_states_at_timepoints(tstruct, seqs[i], timepoints; verbose=false)
         z_vol_tables = _compute_z_vol_tables(tstruct)
@@ -531,9 +524,9 @@ end
 """
 Draw leakage location markers (triangles) for a single layer panel.
 """
-function _draw_leakage_locations!(ax, layer, layer_snap, pad_width, domain)
+function _draw_leakage_locations!(ax, layer, layer_snap, domain)
     tstruct = layer.trap_structure
-    pad = layer.boundary_condition == :closed ? pad_width : 0
+    pad = layer.pad_width
     leak_xs, leak_ys = Float64[], Float64[]
     for trap_id in 1:numtraps(tstruct)
         layer_snap.trap_leaking[trap_id] || continue
@@ -559,7 +552,6 @@ function plot_multi_layer_ensemble(
     domain::CO2BatchFill.Domain3D;
     contour_color=nothing,
     output_file::Union{String,Nothing}=nothing,
-    pad_width::Int=2,
     contour_level::Float64=0.01,
     linewidth::Real=2.5,
     show_topography::Bool=true,
@@ -583,10 +575,9 @@ function plot_multi_layer_ensemble(
     for i in 1:n_layers
         layer = layers[i]
         tstruct = layer.trap_structure
-        pad = layer.boundary_condition == :closed ? pad_width : 0
-        nx_padded, ny_padded = size(tstruct.topography)
-        nx = nx_padded - 2 * pad
-        ny = ny_padded - 2 * pad
+        pad = layer.pad_width
+        nx_padded, ny_padded = get_padded_grid_size(layers)
+        nx, ny = get_grid_size(layers)
 
         x_coords = range(0.0, nx * domain.dx, length=nx)
         y_coords = range(0.0, ny * domain.dy, length=ny)
@@ -636,7 +627,7 @@ function plot_multi_layer_ensemble(
         end
 
         if show_leakage_locations
-            _draw_leakage_locations!(ax, layer, ensemble[end].layers[i], pad_width, domain)
+            _draw_leakage_locations!(ax, layer, ensemble[end].layers[i], domain)
         end
     end
 

@@ -40,7 +40,6 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 
 # Keyword arguments
 - `output_file`: Path for the saved figure (default `"layer_co2.svg"`)
-- `pad_width`: Boundary padding cells (default `2`)
 - `colormap`: Makie colormap (default `:thermal`)
 - `max_co2_height`: Colorbar upper limit in metres (default `20.0`)
 - `show_contours`: Overlay topography contours (default `true`)
@@ -63,7 +62,6 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 
 # Keyword arguments
 - `output_file`: Output file path (default `"multi_layer_co2.svg"`)
-- `pad_width`: Boundary padding (default `2`)
 - `colormap`: Makie colormap symbol (default `:thermal`)
 - `max_co2_height`: Colorbar upper limit in metres (default `20.0`)
 - `show_contours`: Overlay topography contours (default `true`)
@@ -96,7 +94,6 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 # Keyword arguments
 - `output_file`: Output file path (default `"ensemble_co2.svg"`)
 - `contour_color`: Colour for all ensemble contour lines (default `:black`)
-- `pad_width`: Boundary padding cells (default `2`)
 - `contour_level`: CO2 column height threshold that defines each plume outline in metres
   (default `0.01`)
 - `linewidth`: Outline line width (default `2.5`)

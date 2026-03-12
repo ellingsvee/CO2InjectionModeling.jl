@@ -64,8 +64,7 @@ setup <- julia_call("setup_simulator_from_surfaces",
                     layer_bases = list(base1),
                     layer_names = c("L1"),
                     dx = 50.0, dy = 50.0,
-                    boundary_condition = "closed",
-                    pad_width = 2L)
+                    boundary_condition = "closed")
 
 nx_bc <- setup$nx_after_bc
 ny_bc <- setup$ny_after_bc
@@ -82,7 +81,7 @@ julia_call("configure_reservoir",
 n_times <- 10
 injection <- array(0, dim = c(n_times, nx_bc, ny_bc))
 for (i in 1:n_times) {
-  injection[i, 32 + 2, 32 + 2] <- 1e6  # m^3/year at center (offset by pad_width)
+  injection[i, 32 + 1, 32 + 1] <- 1e6  # m^3/year at center (offset by pad_width = 1)
 }
 injection_matrices <- list(injection)
 
@@ -109,10 +108,9 @@ Setup the simulator from raw surface arrays. This is the primary entry point for
 - `dx`: Grid spacing in x direction (meters)
 - `dy`: Grid spacing in y direction (meters)
 - `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
-- `pad_width`: Number of boundary wall cells on each side for closed BCs (default: `2`). The padded grid size is `nx + 2*pad_width`.
 - `caprock_surface`: Optional caprock top surface matrix (nx x ny), or `NULL`
 
-**Returns:** Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_after_bc`, `ny_after_bc`, `pad_width`
+**Returns:** Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_after_bc`, `ny_after_bc`
 
 **Note on layer ordering:** Layers must be provided shallowest-first, deepest-last. The simulator internally reverses them so `layers[1]` = deepest (injection layer). Leakage propagates from deeper layers upward.
 
@@ -209,7 +207,7 @@ All functions return a dictionary with a `status` field:
 
 - **Grid indexing**: R uses 1-based indexing, which matches the Julia interface
 - **Layer ordering**: Pass layers shallowest-first, deepest-last. The simulator reverses them internally.
-- **Boundary padding**: With closed boundaries and `pad_width=2` (default), injection matrices must have dimensions `(n_times, nx + 4, ny + 4)`. The `nx_after_bc` and `ny_after_bc` values from `setup_simulator_from_surfaces` give the correct padded size.
+- **Boundary padding**: With closed boundaries and `pad_width=1` (default), injection matrices must have dimensions `(n_times, nx + 2, ny + 2)`. The `nx_after_bc` and `ny_after_bc` values from `setup_simulator_from_surfaces` give the correct padded size.
 - **Array dimensions**: Injection matrices use dimension order `(n_times x nx_after_bc x ny_after_bc)`
 - **Units**:
   - Injection rates: m^3/year

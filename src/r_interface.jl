@@ -21,27 +21,26 @@ export generate_cross_section_animation, generate_birdseye_animation
 
 # Global state to hold simulator configuration
 mutable struct SimulatorState
-    topography::Union{Nothing, AbstractTopography}
-    domain::Union{Nothing, Domain3D}
-    layers::Union{Nothing, Vector{Layer}}
-    reservoir_properties::Union{Nothing, Vector{ReservoirProperties}}
+    topography::Union{Nothing,AbstractTopography}
+    domain::Union{Nothing,Domain3D}
+    layers::Union{Nothing,Vector{Layer}}
+    reservoir_properties::Union{Nothing,Vector{ReservoirProperties}}
     boundary_condition::Symbol
-    last_snapshots::Union{Nothing, Vector{MultiLayerSnapshot}}
-    last_seqs::Union{Nothing, Vector{Vector{SpillEvent}}}
-    last_weather_events_per_layer::Union{Nothing, Vector{Vector{WeatherEvent}}}
+    last_snapshots::Union{Nothing,Vector{MultiLayerSnapshot}}
+    last_seqs::Union{Nothing,Vector{Vector{SpillEvent}}}
+    last_weather_events_per_layer::Union{Nothing,Vector{Vector{WeatherEvent}}}
 end
 
 const SIMULATOR = SimulatorState(nothing, nothing, nothing, nothing, :open, nothing, nothing, nothing)
 
 """
-    setup_simulator(topography::AbstractTopography; boundary_condition="open", pad_width=2)
+    setup_simulator(topography::AbstractTopography; boundary_condition="open")
 
 Set up the simulator from any `AbstractTopography` implementation.
 
 # Arguments
 - `topography`: Any `AbstractTopography` (e.g., `GenericTopography`)
 - `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
-- `pad_width`: Number of boundary wall cells on each side for closed BCs (default: `2`)
 
 # Returns
 Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_after_bc`, `ny_after_bc`
@@ -49,7 +48,6 @@ Dictionary with `status`, `n_layers`, `nx`, `ny`, `boundary_condition`, `nx_afte
 function setup_simulator(
     topography::AbstractTopography;
     boundary_condition::String="open",
-    pad_width::Int=2
 )
     try
         bc_symbol = Symbol(boundary_condition)
@@ -59,13 +57,12 @@ function setup_simulator(
 
         SIMULATOR.topography = topography
         SIMULATOR.domain = create_domain(topography, 1.0)
-        SIMULATOR.layers = analyze_base_surfaces(topography; boundary_condition=bc_symbol, pad_width=pad_width)
+        SIMULATOR.layers = analyze_base_surfaces(topography; boundary_condition=bc_symbol)
         SIMULATOR.boundary_condition = bc_symbol
         SIMULATOR.reservoir_properties = nothing
 
-        nx, ny = get_grid_dimensions(topography)
-        nx_after_bc = boundary_condition == "open" ? nx : nx + 2 * pad_width
-        ny_after_bc = boundary_condition == "open" ? ny : ny + 2 * pad_width
+        nx, ny = get_grid_size(SIMULATOR.layers)
+        nx_after_bc, ny_after_bc = get_padded_grid_size(SIMULATOR.layers)
 
         return Dict(
             "status" => "success",
@@ -73,7 +70,6 @@ function setup_simulator(
             "nx" => nx, "ny" => ny,
             "boundary_condition" => boundary_condition,
             "nx_after_bc" => nx_after_bc, "ny_after_bc" => ny_after_bc,
-            "pad_width" => pad_width
         )
     catch e
         return Dict("status" => "error", "message" => string(e))
@@ -82,7 +78,7 @@ end
 
 """
     setup_simulator_from_surfaces(; layer_tops, layer_bases, layer_names, dx, dy,
-                                    boundary_condition="open", pad_width=2, caprock_surface=nothing)
+                                    boundary_condition="open", caprock_surface=nothing)
 
 Set up the simulator from raw surface arrays (primary entry point for R users with custom data).
 
@@ -93,7 +89,6 @@ Set up the simulator from raw surface arrays (primary entry point for R users wi
 - `dx`: Grid spacing in x direction (meters)
 - `dy`: Grid spacing in y direction (meters)
 - `boundary_condition`: `"open"` or `"closed"` (default: `"open"`)
-- `pad_width`: Number of boundary wall cells on each side for closed BCs (default: `2`)
 - `caprock_surface`: Optional caprock top surface matrix (nx × ny)
 
 # Returns
@@ -106,8 +101,7 @@ function setup_simulator_from_surfaces(;
     dx::Float64,
     dy::Float64,
     boundary_condition::String="open",
-    pad_width::Int=2,
-    caprock_surface::Union{Matrix{Float64}, Nothing}=nothing
+    caprock_surface::Union{Matrix{Float64},Nothing}=nothing
 )
     try
         n = length(layer_tops)
@@ -131,9 +125,9 @@ function setup_simulator_from_surfaces(;
         depth_max = maximum(maximum(Matrix{Float64}(b)) for b in layer_bases)
 
         topo = GenericTopography(sand_layers, nx, ny, dx, dy, depth_min, depth_max;
-                                caprock_surface=caprock_surface)
+            caprock_surface=caprock_surface)
 
-        return setup_simulator(topo; boundary_condition=boundary_condition, pad_width=pad_width)
+        return setup_simulator(topo; boundary_condition=boundary_condition)
     catch e
         return Dict("status" => "error", "message" => string(e))
     end
@@ -157,13 +151,13 @@ Configure reservoir properties for the simulation.
 - `layer_specific`: Set to `true` to provide vectors for layer-specific properties (default: `false`)
 """
 function configure_reservoir(;
-    porosity::Union{Float64, Vector{Float64}},
-    residual_co2_sat::Union{Float64, Vector{Float64}},
-    irreducible_water_sat::Union{Float64, Vector{Float64}},
-    shale_pressure_threshold::Union{Float64, Vector{Float64}},
-    residual_leakage_time::Union{Float64, Vector{Float64}},
-    brine_density::Union{Float64, Vector{Float64}}=1020.0,
-    co2_density::Union{Float64, Vector{Float64}}=460.0,
+    porosity::Union{Float64,Vector{Float64}},
+    residual_co2_sat::Union{Float64,Vector{Float64}},
+    irreducible_water_sat::Union{Float64,Vector{Float64}},
+    shale_pressure_threshold::Union{Float64,Vector{Float64}},
+    residual_leakage_time::Union{Float64,Vector{Float64}},
+    brine_density::Union{Float64,Vector{Float64}}=1020.0,
+    co2_density::Union{Float64,Vector{Float64}}=460.0,
     layer_specific::Bool=false
 )
     try
@@ -294,15 +288,15 @@ end
 Generate animation of CO2 trap filling from the last simulation.
 """
 function generate_cross_section_animation(;
-    output_file::String = "multi_layer_filling.gif",
-    num_frames::Int = 30,
-    start_time::Union{Float64,Nothing} = nothing,
-    end_time::Union{Float64,Nothing} = nothing,
-    fps::Int = 2,
-    colormap::String = "thermal",
-    max_co2_height::Float64 = 20.0,
-    show_contours::Bool = true,
-    contour_levels::Int = 10
+    output_file::String="multi_layer_filling.gif",
+    num_frames::Int=30,
+    start_time::Union{Float64,Nothing}=nothing,
+    end_time::Union{Float64,Nothing}=nothing,
+    fps::Int=2,
+    colormap::String="thermal",
+    max_co2_height::Float64=20.0,
+    show_contours::Bool=true,
+    contour_levels::Int=10
 )
     try
         if isnothing(SIMULATOR.last_seqs)
@@ -326,15 +320,15 @@ end
 Generate bird's eye view animation of CO2 trap filling.
 """
 function generate_birdseye_animation(;
-    output_file::String = "multi_layer_filling.gif",
-    num_frames::Int = 30,
-    start_time::Union{Float64,Nothing} = nothing,
-    end_time::Union{Float64,Nothing} = nothing,
-    fps::Int = 2,
-    colormap::String = "thermal",
-    max_co2_height::Float64 = 20.0,
-    show_contours::Bool = true,
-    contour_levels::Int = 10
+    output_file::String="multi_layer_filling.gif",
+    num_frames::Int=30,
+    start_time::Union{Float64,Nothing}=nothing,
+    end_time::Union{Float64,Nothing}=nothing,
+    fps::Int=2,
+    colormap::String="thermal",
+    max_co2_height::Float64=20.0,
+    show_contours::Bool=true,
+    contour_levels::Int=10
 )
     generate_cross_section_animation(;
         output_file=output_file, num_frames=num_frames, start_time=start_time,
