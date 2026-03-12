@@ -12,7 +12,6 @@ const TEST_LENGTH_X, TEST_LENGTH_Y = 1000.0, 1000.0
 const TEST_DX, TEST_DY = TEST_LENGTH_X / TEST_NX, TEST_LENGTH_Y / TEST_NY
 const _thick = 10.0
 const boundary_condition = :closed  # :open or :closed
-const pad_width = 2
 const RESIDUAL_TRAPPING = 0.4
 
 const TOTAL_INJECTION_RATE = 20_000.0
@@ -51,7 +50,7 @@ Build dual-corner injection events for a two-layer system.
 Layer 1 (deepest): inject at two opposite corners; Layer 2: zero injection.
 """
 function _make_dual_injection_events(; nx=TEST_NX, ny=TEST_NY,
-    bc=boundary_condition, pw=pad_width,
+    bc=boundary_condition, pw=1,
     total_rate=TOTAL_INJECTION_RATE,
     t_start=INJECTION_START_T, t_end=INJECTION_END_T)
     events = Vector{Vector{InjectionEvent}}()
@@ -85,7 +84,7 @@ function _assemble_scenario(name::String, top_surface::Matrix, bottom_surface::M
     topo = GenericTopography(_layers, TEST_NX, TEST_NY, TEST_DX, TEST_DY,
         minimum(top_surface), maximum(bottom_surface) + _thick)
     domain = create_domain(topo, 1.0)
-    analyzed_layers = analyze_base_surfaces(topo; boundary_condition=boundary_condition, pad_width=pad_width)
+    analyzed_layers = analyze_base_surfaces(topo; boundary_condition=boundary_condition)
     return TestScenario(name, topo, domain, analyzed_layers, injection_events)
 end
 
