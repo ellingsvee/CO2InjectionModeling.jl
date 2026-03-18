@@ -129,6 +129,23 @@ function rp_non_stat(tstruct::TrapStructure)
     )
 end
 
+"""
+Per-trap pressures with a fraction of traps set to 0 (chimneys = immediate pass-through).
+"""
+function rp_chimney(tstruct::TrapStructure; chimney_fraction::Float64=0.3)
+    num_traps = numtraps(tstruct)
+    pressures = rand(num_traps) .* 5000.0 .+ 500.0
+    # Set a fraction of traps to chimney (pressure = 0)
+    n_chimneys = max(1, round(Int, chimney_fraction * num_traps))
+    chimney_indices = randperm(num_traps)[1:n_chimneys]
+    pressures[chimney_indices] .= 0.0
+    return ReservoirProperties(
+        0.3, RESIDUAL_TRAPPING, 0.1,
+        pressures,
+        5.0
+    )
+end
+
 
 
 
