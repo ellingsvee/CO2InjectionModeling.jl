@@ -145,14 +145,14 @@ function run_multilayer_analysis_tests(scenario::TestScenario)
         end
     end
 
-    @testset "Chimney traps: multi-layer mass conservation" begin
+    @testset "Shale-break traps: multi-layer mass conservation" begin
         layers = scenario.layers
         n_layers = length(layers)
 
-        # Create per-trap pressures with chimney traps (pressure=0) for each layer
-        rp_per_layer = [rp_chimney(layers[i].trap_structure) for i in 1:n_layers]
+        # Create per-trap pressures with shale-break traps (pressure=0) for each layer
+        rp_per_layer = [rp_shale_breaks(layers[i].trap_structure) for i in 1:n_layers]
 
-        # Verify chimney traps exist (leakage_height == 0.0)
+        # Verify shale-break traps exist (leakage_height == 0.0)
         for i in 1:n_layers
             @test rp_per_layer[i].leakage_height isa Vector{Float64}
             @test any(h == 0.0 for h in rp_per_layer[i].leakage_height)
@@ -161,7 +161,7 @@ function run_multilayer_analysis_tests(scenario::TestScenario)
         seqs, leakage_states, weather_events_per_layer =
             fill_layers(layers, scenario.domain, rp_per_layer, scenario.injection_events)
 
-        # Chimney traps should trigger leakage in layer 1
+        # Shale-break traps should trigger leakage in layer 1
         @test any(leakage_states[1].leaking)
 
         t_sim_start = seqs[1][1].timestamp
@@ -197,7 +197,7 @@ function run_multilayer_analysis_tests(scenario::TestScenario)
             end
         end
 
-        # Layer 2 should receive CO2 from chimney leakage
+        # Layer 2 should receive CO2 from shale-break leakage
         @testset "CO2 reaches upper layer" begin
             final_snap = multi_snaps[end]
             @test final_snap.layers[2].total_injected > 0.0

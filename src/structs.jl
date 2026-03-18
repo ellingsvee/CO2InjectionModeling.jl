@@ -130,14 +130,14 @@ struct ReservoirProperties
     )
 
         # Compute leakage height from pressure if not provided
-        # pressure == 0.0: chimney (leakage_height = 0.0, immediate pass-through)
+        # pressure == 0.0: shale-breaks (leakage_height = 0.0, immediate pass-through)
         # pressure > 0.0: normal leakage threshold
         # pressure == Inf: impermeable caprock (leakage_height = Inf)
         g = 9.81
         density_diff = brine_density - co2_density
         if isa(shale_pressure_threshold, Float64)
             if shale_pressure_threshold == 0.0
-                leakage_height = 0.0  # Chimney: immediate pass-through
+                leakage_height = 0.0  # Shale-break: immediate pass-through
             elseif isfinite(shale_pressure_threshold) && shale_pressure_threshold > 0.0
                 leakage_height = shale_pressure_threshold / (density_diff * g)
             else
@@ -147,7 +147,7 @@ struct ReservoirProperties
             leakage_height = similar(shale_pressure_threshold)
             for i in eachindex(shale_pressure_threshold)
                 if shale_pressure_threshold[i] == 0.0
-                    leakage_height[i] = 0.0  # Chimney: immediate pass-through
+                    leakage_height[i] = 0.0  # Shale-break: immediate pass-through
                 elseif isfinite(shale_pressure_threshold[i]) && shale_pressure_threshold[i] > 0.0
                     leakage_height[i] = shale_pressure_threshold[i] / (density_diff * g)
                 else
