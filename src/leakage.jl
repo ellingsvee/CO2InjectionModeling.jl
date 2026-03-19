@@ -421,7 +421,8 @@ function generate_leakage_weather_events(
     tstruct::TrapStructure,
     rp_source::ReservoirProperties,
     rp_target::ReservoirProperties,
-    direct_events::Vector{WeatherEvent},
+    direct_events::Vector{WeatherEvent};
+    leakage_radius::Int=0,
 )::Vector{WeatherEvent}
 
     n_traps = numtraps(tstruct)
@@ -517,7 +518,7 @@ function generate_leakage_weather_events(
                 haskey(drain_loc, trap) || continue
                 leakage_state.leakage_start_time[trap] > t && continue
                 rate = max(0.0, inflows[trap]) * unit_factor
-                rate > 0.0 && (rain[drain_loc[trap]] += rate)
+                rate > 0.0 && spread_rate!(rain, Tuple(drain_loc[trap]), rate, leakage_radius)
             end
         end
 
@@ -527,7 +528,7 @@ function generate_leakage_weather_events(
                 drain_rates[trap] == 0.0 && continue
                 t0 = leakage_state.leakage_start_time[trap]
                 (t >= t0 && t < t0 + T_res) || continue
-                rain[drain_loc[trap]] += drain_rates[trap] * unit_factor
+                spread_rate!(rain, Tuple(drain_loc[trap]), drain_rates[trap] * unit_factor, leakage_radius)
             end
         end
 
