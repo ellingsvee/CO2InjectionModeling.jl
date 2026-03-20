@@ -83,6 +83,7 @@ function fill_layers(
                 reservoir_properties[layer_idx+1],
                 weather_events_next_layer;
                 leakage_radius=leakage_radius,
+                target_regions=layers[layer_idx+1].trap_structure.regions,
             )
 
         end

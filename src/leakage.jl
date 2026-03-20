@@ -423,6 +423,7 @@ function generate_leakage_weather_events(
     rp_target::ReservoirProperties,
     direct_events::Vector{WeatherEvent};
     leakage_radius::Int=0,
+    target_regions::Union{Nothing,Matrix{Int}}=nothing,
 )::Vector{WeatherEvent}
 
     n_traps = numtraps(tstruct)
@@ -433,22 +434,37 @@ function generate_leakage_weather_events(
         return copy(direct_events)
     end
 
-    # Unit conversion: source-layer SWIM volume → target-layer SWIM volume.
-    # Physical CO2 vol = SWIM_vol × porosity × (1 − Swi) × dx × dy, so the
-    # ratio of SWIM units between layers is:
+    # Unit conversion
     unit_factor = full_volume_to_rock_volume_scaling(rp_source) /
                   full_volume_to_rock_volume_scaling(rp_target)
 
-    # Map each draining trap to its caprock exit location
-    # Draining sub-traps (descendants) exit through their leaking ancestor's
-    # caprock failure point.
+    # Map each draining trap to its caprock exit location.
     drain_loc = Dict{Int,CartesianIndex{2}}()
+    leak_locs = Dict{Int,CartesianIndex{2}}()
     for record in leakage_state.leakage_records
         trap = record.trap_id
         loc = record.leakage_location
         drain_loc[trap] = loc
+        leak_locs[trap] = loc
         for desc in get_all_descendants(tstruct, trap)
             leakage_state.draining[desc] && (drain_loc[desc] = loc)
+        end
+    end
+
+    # Also map draining traps that aren't descendants of a leaking trap.
+    for trap in 1:n_traps
+        leakage_state.draining[trap] || continue
+        haskey(drain_loc, trap) && continue
+        # Trace spill graph to find a trap with a known exit location
+        t = tstruct.spillpoints[trap].downstream_region
+        visited = Set{Int}(trap)
+        while t > 0 && t <= n_traps && !(t in visited)
+            if haskey(drain_loc, t)
+                drain_loc[trap] = drain_loc[t]
+                break
+            end
+            push!(visited, t)
+            t = tstruct.spillpoints[t].downstream_region
         end
     end
 
@@ -498,7 +514,7 @@ function generate_leakage_weather_events(
     for t in sorted_ts
         rain = zeros(Float64, grid_size)
 
-        # 1. Direct injection into the target layer.
+        # Direct injection into the target layer.
         if !isempty(direct_events)
             ix = findlast(de -> de.timestamp <= t, direct_events)
             if !isnothing(ix)
@@ -507,9 +523,7 @@ function generate_leakage_weather_events(
             end
         end
 
-        # 2. Passthrough: CO2 flowing into leaking traps (edge = 0) at time t.
-        # The trap's SWIM inflow equals its pass-through rate: CO2 enters the
-        # trap and immediately exits through the caprock failure point.
+        # CO2 flowing into leaking traps (edge = 0) at time t.
         seq_ix = findlast(se -> se.timestamp <= t, seq)
         if !isnothing(seq_ix)
             inflows = inflow_at(seq, seq_ix)
@@ -518,17 +532,17 @@ function generate_leakage_weather_events(
                 haskey(drain_loc, trap) || continue
                 leakage_state.leakage_start_time[trap] > t && continue
                 rate = max(0.0, inflows[trap]) * unit_factor
-                rate > 0.0 && spread_rate!(rain, Tuple(drain_loc[trap]), rate, leakage_radius)
+                rate > 0.0 && spread_rate!(rain, Tuple(drain_loc[trap]), rate, leakage_radius; regions=target_regions)
             end
         end
 
-        # 3. Residual drainage from all draining traps.
+        # Residual drainage from all draining traps.
         if has_finite_drainage
             for trap in 1:n_traps
                 drain_rates[trap] == 0.0 && continue
                 t0 = leakage_state.leakage_start_time[trap]
                 (t >= t0 && t < t0 + T_res) || continue
-                spread_rate!(rain, Tuple(drain_loc[trap]), drain_rates[trap] * unit_factor, leakage_radius)
+                spread_rate!(rain, Tuple(drain_loc[trap]), drain_rates[trap] * unit_factor, leakage_radius; regions=target_regions)
             end
         end
 

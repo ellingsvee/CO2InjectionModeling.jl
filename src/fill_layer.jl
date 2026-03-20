@@ -164,18 +164,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
             verbose && println("Leakage event at time $(cur_time) in trap $(leak_trap)")
 
             # Mark trap as leaking and record start time.
-            # leakage_start_time must be set for ALL leaking traps (including pass-through
-            # ones with leakage_vol=0) so that generate_leakage_weather_events and
-            # compute_total_passthrough correctly account for CO2 flowing through them.
             leakage_state.leaking[leak_trap] = true
             leakage_state.leakage_start_time[leak_trap] = cur_time
-
-            # Only mark as draining if trap has actual volume (not pass-through).
-            # Pass-through traps (volume=0) forward CO2 directly to the next layer.
-            leakage_vol_check = leakage_state.leakage_volume[leak_trap]
-            if leakage_vol_check > 0
-                leakage_state.draining[leak_trap] = true
-            end
 
             # Record the leakage for upstream layer
             leakage_location = find_leakage_location(leak_trap, tstruct)
@@ -185,24 +175,26 @@ function _fill_sequence_for_weather_event_with_leakage!(
                 leakage_location
             ))
 
-            # Record the initial volume at the time leakage started (for residual drainage)
+            # Compute the actual volume at leakage time (before capping).
             leakage_vol = leakage_state.leakage_volume[leak_trap]
-            leakage_state.initial_volume_at_leak[leak_trap] = leakage_vol
+            actual_vol_at_leak = SurfaceWaterIntegratedModeling._compute_exact_fill(
+                rateinfo, cur_amounts, leak_trap,
+                filled_traps, tstruct, cur_time,
+                z_vol_tables, false
+            )
+            initial_vol = max(leakage_vol, actual_vol_at_leak)
+            leakage_state.initial_volume_at_leak[leak_trap] = initial_vol
+            verbose && println("  Trap $leak_trap: leakage_vol=$(round(leakage_vol, digits=4)), initial_vol=$(round(initial_vol, digits=4))")
 
-            # NOTE: We do NOT mark ancestors as draining. Ancestors are DOWNSTREAM traps
-            # (traps this trap spills into). Their CO2 does not flow through this trap.
-            # They simply stop receiving spillover from this trap.
-            #
-            # Only DESCENDANTS should drain - they are UPSTREAM traps whose CO2 flows
-            # INTO this trap and then out through the leak.
+            # Mark as draining if there is actual volume to drain
+            if initial_vol > 0
+                leakage_state.draining[leak_trap] = true
+            end
 
-            # Mark all filled descendants as draining too - their CO2 flows INTO this trap
-            # and will drain out through the leak over the residual_leakage_time.
-            # This applies even for pass-through traps (leakage_vol=0): the descendants
-            # have actual stored CO2 that drains through the pass-through.
+            # Mark all filled descendants as draining too. 
             descendants = get_all_descendants(tstruct, leak_trap)
             for desc_id in descendants
-                if filled_traps[desc_id] && !leakage_state.draining[desc_id]
+                if filled_traps[desc_id] && !leakage_state.draining[desc_id] && !leakage_state.leaking[desc_id]
                     leakage_state.draining[desc_id] = true
                     leakage_state.leakage_start_time[desc_id] = cur_time
                     # Get descendant's volume at leak time
@@ -215,8 +207,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
             # Cap the trap amount at leakage volume
             cur_amounts[leak_trap] = FilledAmount(leakage_vol, cur_time)
 
-            # Mark ONLY the leaking trap as filled with edge=0.
-            # Ancestors keep their normal edges — they spill to this trap, which then leaks.
+            # Mark only the leaking trap as filled with edge=0.
+            # Ancestors keep their normal edges as they spill to this trap, which then leaks.
             filled_traps[leak_trap] = true
 
             verbose && println("  Trap $(leak_trap) marked as leaking, edge set to 0 (leak out of domain)")
@@ -227,8 +219,10 @@ function _fill_sequence_for_weather_event_with_leakage!(
             # Update spillgraph for the leaking trap
             graph_updates = SurfaceWaterIntegratedModeling.update_spillgraph!(sgraph, leak_fill_updates, tstruct)
 
-            # Set ONLY the leaking trap's edge to 0 (out of domain = leakage)
-            # Ancestors keep their normal edges - they spill to this trap, which then leaks
+            # Fix edges for all previously leaking traps (sibling cycle check may overwrite them)
+            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+
+            # Set only the leaking trap's edge to 0 (out of domain = leakage)
             sgraph.edges[leak_trap] = 0
 
             # Update flow information with the modified spillgraph
@@ -241,6 +235,22 @@ function _fill_sequence_for_weather_event_with_leakage!(
                 rateinfo, cur_amounts, filled_traps,
                 tstruct, z_vol_tables, cur_time
             )
+
+            # Amounts for unfilled descendants of the leaking trap.
+            affected_set = Set(u.index for u in amount_updates)
+            for desc_id in descendants
+                if !filled_traps[desc_id] && !(desc_id in affected_set)
+                    desc_vol = SurfaceWaterIntegratedModeling._compute_exact_fill(
+                        rateinfo, cur_amounts, desc_id,
+                        filled_traps, tstruct, cur_time,
+                        z_vol_tables, true
+                    )
+                    if desc_vol > 0
+                        push!(amount_updates, IncrementalUpdate(desc_id, FilledAmount(desc_vol, cur_time)))
+                        verbose && println("  Materialized unfilled descendant $desc_id: vol=$(round(desc_vol, digits=4))")
+                    end
+                end
+            end
 
             # Also cap amounts for any leaking traps that were updated by
             # _update_affected_amounts (e.g., pass-through parent traps).
@@ -271,9 +281,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
                 rateinfo, leakage_state, filled_traps, tstruct
             )
 
-            # Also update SWIM's changetime estimates for affected traps and the leaking trap
-            all_traps_to_update = unique(vcat(affected_traps, [leak_trap]))
-            for trap in all_traps_to_update
+            # Recompute SWIM's changetime estimates for all traps.
+            for trap in 1:num_traps
                 changetimeest[trap] = SurfaceWaterIntegratedModeling._compute_changetime_estimate(
                     trap, cur_amounts, cur_time, rateinfo, filled_traps, tstruct
                 )
@@ -295,6 +304,9 @@ function _fill_sequence_for_weather_event_with_leakage!(
             # Given changes in fill state, update spill graph
             graph_updates = SurfaceWaterIntegratedModeling.update_spillgraph!(sgraph, fill_updates, tstruct)
 
+            # Fix edges for all leaking traps (sibling cycle check may overwrite them)
+            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+
             # Given the updates to the spill graph, update flow information in `rateinfo`
             setsavepoint!(rateinfo)
             SurfaceWaterIntegratedModeling._update_flow!(rateinfo, graph_updates, tstruct, sgraph)
@@ -306,8 +318,6 @@ function _fill_sequence_for_weather_event_with_leakage!(
             )
 
             # For traps that just filled, set their amount to full capacity
-            # BUT: if they're leaking, cap at leakage volume instead
-            # Also mark newly filled traps as draining if they feed into a draining trap
             for tix in [u.index for u in fill_updates]
                 if leakage_state.leaking[tix]
                     # Leaking trap - cap at leakage volume (or 0 if pass-through)
@@ -335,10 +345,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
                 end
             end
 
-            # CRITICAL FIX: Also cap amounts for leaking traps that were updated by
-            # _update_affected_amounts. This handles parent traps that are in "pass-through"
-            # mode because their child is leaking. Without this fix, these parent traps
-            # would incorrectly report their full capacity as stored volume.
+            # Also cap amounts for leaking traps that were updated by
+            # _update_affected_amounts. This handles parent traps that are in "pass-through" mode.
             for i in 1:length(amount_updates)
                 tix = amount_updates[i].index
                 if leakage_state.leaking[tix]
@@ -370,15 +378,12 @@ function _fill_sequence_for_weather_event_with_leakage!(
     end
 
     # Make sure all amounts are exactly computed at end
-    # Set all times to endtime (or keep as-is if endtime is Inf)
-    # BUT: for leaking traps, account for residual drainage
     final_time = isfinite(endtime) ? endtime : cur_time
 
     for (trap, cur_fill) ∈ enumerate(cur_amounts)
         if cur_fill.time < endtime
             if leakage_state.leaking[trap]
-                # Leaking trap - compute volume accounting for residual drainage
-                # The stored volume decreases over time as CO2 drains out
+                # For leaking trap, compute volume accounting for residual drainage
                 drained_vol = compute_volume_with_drainage(trap, final_time, leakage_state)
                 # For leaking traps, drained_vol should never be nothing
                 final_vol = isnothing(drained_vol) ? cur_fill.amount : drained_vol
@@ -419,4 +424,39 @@ function get_effective_leakage_cap(leakage_state::LeakageState, trap_id::Int)::F
 
     # This trap is leaking - cap at its leakage volume
     return leakage_state.leakage_volume[trap_id]
+end
+
+
+"""
+    _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+
+Restore edge=0 for all leaking traps after `update_spillgraph!`.
+
+SWIM's `update_spillgraph!` contains a sibling cycle check that redirects all
+sibling traps to their parent when all become "full". This can overwrite edge=0
+for previously leaking traps, breaking flow routing. This helper restores the
+correct edges and ensures `graph_updates` reflects the fix so `_update_flow!`
+processes these traps.
+"""
+function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageState)
+    for trap in eachindex(leakage_state.leaking)
+        if leakage_state.leaking[trap] && get(sgraph.edges, trap, 0) != 0
+            old_target = sgraph.edges[trap]
+            sgraph.edges[trap] = 0
+            # Also fix in graph_updates so _update_flow! processes this trap.
+            # graph_updates values are (old_target, new_target) tuples.
+            found = false
+            for i in eachindex(graph_updates)
+                if graph_updates[i].index == trap
+                    prev_old = graph_updates[i].value[1]
+                    graph_updates[i] = IncrementalUpdate(trap, (prev_old, 0))
+                    found = true
+                    break
+                end
+            end
+            if !found
+                push!(graph_updates, IncrementalUpdate(trap, (old_target, 0)))
+            end
+        end
+    end
 end
