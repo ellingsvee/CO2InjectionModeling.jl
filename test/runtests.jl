@@ -206,4 +206,8 @@ end
             run_multilayer_analysis_tests(scenario)
         end
     end
+
+    # The full simulation test
+    include("test_full_simulation_mass_conservation.jl")
+    test_full_simulation_mass_conservation()
 end
