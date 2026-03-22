@@ -41,3 +41,57 @@ end
         @test bottom_elev >= min_elev
     end
 end
+
+@testset "spread_rate!" begin
+    # radius=0: single cell
+    m = zeros(5, 5)
+    spread_rate!(m, (3, 3), 10.0, 0)
+    @test m[3, 3] == 10.0
+    @test sum(m) == 10.0
+
+    # radius=1: disc pattern (center + 4 neighbors = 5 cells)
+    m = zeros(5, 5)
+    spread_rate!(m, (3, 3), 10.0, 1)
+    @test sum(m) ≈ 10.0
+    @test m[3, 3] ≈ 2.0   # 10/5
+    @test m[2, 3] ≈ 2.0
+    @test m[4, 3] ≈ 2.0
+    @test m[3, 2] ≈ 2.0
+    @test m[3, 4] ≈ 2.0
+    @test m[2, 2] == 0.0   # diagonal is outside radius=1
+
+    # radius=2: larger disc
+    m = zeros(7, 7)
+    spread_rate!(m, (4, 4), 13.0, 2)
+    @test sum(m) ≈ 13.0
+    n_cells = count(x -> x > 0, m)
+    @test n_cells == 13  # disc of radius 2 has 13 cells
+
+    # Edge: location near boundary
+    m = zeros(5, 5)
+    spread_rate!(m, (1, 1), 6.0, 2)
+    @test sum(m) ≈ 6.0
+    n_cells = count(x -> x > 0, m)
+    @test n_cells < 13  # clipped by boundary
+
+    # Accumulation: calling twice adds up
+    m = zeros(5, 5)
+    spread_rate!(m, (3, 3), 5.0, 0)
+    spread_rate!(m, (3, 3), 3.0, 0)
+    @test m[3, 3] == 8.0
+end
+
+@testset "create_injection_rate with radius" begin
+    layers = DOME_SCENARIO.layers
+    pad = layers[1].pad_width
+
+    # radius=0 (default): single cell
+    rate_mat = create_injection_rate(layers, (10, 10), 100.0)
+    @test rate_mat[10 + pad, 10 + pad] == 100.0
+    @test sum(rate_mat) == 100.0
+
+    # radius=1: spread across disc
+    rate_mat = create_injection_rate(layers, (10, 10), 100.0; radius=1)
+    @test sum(rate_mat) ≈ 100.0
+    @test rate_mat[10 + pad, 10 + pad] ≈ 20.0  # 100/5
+end

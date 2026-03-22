@@ -39,7 +39,8 @@ function fill_layers(
     domain::Domain3D,
     reservoir_properties::Union{ReservoirProperties,Vector{ReservoirProperties}},
     injection_events::Vector{Vector{InjectionEvent}};
-    verbose::Bool=false
+    verbose::Bool=false,
+    leakage_radius::Int=0,
 )
     n_layers = length(layers)
 
@@ -80,7 +81,9 @@ function fill_layers(
                 tstruct,
                 reservoir_properties[layer_idx],
                 reservoir_properties[layer_idx+1],
-                weather_events_next_layer
+                weather_events_next_layer;
+                leakage_radius=leakage_radius,
+                target_regions=layers[layer_idx+1].trap_structure.regions,
             )
 
         end

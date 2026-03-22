@@ -5,6 +5,7 @@ export get_all_parents, get_all_descendants
 export get_min_topography_elevation, get_trap_bottom_elevation
 export volume_to_height, height_map
 export get_grid_size, get_padded_grid_size, create_injection_rate, create_no_injection, volume_scale
+export spread_rate!
 
 """
     get_all_parents(tstruct::TrapStructure, trap_id::Int)::Vector{Int}
@@ -186,6 +187,43 @@ function get_padded_grid_size(layer::Layer)::Tuple{Int,Int}
 end
 
 """
+    spread_rate!(matrix, location, rate, radius; regions=nothing)
+
+Add `rate` to `matrix` spread evenly across all cells within Euclidean distance
+`radius` of `location`. If `radius == 0`, the rate is added to the single cell.
+
+If `regions` is provided (a matrix of trap region IDs), only cells with
+`regions[i,j] > 0` receive rate. This prevents CO2 from being injected into
+cells outside the trap structure, where it would be lost by SWIM's flow routing.
+"""
+function spread_rate!(matrix::Matrix{Float64}, location::Tuple{Int,Int}, rate::Float64, radius::Int;
+    regions::Union{Nothing,Matrix{Int}}=nothing)
+    if radius == 0
+        matrix[location[1], location[2]] += rate
+        return matrix
+    end
+    rows, cols = size(matrix)
+    ci, cj = location
+    # Collect all cells within the disc (optionally filtered by regions)
+    cells = Tuple{Int,Int}[]
+    for i in max(1, ci - radius):min(rows, ci + radius)
+        for j in max(1, cj - radius):min(cols, cj + radius)
+            if (i - ci)^2 + (j - cj)^2 <= radius^2
+                if isnothing(regions) || regions[i, j] > 0
+                    push!(cells, (i, j))
+                end
+            end
+        end
+    end
+    isempty(cells) && return matrix
+    per_cell = rate / length(cells)
+    for (i, j) in cells
+        matrix[i, j] += per_cell
+    end
+    return matrix
+end
+
+"""
     create_injection_rate(layers, location_idx, rate) -> Matrix{Float64}
 
 Create an injection rate matrix of the correct (padded) grid size with `rate` placed
@@ -199,13 +237,14 @@ For a zero-rate matrix, pass any index with `rate = 0.0`.
 - `location_idx`: `(i, j)` tuple in the original (unpadded) grid coordinates
 - `rate`: Injection rate value to place at the specified location
 """
-function create_injection_rate(layers::Vector{Layer}, location_idx::Tuple{Int,Int}, rate::Real)::Matrix{Float64}
+function create_injection_rate(layers::Vector{Layer}, location_idx::Tuple{Int,Int}, rate::Real; radius::Int=0)::Matrix{Float64}
     grid_size = get_padded_grid_size(layers)
     rate_matrix = zeros(grid_size)
     if rate != 0.0
         pad = layers[1].pad_width # 0 if :open, > 0 if :closed
         padded_idx = (location_idx[1] + pad, location_idx[2] + pad)
-        rate_matrix[padded_idx[1], padded_idx[2]] = rate
+        regions = layers[1].trap_structure.regions
+        spread_rate!(rate_matrix, padded_idx, Float64(rate), radius; regions=regions)
     end
     return rate_matrix
 end

@@ -100,7 +100,7 @@ function make_grf_scenario(
     injection_events::Vector{Vector{InjectionEvent}}=_make_dual_injection_events()
 )
     rng = MersenneTwister(1)
-    cov = CovarianceFunction(2, Matern(200, 2, σ=3.0))
+    cov = CovarianceFunction(2, Matern(100, 2, σ=3.0))
     pts_x = range(0, stop=(TEST_NX - 1) * TEST_DX, step=TEST_DX)
     pts_y = range(0, stop=(TEST_NY - 1) * TEST_DY, step=TEST_DY)
     top = sample(rng, GaussianRandomField(cov, CirculantEmbedding(), pts_x, pts_y, minpadding=113)) .+ 900.0
@@ -206,4 +206,8 @@ end
             run_multilayer_analysis_tests(scenario)
         end
     end
+
+    # The full simulation test
+    include("test_full_simulation_mass_conservation.jl")
+    test_full_simulation_mass_conservation()
 end
