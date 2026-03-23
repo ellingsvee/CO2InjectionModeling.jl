@@ -8,6 +8,7 @@ using Statistics: mean, std
 
 import CO2BatchFill: animate_layer_filling, animate_multi_layer_filling,
     plot_layer, plot_multi_layer, plot_multi_layer_ensemble,
+    plot_cross_section,
     plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries,
     plot_multi_layer_ensemble_timeseries
 
@@ -702,6 +703,121 @@ function plot_multi_layer_ensemble_timeseries(
     if output_file !== nothing
         save(output_file, fig)
         println("Saved ensemble plot to: $(output_file)")
+    end
+
+    return fig
+end
+
+"""
+Plot a vertical cross-section through the layered reservoir.
+"""
+function plot_cross_section(
+    topography::CO2BatchFill.AbstractTopography,
+    layers::Vector{CO2BatchFill.Layer},
+    snap::CO2BatchFill.MultiLayerSnapshot,
+    domain::CO2BatchFill.Domain3D;
+    slice_axis::Symbol=:x,
+    slice_index::Union{Int,Nothing}=nothing,
+    output_file::Union{String,Nothing}=nothing,
+    figure_size::Tuple{Int,Int}=(900, 500),
+    sand_color=:wheat,
+    shale_color=:gray70,
+    co2_color=:dodgerblue,
+    caprock_color=:gray40,
+    show_co2::Bool=true,
+    ylabel="Depth (m)",
+    xlabel="Distance (m)",
+)
+    @assert slice_axis in (:x, :y) "slice_axis must be :x or :y"
+
+    sand_layers = CO2BatchFill.get_sand_layers(topography)  # shallowest-first
+    n_layers = length(sand_layers)
+    nx, ny = CO2BatchFill.get_grid_dimensions(topography)
+
+    # Default slice index = middle of the non-sliced axis
+    if isnothing(slice_index)
+        slice_index = slice_axis == :x ? ny ÷ 2 : nx ÷ 2
+    end
+
+    # Build x-coordinates for the profile
+    if slice_axis == :x
+        n_profile = nx
+        x_profile = range(0.0, (nx - 1) * domain.dx, length=nx)
+    else
+        n_profile = ny
+        x_profile = range(0.0, (ny - 1) * domain.dy, length=ny)
+    end
+
+    # Extract 1-D slices from each sand layer surface
+    _slice(surface) = slice_axis == :x ? surface[:, slice_index] : surface[slice_index, :]
+
+    sand_tops = [_slice(Float64.(sl["top"])) for sl in sand_layers]
+    sand_bases = [_slice(Float64.(sl["base"])) for sl in sand_layers]
+
+    fig = Figure(size=figure_size)
+    ax = Axis(fig[1, 1]; xlabel, ylabel, yreversed=true)
+
+    # Draw sand layers (shallowest = index 1, deepest = last)
+    for k in 1:n_layers
+        band!(ax, x_profile, sand_tops[k], sand_bases[k];
+            color=sand_color, label=(k == 1 ? "Sand" : nothing))
+    end
+
+    # Draw shale between consecutive sand layers
+    for k in 1:(n_layers-1)
+        band!(ax, x_profile, sand_bases[k], sand_tops[k+1];
+            color=shale_color, label=(k == 1 ? "Shale" : nothing))
+    end
+
+    # Draw caprock above the shallowest sand layer
+    caprock_surface = CO2BatchFill.get_caprock_surface(topography)
+    if !isnothing(caprock_surface)
+        caprock_slice = _slice(Float64.(caprock_surface))
+        band!(ax, x_profile, caprock_slice, sand_tops[1];
+            color=caprock_color, label="Caprock")
+    end
+
+    # Draw CO2 plumes
+    if show_co2
+        z_vol_tables_cache = Dict{Int,Any}()
+        co2_drawn = false
+        for k in 1:n_layers
+            # layers[k] is deepest-first; sand_layers[n_layers - k + 1] is the matching sand layer
+            sand_idx = n_layers - k + 1
+            layer = layers[k]
+            layer_snap = snap.layers[k]
+
+            tstruct = layer.trap_structure
+            pad = layer.pad_width
+            nx_p, ny_p = get_padded_grid_size(layer)
+
+            z_vol_tables = _compute_z_vol_tables(tstruct)
+            h_map = _height_map(tstruct, z_vol_tables, layer_snap.trap_volumes,
+                pad, nx_p, ny_p;
+                leaking=layer_snap.trap_leaking,
+                leakage_heights=layer_snap.trap_leakage_height)
+
+            # Extract slice from the unpadded height map
+            h_slice = _slice(h_map)
+
+            # CO2 sits on top of the sand layer's top surface (topography)
+            topo_slice = sand_tops[sand_idx]
+            co2_bottom = topo_slice .+ h_slice
+
+            # Only draw where there's actual CO2
+            any(>(0), h_slice) || continue
+
+            band!(ax, x_profile, topo_slice, co2_bottom;
+                color=(co2_color, 0.6), label=(co2_drawn ? nothing : "CO2"))
+            co2_drawn = true
+        end
+    end
+
+    axislegend(ax; position=:rb)
+
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved cross-section plot to: $(output_file)")
     end
 
     return fig

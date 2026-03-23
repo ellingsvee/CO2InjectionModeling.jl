@@ -3,6 +3,7 @@
 
 export animate_layer_filling, animate_multi_layer_filling
 export plot_layer, plot_multi_layer, plot_multi_layer_ensemble
+export plot_cross_section
 export plot_layer_volumes_timeseries, plot_multi_layer_volumes_timeseries,
     plot_multi_layer_ensemble_timeseries
 
@@ -111,6 +112,35 @@ Requires a Makie backend (e.g. `using CairoMakie`).
 - `member_label_fontsize`: Font size for member labels (default `12`)
 """
 function plot_multi_layer_ensemble end
+
+"""
+    plot_cross_section(topography, layers, snap, domain; kwargs...) -> Figure
+
+Plot a vertical cross-section through the layered reservoir showing sand layers,
+shale barriers, caprock, and CO2 plumes in profile.
+
+Requires a Makie backend (e.g. `using CairoMakie`).
+
+# Arguments
+- `topography`: Any [`AbstractTopography`](@ref)
+- `layers`: `Vector{Layer}` from [`analyze_base_surfaces`](@ref) (deepest first)
+- `snap`: [`MultiLayerSnapshot`](@ref)
+- `domain`: [`Domain3D`](@ref)
+
+# Keyword arguments
+- `slice_axis`: `:x` (slice along x-axis, fixed y) or `:y` (default `:x`)
+- `slice_index`: Grid index for the fixed axis; default = middle of grid
+- `output_file`: Path to save the figure (default `nothing`)
+- `figure_size`: `(width, height)` in pixels (default `(900, 500)`)
+- `sand_color`: Color for sand layers (default `:wheat`)
+- `shale_color`: Color for shale barriers (default `:gray70`)
+- `co2_color`: Color for CO2 plume (default `:red`)
+- `caprock_color`: Color for caprock (default `:gray40`)
+- `show_co2`: Whether to draw CO2 plumes (default `true`)
+- `ylabel`: Y-axis label (default `"Depth (m)"`)
+- `xlabel`: X-axis label (default `"Distance (m)"`)
+"""
+function plot_cross_section end
 
 """
     plot_layer_volumes_timeseries(snaps; kwargs...) -> nothing
