@@ -136,5 +136,68 @@ function run_fill_layers_tests(scenario::TestScenario)
             @test snap2.total_stored + total_to_next_layer(snap2) ≈ snap2.total_injected atol = MASS_ATOL
         end
 
+        @testset "Multi-density: mass conservation with different co2_density per layer" begin
+        # Layer 1 (deep) has denser CO2, layer 2 (shallow) has lighter CO2
+        rp_deep = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1000.0, 5.0;
+                                       co2_density=600.0)
+        rp_shallow = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, Inf, 5.0;
+                                          co2_density=400.0)
+
+        layer1 = scenario.layers[1]
+        layer2 = scenario.layers[2]
+
+        we1 = convert_injection_event_to_weather_event(
+            scenario.injection_events[1], rp_deep, scenario.domain)
+        seq1, ls1 = fill_sequence_with_leakage(
+            layer1.trap_structure, rp_deep, we1; verbose=false)
+
+        # Skip if no leakage occurs
+        if any(ls1.leaking)
+            we2_direct = convert_injection_event_to_weather_event(
+                scenario.injection_events[2], rp_shallow, scenario.domain)
+
+            we2_combined = generate_leakage_weather_events(
+                seq1, ls1, layer1.trap_structure,
+                rp_deep, rp_shallow, we2_direct)
+
+            # Run layer 2
+            seq2, ls2 = fill_sequence_with_leakage(
+                layer2.trap_structure, rp_shallow, we2_combined; verbose=false)
+
+            # Check mass conservation at a late timepoint
+            # density_ratio = 600/400 = 1.5, so SWIM volume transferred
+            # should be 1.5x what it would be with equal densities (more volume
+            # at lower density to conserve mass)
+            t_check = seq1[end].timestamp + rp_deep.residual_leakage_time + 1.0
+            timepoints = [t_check]
+
+            snaps1 = generate_layer_snapshots(layer1, 1, seq1, ls1, we1, timepoints)
+            snap1 = snaps1[1]
+
+            # Layer 1 mass conservation (internal)
+            assert_mass_conservation(snap1)
+
+            # Mass leaving layer 1 (in SWIM volume of layer 1)
+            leaked_swim_vol_layer1 = total_upward_leakage(snap1)
+
+            # Convert to physical mass: leaked_swim_vol_layer1 * scaling_layer1 * ρ_deep
+            scaling1 = full_volume_to_rock_volume_scaling(rp_deep) *
+                       unit_volume_to_physical_scaling(scenario.domain)
+            mass_leaked_kg = leaked_swim_vol_layer1 * scaling1 * rp_deep.co2_density
+
+            # Volume received by layer 2 (in SWIM volume of layer 2)
+            received_swim_vol_layer2 = compute_total_injected(we2_combined, t_check) -
+                                       compute_total_injected(we2_direct, t_check)
+
+            # Convert to physical mass: received_swim_vol_layer2 * scaling_layer2 * ρ_shallow
+            scaling2 = full_volume_to_rock_volume_scaling(rp_shallow) *
+                       unit_volume_to_physical_scaling(scenario.domain)
+            mass_received_kg = received_swim_vol_layer2 * scaling2 * rp_shallow.co2_density
+
+            # Mass must be conserved across layers
+            @test mass_leaked_kg ≈ mass_received_kg atol = 1e-4
+        end
+    end
+
     end
 end
