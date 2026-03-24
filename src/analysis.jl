@@ -409,3 +409,67 @@ function print_summary(io::IO, snap::MultiLayerSnapshot)
 end
 
 print_summary(snap::MultiLayerSnapshot) = print_summary(stdout, snap)
+
+
+"""
+    print_summary([io,] snap, reservoir_properties, domain)
+
+Print a mass-balance table in physical mass units (Mt) using per-layer CO2
+density and pore-volume scaling.  This is the correct way to display mass
+balance when layers have different CO2 densities.
+
+The mass imbalance should be zero (within numerical tolerance) regardless of
+density differences between layers.
+"""
+function print_summary(
+    io::IO,
+    snap::MultiLayerSnapshot,
+    reservoir_properties::Vector{ReservoirProperties},
+    domain::Domain3D,
+)
+    @printf(io, "MultiLayerSnapshot  t = %.4g  (mass units: Mt)\n", snap.timestamp)
+    @printf(io, "  %-6s  %12s  %12s  %12s  %12s  %12s\n",
+        "Layer", "Injected", "Stored", "Drained", "Passthru", "→NextLayer")
+    @printf(io, "  %s\n", "-"^74)
+
+    total_injected_mt = 0.0
+    total_stored_mt = 0.0
+    total_surface_leakage_mt = 0.0
+
+    for (i, s) in enumerate(snap.layers)
+        rp = reservoir_properties[i]
+        scale = full_volume_to_rock_volume_scaling(rp) * unit_volume_to_physical_scaling(domain)
+        to_mt = scale * rp.co2_density / 1e9
+
+        inj_mt = s.total_injected * to_mt
+        stored_mt = s.total_stored * to_mt
+        drained_mt = s.total_drained * to_mt
+        passthru_mt = s.total_passthrough * to_mt
+        next_mt = total_to_next_layer(s) * to_mt
+
+        @printf(io, "  %-6s  %12.4g  %12.4g  %12.4g  %12.4g  %12.4g\n",
+            s.layer_name, inj_mt, stored_mt, drained_mt, passthru_mt, next_mt)
+
+        if i == 1
+            total_injected_mt = inj_mt
+        end
+        total_stored_mt += stored_mt
+        if i == length(snap.layers)
+            total_surface_leakage_mt = next_mt
+        end
+    end
+
+    @printf(io, "  %s\n", "-"^74)
+    imbalance = total_injected_mt - total_stored_mt - total_surface_leakage_mt
+    @printf(io, "  %-6s  %12.4g  %12.4g  %12s  %12s  %12.4g\n",
+        "TOTAL", total_injected_mt, total_stored_mt, "", "", total_surface_leakage_mt)
+    @printf(io, "  Mass imbalance: %.4g Mt\n", imbalance)
+end
+
+function print_summary(
+    snap::MultiLayerSnapshot,
+    reservoir_properties::Vector{ReservoirProperties},
+    domain::Domain3D,
+)
+    print_summary(stdout, snap, reservoir_properties, domain)
+end

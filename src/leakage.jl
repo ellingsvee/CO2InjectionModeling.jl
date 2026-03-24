@@ -434,8 +434,9 @@ function generate_leakage_weather_events(
         return copy(direct_events)
     end
 
-    # Unit conversion
-    unit_factor = full_volume_to_rock_volume_scaling(rp_source) /
+    # Unit conversion (includes density ratio for mass conservation across layers)
+    density_ratio = rp_source.co2_density / rp_target.co2_density
+    unit_factor = density_ratio * full_volume_to_rock_volume_scaling(rp_source) /
                   full_volume_to_rock_volume_scaling(rp_target)
 
     # Map each draining trap to its caprock exit location.

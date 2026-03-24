@@ -263,7 +263,7 @@ end
 """
     volume_scale(rp, domain) -> Float64
 
-Return the conversion factor from SWIM volume units to physical m³.
+Return the conversion factor from SWIM volume units to physical m^3.
 Equivalent to `swim_volume_to_physical_volume(1.0, rp, domain)`.
 """
 function volume_scale(rp::ReservoirProperties, domain::Domain3D)::Float64
