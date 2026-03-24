@@ -146,8 +146,8 @@ Configure reservoir properties for the simulation.
 - `irreducible_water_sat`: Irreducible water saturation (0-1). Scalar or vector
 - `shale_pressure_threshold`: Shale pressure threshold (Pa). Scalar or vector. Use `Inf` for impermeable caprock
 - `residual_leakage_time`: Residual leakage time (years). Scalar or vector
-- `brine_density`: Brine density (kg/m³). Scalar or vector (default: 1020.0)
-- `co2_density`: CO2 density (kg/m³). Scalar or vector (default: 460.0)
+- `brine_density`: Brine density (kg/m^3). Scalar or vector (default: 1020.0)
+- `co2_density`: CO2 density (kg/m^3). Scalar or vector (default: 460.0)
 - `layer_specific`: Set to `true` to provide vectors for layer-specific properties (default: `false`)
 """
 function configure_reservoir(;

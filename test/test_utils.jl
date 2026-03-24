@@ -16,7 +16,7 @@ end
     @test n >= 2
 
     # Identify root traps (no parent) and child traps (have a parent)
-    root_ids  = [id for id in 1:n if isnothing(parentof(tstruct, id))]
+    root_ids = [id for id in 1:n if isnothing(parentof(tstruct, id))]
     child_ids = [id for id in 1:n if !isnothing(parentof(tstruct, id))]
 
     # In a closed-BC GRF setup, there should be at least one child trap
@@ -32,11 +32,11 @@ end
     parent_ids = [id for id in 1:n if !isempty(subtrapsof(tstruct, id))]
     for parent_id in parent_ids
         direct_children = collect(subtrapsof(tstruct, parent_id))
-        descendants     = get_all_descendants(tstruct, parent_id)
+        descendants = get_all_descendants(tstruct, parent_id)
         @test all(c in descendants for c in direct_children)
 
         # Parent's trap bottom elevation >= its min topography elevation
-        min_elev    = get_min_topography_elevation(parent_id, tstruct)
+        min_elev = get_min_topography_elevation(parent_id, tstruct)
         bottom_elev = get_trap_bottom_elevation(parent_id, tstruct)
         @test bottom_elev >= min_elev
     end
@@ -87,11 +87,11 @@ end
 
     # radius=0 (default): single cell
     rate_mat = create_injection_rate(layers, (10, 10), 100.0)
-    @test rate_mat[10 + pad, 10 + pad] == 100.0
+    @test rate_mat[10+pad, 10+pad] == 100.0
     @test sum(rate_mat) == 100.0
 
     # radius=1: spread across disc
     rate_mat = create_injection_rate(layers, (10, 10), 100.0; radius=1)
     @test sum(rate_mat) ≈ 100.0
-    @test rate_mat[10 + pad, 10 + pad] ≈ 20.0  # 100/5
+    @test rate_mat[10+pad, 10+pad] ≈ 20.0  # 100/5
 end

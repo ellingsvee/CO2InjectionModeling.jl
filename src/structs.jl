@@ -52,14 +52,14 @@ event with `injection_rate` equal to zero.
 
 # Fields
 - `timestamp`: Time (in model time units) at which this rate becomes active
-- `injection_rate`: Physical injection rate in m³/year per grid cell,
+- `injection_rate`: Physical injection rate in m^3/year per grid cell,
   either a scalar or a matrix of size `(nx + 2*pad, ny + 2*pad)`
 
 # Example
 ```julia
 pad = 2
 rate = zeros(NX + 2pad, NY + 2pad)
-rate[div(NX,2)+pad, div(NY,2)+pad] = 25_000.0  # m³/yr at centre cell
+rate[div(NX,2)+pad, div(NY,2)+pad] = 25_000.0  # m^3/yr at centre cell
 events = [InjectionEvent(0.0, rate), InjectionEvent(10.0, zeros(size(rate)))]
 ```
 """
@@ -95,8 +95,8 @@ Physical properties of the reservoir rock and fluids.
 - `sand_irreducible_water_saturation`: Irreducible water saturation in sand (0–1)
 - `shale_pressure_threshold`: Caprock entry pressure in Pa (`Inf` for impermeable caprock)
 - `residual_leakage_time`: Duration over which residual CO2 drains after leakage onset (years)
-- `brine_density`: Brine density in kg/m³ (default 1020.0)
-- `co2_density`: CO2 density in kg/m³ (default 460.0)
+- `brine_density`: Brine density in kg/m^3 (default 1020.0)
+- `co2_density`: CO2 density in kg/m^3 (default 460.0)
 
 # Derived fields
 - `leakage_height`: CO2 column height threshold that triggers leakage (m),
@@ -116,8 +116,8 @@ struct ReservoirProperties
     shale_pressure_threshold::Union{Float64,Vector{Float64}}  # Mean pressure threshold (Pa)
     leakage_height::Union{Float64,Vector{Float64}}  # Mean leakage height derived from pressure (m)
     residual_leakage_time::Float64
-    brine_density::Float64  # kg/m³
-    co2_density::Float64    # kg/m³
+    brine_density::Float64  # kg/m^3
+    co2_density::Float64    # kg/m^3
 
     function ReservoirProperties(
         sand_porosity::Float64,
