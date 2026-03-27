@@ -18,7 +18,18 @@ function run_analysis_tests(scenario::TestScenario)
             t_leak_start = leakage_state.leakage_start_time[findfirst(leakage_state.leaking)]
             t_drain_end = t_leak_start + rp_quick.residual_leakage_time
 
-            # 8 timepoints spanning before-leak → during-drain → after-drain
+            # Dynamic equilibrium: for leaking traps, drainage starts at
+            # time_of_last_state_change (when inflow stops), not leakage_start_time.
+            # Compute the latest actual drain end to ensure timepoints cover it.
+            max_drain_end = t_drain_end
+            for trap in 1:numtraps(layer.trap_structure)
+                if leakage_state.leaking[trap]
+                    actual_end = leakage_state.time_of_last_state_change[trap] + rp_quick.residual_leakage_time
+                    max_drain_end = max(max_drain_end, actual_end)
+                end
+            end
+
+            # Timepoints spanning before-leak → during-drain → after-drain
             timepoints = sort(unique([
                 t_sim_start,
                 t_leak_start - 0.1 * rp_quick.residual_leakage_time,
@@ -28,6 +39,7 @@ function run_analysis_tests(scenario::TestScenario)
                 t_drain_end,
                 t_drain_end + 0.5 * rp_quick.residual_leakage_time,
                 t_drain_end + rp_quick.residual_leakage_time,
+                max_drain_end + rp_quick.residual_leakage_time,
             ]))
             # Clamp so we don't go before the simulation start
             timepoints = filter(t -> t >= t_sim_start, timepoints)
@@ -55,10 +67,19 @@ function run_analysis_tests(scenario::TestScenario)
             snap_after = snaps[end]
             for trap in 1:numtraps(layer.trap_structure)
                 if leakage_state.draining[trap]
-                    t_drain_end_trap = leakage_state.leakage_start_time[trap] + rp_quick.residual_leakage_time
-                    if snap_after.timestamp >= t_drain_end_trap
+                    if leakage_state.leaking[trap]
+                        # Leaking traps: drainage starts at time_of_last_state_change
+                        # (when inflow stops), not leakage_start_time
+                        t_drain_end_trap = leakage_state.time_of_last_state_change[trap] + rp_quick.residual_leakage_time
+                        expected_final = leakage_state.leakage_volume[trap] *
+                                         rp_quick.sand_residual_co2_saturation
+                    else
+                        # Descendant traps: standard drainage from leakage_start_time
+                        t_drain_end_trap = leakage_state.leakage_start_time[trap] + rp_quick.residual_leakage_time
                         expected_final = leakage_state.initial_volume_at_leak[trap] *
                                          rp_quick.sand_residual_co2_saturation
+                    end
+                    if snap_after.timestamp >= t_drain_end_trap
                         @test snap_after.trap_volumes[trap] ≈ expected_final atol = MASS_ATOL
                     end
                 end

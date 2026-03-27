@@ -48,7 +48,11 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
             Float64[],  # leakage_height (per-trap vector, empty for no traps)
             Float64[],  # initial_volume_at_leak
             reservoir_properties.sand_residual_co2_saturation,
-            reservoir_properties.residual_leakage_time
+            reservoir_properties.residual_leakage_time,
+            Float64[],  # cumulative_no_inflow_time
+            Float64[],  # volume_at_last_state_change
+            Float64[],  # time_of_last_state_change
+            Bool[]      # has_inflow
         )
         return Vector{SpillEvent}(), empty_leakage
     end
@@ -95,6 +99,14 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
 
         # Compute inflow/runoff/infiltration rates corresponding to the fill graph and new rain rate
         rateinfo = SurfaceWaterIntegratedModeling.compute_flow(sgraph, we.rain_rate, infiltration, tstruct, verbose)
+
+        # Update dynamic equilibrium state for leaking traps at weather event boundary.
+        # This detects when injection rate changes (e.g., goes to 0), updating has_inflow.
+        for trap in 1:num_traps
+            leakage_state.leaking[trap] || continue
+            new_inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap) > 0
+            update_leaking_trap_inflow_state!(leakage_state, trap, new_inflow, cur_time)
+        end
 
         # Compute initial time estimates for when a trap become filled, or split into subtraps
         changetimeest = SurfaceWaterIntegratedModeling._set_initial_changetime_estimates(rateinfo, cur_amounts,
@@ -167,6 +179,13 @@ function _fill_sequence_for_weather_event_with_leakage!(
             leakage_state.leaking[leak_trap] = true
             leakage_state.leakage_start_time[leak_trap] = cur_time
 
+            # Initialize dynamic equilibrium: check if trap has inflow at leakage onset.
+            # The trap just reached threshold, so it has inflow (otherwise it wouldn't fill).
+            inflow_at_leak = SurfaceWaterIntegratedModeling.getinflow(rateinfo, leak_trap)
+            leakage_state.has_inflow[leak_trap] = inflow_at_leak > 0
+            leakage_state.time_of_last_state_change[leak_trap] = cur_time
+            # volume_at_last_state_change will be set below after leakage_vol is computed
+
             # Record the leakage for upstream layer
             leakage_location = find_leakage_location(leak_trap, tstruct)
             push!(leakage_state.leakage_records, LeakageRecord(
@@ -184,6 +203,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
             )
             initial_vol = max(leakage_vol, actual_vol_at_leak)
             leakage_state.initial_volume_at_leak[leak_trap] = initial_vol
+            leakage_state.volume_at_last_state_change[leak_trap] = leakage_vol
             verbose && println("  Trap $leak_trap: leakage_vol=$(round(leakage_vol, digits=4)), initial_vol=$(round(initial_vol, digits=4))")
 
             # Mark as draining if there is actual volume to drain
@@ -270,6 +290,13 @@ function _fill_sequence_for_weather_event_with_leakage!(
             # Integrate amount changes into cur_amounts (must happen before
             # leakage/changetime estimate updates which read cur_amounts)
             SurfaceWaterIntegratedModeling._apply_updates!(cur_amounts, amount_updates)
+
+            # Update dynamic equilibrium state for all leaking traps whose inflow changed
+            for trap in 1:num_traps
+                leakage_state.leaking[trap] || continue
+                new_inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap) > 0
+                update_leaking_trap_inflow_state!(leakage_state, trap, new_inflow, cur_time)
+            end
 
             # Update leakage time estimate to Inf for the leaking trap (already leaking)
             leakage_time_est[leak_trap] = LeakageTimeEstimate(leak_trap, Inf, Inf)
@@ -360,6 +387,13 @@ function _fill_sequence_for_weather_event_with_leakage!(
             # Integrate the changes into the continuously updated `cur_amounts` vector
             SurfaceWaterIntegratedModeling._apply_updates!(cur_amounts, amount_updates)
 
+            # Update dynamic equilibrium state for all leaking traps whose inflow changed
+            for trap in 1:num_traps
+                leakage_state.leaking[trap] || continue
+                new_inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap) > 0
+                update_leaking_trap_inflow_state!(leakage_state, trap, new_inflow, cur_time)
+            end
+
             # Update leakage time estimates for affected traps
             affected_traps = unique([u.index for u in getinflowupdates(rateinfo)])
             update_leakage_time_estimates!(
@@ -383,8 +417,9 @@ function _fill_sequence_for_weather_event_with_leakage!(
     for (trap, cur_fill) ∈ enumerate(cur_amounts)
         if cur_fill.time < endtime
             if leakage_state.leaking[trap]
-                # For leaking trap, compute volume accounting for residual drainage
-                drained_vol = compute_volume_with_drainage(trap, final_time, leakage_state)
+                # For leaking trap, use dynamic equilibrium volume (accounts for
+                # drainage only during periods without inflow)
+                drained_vol = compute_dynamic_equilibrium_volume(trap, final_time, leakage_state)
                 # For leaking traps, drained_vol should never be nothing
                 final_vol = isnothing(drained_vol) ? cur_fill.amount : drained_vol
                 cur_amounts[trap] = FilledAmount(final_vol, final_time)
