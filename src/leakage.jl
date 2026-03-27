@@ -106,9 +106,12 @@ Compute the volume of CO2 that can drain from a trap during residual leakage.
 
 The drainable volume is the portion that will leak out over the residual leakage time.
 The residual (non-drainable) fraction remains trapped in pore spaces.
+
+`residual_volume_fraction` should be `S_r / (1 - S_wi)` — the SWIM volume fraction
+remaining after drainage, not the raw pore-space saturation `S_r`.
 """
-function compute_drainable_volume(initial_volume::Float64, residual_saturation::Float64)::Float64
-    return initial_volume * (1.0 - residual_saturation)
+function compute_drainable_volume(initial_volume::Float64, residual_volume_fraction::Float64)::Float64
+    return initial_volume * (1.0 - residual_volume_fraction)
 end
 
 
@@ -135,11 +138,11 @@ function compute_volume_with_drainage(
     end
 
     initial_vol = leakage_state.initial_volume_at_leak[trap_id]
-    residual_sat = leakage_state.residual_saturation
+    res_frac = leakage_state.residual_volume_fraction
     residual_time = leakage_state.residual_leakage_time
 
-    # If no drainage (residual_time is Inf or 0, or residual_sat is 1)
-    if !isfinite(residual_time) || residual_time <= 0.0 || residual_sat >= 1.0
+    # If no drainage (residual_time is Inf or 0, or res_frac is 1)
+    if !isfinite(residual_time) || residual_time <= 0.0 || res_frac >= 1.0
         return initial_vol
     end
 
@@ -147,7 +150,7 @@ function compute_volume_with_drainage(
     time_since_leak = current_time - t_leak
 
     # Compute residual volume (what remains after full drainage)
-    residual_vol = initial_vol * residual_sat
+    residual_vol = initial_vol * res_frac
 
     # Compute drainable volume
     drainable_vol = initial_vol - residual_vol
@@ -183,11 +186,11 @@ function compute_residual_drainage_rate(
     # Get leakage parameters
     t_leak = leakage_state.leakage_start_time[trap_id]
     initial_vol = leakage_state.initial_volume_at_leak[trap_id]
-    residual_sat = leakage_state.residual_saturation
+    res_frac = leakage_state.residual_volume_fraction
     residual_time = leakage_state.residual_leakage_time
 
     # If no drainage configured
-    if !isfinite(residual_time) || residual_time <= 0.0 || residual_sat >= 1.0
+    if !isfinite(residual_time) || residual_time <= 0.0 || res_frac >= 1.0
         return 0.0
     end
 
@@ -199,7 +202,7 @@ function compute_residual_drainage_rate(
     end
 
     # Constant drainage rate during the drainage period
-    drainable_vol = initial_vol * (1.0 - residual_sat)
+    drainable_vol = initial_vol * (1.0 - res_frac)
     return drainable_vol / residual_time
 end
 
@@ -240,21 +243,21 @@ function compute_dynamic_equilibrium_volume(
         return nothing
     end
 
-    residual_sat = leakage_state.residual_saturation
+    res_frac = leakage_state.residual_volume_fraction
     residual_time = leakage_state.residual_leakage_time
 
     V_leak = leakage_state.leakage_volume[trap_id]
 
     # If no drainage configured, volume stays at equilibrium
-    if !isfinite(residual_time) || residual_time <= 0.0 || residual_sat >= 1.0
+    if !isfinite(residual_time) || residual_time <= 0.0 || res_frac >= 1.0
         return V_leak
     end
 
     # Use V_leak (not initial_volume_at_leak) as the drainage reference for
     # leaking traps. The equilibrium volume is V_leak; any overshoot beyond
     # V_leak at the moment leakage was detected is a discrete-timestep artifact.
-    V_res = V_leak * residual_sat
-    drainable_vol = V_leak * (1.0 - residual_sat)
+    V_res = V_leak * res_frac
+    drainable_vol = V_leak * (1.0 - res_frac)
     drain_rate = drainable_vol / residual_time
 
     t_last_change = leakage_state.time_of_last_state_change[trap_id]
@@ -310,12 +313,12 @@ function update_leaking_trap_inflow_state!(
         return  # No state change
     end
 
-    residual_sat = leakage_state.residual_saturation
+    res_frac = leakage_state.residual_volume_fraction
     residual_time = leakage_state.residual_leakage_time
-    has_finite_drainage = isfinite(residual_time) && residual_time > 0.0 && residual_sat < 1.0
+    has_finite_drainage = isfinite(residual_time) && residual_time > 0.0 && res_frac < 1.0
 
     V_leak = leakage_state.leakage_volume[trap_id]
-    V_res = V_leak * residual_sat
+    V_res = V_leak * res_frac
 
     if old_has_inflow && !new_has_inflow
         # Transition: inflow → no inflow. Column was maintained, now drainage begins.
@@ -327,7 +330,7 @@ function update_leaking_trap_inflow_state!(
         # Transition: no inflow → inflow. Compute volume after drainage, begin refilling.
         if has_finite_drainage && isfinite(t_last)
             dt = current_time - t_last
-            drain_rate = V_leak * (1.0 - residual_sat) / residual_time
+            drain_rate = V_leak * (1.0 - res_frac) / residual_time
             V_start = leakage_state.volume_at_last_state_change[trap_id]
             V_current = max(V_res, V_start - drain_rate * dt)
             leakage_state.cumulative_no_inflow_time[trap_id] += dt
@@ -343,6 +346,11 @@ end
 
 """
 Initialize the leakage state for a layer, precomputing leakage volumes for all traps.
+
+The `residual_volume_fraction` stored in LeakageState is computed as `S_r / (1 - S_wi)`,
+converting from pore-space CO2 saturation to the equivalent fraction of SWIM volume.
+This is because SWIM volumes represent pore space at maximum CO2 saturation `(1 - S_wi)`,
+so the residual CO2 (at saturation `S_r`) corresponds to `S_r / (1 - S_wi)` of the SWIM volume.
 """
 function initialize_leakage_state(
     tstruct::TrapStructure,
@@ -369,6 +377,13 @@ function initialize_leakage_state(
         leakage_volumes[trap_id] = isnothing(vol) ? Inf : vol
     end
 
+    # Convert raw S_r to the SWIM volume fraction: S_r / (1 - S_wi).
+    # SWIM volumes are proportional to CO2 mass via porosity * (1 - S_wi) * cell_area.
+    # After drainage, CO2 saturation drops from (1 - S_wi) to S_r, so the fraction
+    # of SWIM volume (≡ CO2 mass) remaining is S_r / (1 - S_wi).
+    S_wi = reservoir_properties.sand_irreducible_water_saturation
+    residual_vol_fraction = residual_saturation / (1.0 - S_wi)
+
     return LeakageState(
         fill(false, num_traps),           # leaking
         fill(false, num_traps),           # draining
@@ -377,7 +392,7 @@ function initialize_leakage_state(
         LeakageRecord[],                   # leakage_records
         trap_leakage_heights,              # leakage_height (NOW PER-TRAP VECTOR)
         fill(0.0, num_traps),             # initial_volume_at_leak (0 until leakage starts)
-        residual_saturation,               # residual_saturation
+        residual_vol_fraction,             # residual_volume_fraction = S_r / (1 - S_wi)
         residual_leakage_time,             # residual_leakage_time
         fill(0.0, num_traps),             # cumulative_no_inflow_time
         fill(0.0, num_traps),             # volume_at_last_state_change
@@ -613,8 +628,8 @@ function generate_leakage_weather_events(
 
     # Residual drainage parameters
     T_res = leakage_state.residual_leakage_time
-    sat = leakage_state.residual_saturation
-    has_finite_drainage = isfinite(T_res) && T_res > 0.0 && sat < 1.0
+    res_frac = leakage_state.residual_volume_fraction
+    has_finite_drainage = isfinite(T_res) && T_res > 0.0 && res_frac < 1.0
 
     # Drainage rate for each draining trap (source-layer SWIM units).
     # For directly leaking traps: use V_leak as reference (not initial_volume_at_leak)
@@ -627,10 +642,10 @@ function generate_leakage_weather_events(
             haskey(drain_loc, trap) || continue
             if leakage_state.leaking[trap]
                 drain_rates[trap] =
-                    leakage_state.leakage_volume[trap] * (1 - sat) / T_res
+                    leakage_state.leakage_volume[trap] * (1 - res_frac) / T_res
             else
                 drain_rates[trap] =
-                    leakage_state.initial_volume_at_leak[trap] * (1 - sat) / T_res
+                    leakage_state.initial_volume_at_leak[trap] * (1 - res_frac) / T_res
             end
         end
     end
@@ -691,7 +706,7 @@ function generate_leakage_weather_events(
             leakage_state.leakage_start_time[trap] > t && continue
 
             V_leak = leakage_state.leakage_volume[trap]
-            V_res = V_leak * sat
+            V_res = V_leak * res_frac
             dr = drain_rates[trap]
 
             inflow = _get_trap_inflow(trap, seq_ix)
@@ -775,7 +790,7 @@ function generate_leakage_weather_events(
             leakage_state.leakage_start_time[trap] > t && continue
 
             V_leak = leakage_state.leakage_volume[trap]
-            V_res = V_leak * sat
+            V_res = V_leak * res_frac
             dr = drain_rates[trap]
 
             inflow = _get_trap_inflow(trap, seq_ix)

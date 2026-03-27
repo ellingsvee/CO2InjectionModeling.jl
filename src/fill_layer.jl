@@ -47,7 +47,8 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
             Float64[], Float64[], LeakageRecord[],
             Float64[],  # leakage_height (per-trap vector, empty for no traps)
             Float64[],  # initial_volume_at_leak
-            reservoir_properties.sand_residual_co2_saturation,
+            reservoir_properties.sand_residual_co2_saturation /
+                (1.0 - reservoir_properties.sand_irreducible_water_saturation),
             reservoir_properties.residual_leakage_time,
             Float64[],  # cumulative_no_inflow_time
             Float64[],  # volume_at_last_state_change
