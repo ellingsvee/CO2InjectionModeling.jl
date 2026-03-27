@@ -72,12 +72,12 @@ function run_analysis_tests(scenario::TestScenario)
                         # (when inflow stops), not leakage_start_time
                         t_drain_end_trap = leakage_state.time_of_last_state_change[trap] + rp_quick.residual_leakage_time
                         expected_final = leakage_state.leakage_volume[trap] *
-                                         rp_quick.sand_residual_co2_saturation
+                                         leakage_state.residual_volume_fraction
                     else
                         # Descendant traps: standard drainage from leakage_start_time
                         t_drain_end_trap = leakage_state.leakage_start_time[trap] + rp_quick.residual_leakage_time
                         expected_final = leakage_state.initial_volume_at_leak[trap] *
-                                         rp_quick.sand_residual_co2_saturation
+                                         leakage_state.residual_volume_fraction
                     end
                     if snap_after.timestamp >= t_drain_end_trap
                         @test snap_after.trap_volumes[trap] ≈ expected_final atol = MASS_ATOL

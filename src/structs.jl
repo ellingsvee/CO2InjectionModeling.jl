@@ -191,7 +191,9 @@ Tracks the leakage state for all traps in a layer during simulation.
 - `leakage_records`: Vector of LeakageRecord for generating upstream WeatherEvents
 - `leakage_height`: Per-trap threshold heights for leakage (sampled from ReservoirProperties)
 - `initial_volume_at_leak`: Volume in each trap when drainage started (for residual drainage)
-- `residual_saturation`: Fraction of CO2 that remains after drainage (from ReservoirProperties)
+- `residual_volume_fraction`: Fraction of SWIM volume that remains after drainage, equal to
+  `S_r / (1 - S_wi)` where `S_r` is residual CO2 saturation and `S_wi` is irreducible water
+  saturation. This converts from pore-space saturation to the equivalent SWIM volume fraction.
 - `residual_leakage_time`: Time over which residual drainage occurs (from ReservoirProperties)
 - `cumulative_no_inflow_time`: Total time each leaking trap has spent without inflow (for dynamic equilibrium)
 - `volume_at_last_state_change`: Stored volume when inflow state last changed
@@ -207,7 +209,7 @@ mutable struct LeakageState
     leakage_height::Vector{Float64}
     # Residual leakage fields
     initial_volume_at_leak::Vector{Float64}
-    residual_saturation::Float64
+    residual_volume_fraction::Float64
     residual_leakage_time::Float64
     # Dynamic equilibrium tracking (for directly leaking traps)
     cumulative_no_inflow_time::Vector{Float64}
