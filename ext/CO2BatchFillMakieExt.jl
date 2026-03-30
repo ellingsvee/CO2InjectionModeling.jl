@@ -127,6 +127,42 @@ function _layer_panel!(ax, layer, snap, domain; colormap=_CMAP, max_co2_height=_
 end
 
 """
+Draw a CO2 probability heatmap + topography contours for an ensemble of `LayerSnapshot`s onto `ax`.
+Returns the heatmap object.
+"""
+function _layer_panel_ensemble!(ax, layer, snap_ensemble, domain; colormap=_CMAP,
+    show_contours=true, show_labels=false, contour_levels=10, major_contour_every=5, contour_opacity=0.8)
+
+    tstruct = layer.trap_structure
+    pad = layer.pad_width
+    nx_padded, ny_padded = get_padded_grid_size(layer)
+    nx, ny = get_grid_size(layer)
+
+    z_vol_tables = _compute_z_vol_tables(tstruct)
+    height_array_ensemble = [_height_map(tstruct, z_vol_tables, snap.trap_volumes, pad, nx_padded, ny_padded;
+        leaking=snap.trap_leaking,
+        leakage_heights=snap.trap_leakage_height) for snap in snap_ensemble]
+
+    x_coords = range(0.0, nx * domain.dx, length=nx)
+    y_coords = range(0.0, ny * domain.dy, length=ny)
+    topo = tstruct.topography[pad+1:end-pad, pad+1:end-pad]
+
+    # Compute probability of CO2 presence in each cell across the ensemble
+    extent_array_ensemble = [Float64.(ha .> 0.0) for ha in height_array_ensemble]
+    mean_extent = mean(extent_array_ensemble)
+
+    hm = heatmap!(ax, x_coords, y_coords, mean_extent;
+        colormap=colormap,
+    )
+
+    if show_contours
+        _topo_contours!(ax, x_coords, y_coords, topo;
+            contour_levels, major_contour_every, contour_opacity, show_labels)
+    end
+    return hm
+end
+
+"""
 Draw stored/drained/passthrough/→next-layer volume lines for a vector of
 `LayerSnapshot`s onto `ax`.
 """
@@ -270,6 +306,97 @@ function plot_multi_layer(
     end
     return fig
 end
+
+"""
+Plot probabilities of CO2 for multiple layers over multiple simulations.
+"""
+function plot_multi_layer_ensemble(
+    layers::Vector{CO2BatchFill.Layer},
+    snap::Vector{CO2BatchFill.MultiLayerSnapshot},
+    domain::CO2BatchFill.Domain3D;
+    output_file::Union{String,Nothing}=nothing,
+    colormap::Symbol=_CMAP,
+    show_contours::Bool=true,
+    show_labels::Bool=false,
+    contour_levels::Int=10,
+    major_contour_every::Int=5,
+    contour_opacity::Float64=0.8,
+    injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing,
+    show_leakage_locations::Bool=false,
+    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
+    figure_layout::Union{Tuple{Int,Int},Nothing}=nothing,
+    cbar_location::Union{Tuple{Int,Int},Nothing}=nothing,
+    colorbar_label="Probability",
+)
+    n = length(layers)
+
+    figure_size = isnothing(figure_size) ? (700 * n, 600) : figure_size
+    figure_layout = isnothing(figure_layout) ? (1, length(layers)) : figure_layout
+
+    fig = Figure(size=figure_size)
+
+    has_injection = !isnothing(injection_locations)
+    has_any_leakage = false
+
+    for i in 1:n
+        figure_row, figure_col = i_to_layout(figure_layout, i)
+        ax = Axis(fig[figure_row, figure_col];
+            xlabel="x",
+            ylabel=(i == 1 ? "y" : ""),
+            title=snap[1].layers[i].layer_name,
+            aspect=DataAspect(),
+        )
+
+        snap_layer_i_ensemble = [s.layers[i] for s in snap]
+
+
+        _layer_panel_ensemble!(ax, layers[i], snap_layer_i_ensemble, domain;
+            colormap, show_contours, show_labels, contour_levels, major_contour_every, contour_opacity
+        )
+
+        if has_injection && i == 1
+            scatter!(ax, [loc[1] for loc in injection_locations], [loc[2] for loc in injection_locations];
+                color=:black, marker=:xcross, markersize=35)
+        end
+
+        if show_leakage_locations
+            tstruct = layers[i].trap_structure
+            pad = layers[i].pad_width
+
+            leak_xs, leak_ys = Float64[], Float64[]
+            for trap_id in 1:numtraps(tstruct)
+                # layer_snap.trap_leaking[trap_id] || continue
+                snap_layer_i_ensemble_trap_leaking = [s.layers[i].trap_leaking[trap_id] for s in snap]
+                if !any(snap_layer_i_ensemble_trap_leaking)
+                    continue
+                end
+
+                ci = find_leakage_location(trap_id, tstruct)
+                x = (ci[1] - 1 - pad) * domain.dx
+                y = (ci[2] - 1 - pad) * domain.dy
+                push!(leak_xs, x)
+                push!(leak_ys, y)
+            end
+            if !isempty(leak_xs)
+                scatter!(ax, leak_xs, leak_ys;
+                    color=:black, marker=:utriangle, markersize=30)
+                has_any_leakage = true
+            end
+        end
+    end
+
+    cbar_location = isnothing(cbar_location) ? (1, n + 1) : cbar_location
+    Colorbar(fig[cbar_location[1], cbar_location[2]]; colormap, colorrange=(0.0, 1.0), label=colorbar_label, size=_CBAR_SIZE)
+
+    if output_file !== nothing
+        save(output_file, fig)
+        println("Saved multi-layer plot to: $(output_file)")
+    end
+    return fig
+end
+
+
+
 
 # Time-series plots
 """
@@ -541,103 +668,6 @@ function _draw_leakage_locations!(ax, layer, layer_snap, domain)
         scatter!(ax, leak_xs, leak_ys;
             color=:black, marker=:utriangle, markersize=30)
     end
-end
-
-"""
-Plot CO2 plume outlines for an ensemble of multi-layer simulations, with one
-coloured contour line per ensemble member per layer panel.
-"""
-function plot_multi_layer_ensemble(
-    layers::Vector{CO2BatchFill.Layer},
-    ensemble::Vector{CO2BatchFill.MultiLayerSnapshot},
-    domain::CO2BatchFill.Domain3D;
-    contour_color=nothing,
-    output_file::Union{String,Nothing}=nothing,
-    contour_level::Float64=0.01,
-    linewidth::Real=2.5,
-    show_topography::Bool=true,
-    show_labels::Bool=false,
-    topo_contour_levels::Int=10,
-    major_contour_every::Int=5,
-    contour_opacity::Float64=0.8,
-    injection_locations::Union{Nothing,Vector{Tuple{Float64,Float64}}}=nothing,
-    show_leakage_locations::Bool=false,
-    figure_size::Union{Tuple{Int,Int},Nothing}=nothing,
-    member_labels::Union{Nothing,Vector{String}}=nothing,
-    member_label_fontsize::Real=12,
-)
-    n_layers = length(layers)
-
-    eff_color = isnothing(contour_color) ? :black : contour_color
-
-    figure_size = isnothing(figure_size) ? (700 * n_layers, 600) : figure_size
-    fig = Figure(size=figure_size)
-
-    for i in 1:n_layers
-        layer = layers[i]
-        tstruct = layer.trap_structure
-        pad = layer.pad_width
-        nx_padded, ny_padded = get_padded_grid_size(layers)
-        nx, ny = get_grid_size(layers)
-
-        x_coords = range(0.0, nx * domain.dx, length=nx)
-        y_coords = range(0.0, ny * domain.dy, length=ny)
-        topo = tstruct.topography[pad+1:end-pad, pad+1:end-pad]
-        z_vol_tables = _compute_z_vol_tables(tstruct)
-
-        layer_name = ensemble[1].layers[i].layer_name
-        ax = Axis(fig[1, i];
-            xlabel="x",
-            ylabel=(i == 1 ? "y" : ""),
-            title=layer_name,
-            aspect=DataAspect(),
-        )
-
-        if show_topography
-            _topo_contours!(ax, x_coords, y_coords, topo;
-                contour_levels=topo_contour_levels, major_contour_every,
-                contour_opacity, show_labels)
-        end
-
-        for (j, snap) in enumerate(ensemble)
-            layer_snap = snap.layers[i]
-            height_array = _height_map(
-                tstruct, z_vol_tables, layer_snap.trap_volumes, pad, nx_padded, ny_padded;
-                leaking=layer_snap.trap_leaking,
-                leakage_heights=layer_snap.trap_leakage_height)
-
-            any(>=(contour_level), height_array) || continue
-
-            has_label = !isnothing(member_labels)
-            label_text = has_label ? member_labels[j] : ""
-            contour!(ax, x_coords, y_coords, height_array;
-                levels=[contour_level],
-                color=eff_color,
-                linewidth=linewidth,
-                labels=has_label,
-                labelsize=member_label_fontsize,
-                labelformatter=(val -> label_text),
-            )
-        end
-
-        if !isnothing(injection_locations) && i == 1
-            scatter!(ax,
-                [loc[1] for loc in injection_locations],
-                [loc[2] for loc in injection_locations];
-                color=:black, marker=:xcross, markersize=35)
-        end
-
-        if show_leakage_locations
-            _draw_leakage_locations!(ax, layer, ensemble[end].layers[i], domain)
-        end
-    end
-
-    if output_file !== nothing
-        save(output_file, fig)
-        println("Saved ensemble plot to: $(output_file)")
-    end
-
-    return fig
 end
 
 """

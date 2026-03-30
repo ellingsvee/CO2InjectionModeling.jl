@@ -102,6 +102,22 @@ update_theme!(
     )
 )
 
+
+# The `plot_multi_layer_ensemble` function plots the probability of the plume extents over the ensemble
+injection_location_loc = (div(NX, 2) * DX, div(NY, 2) * DY)
+plot_multi_layer_ensemble(
+    layers, multi_snaps_ensemble_final, domain;
+    show_contours=true,
+    show_labels=true,
+    contour_levels=20,
+    major_contour_every=5,
+    contour_opacity=1.0,
+    figure_size=(500 * N_LAYERS, 500),
+    colormap=:viridis,
+    injection_locations=[injection_location_loc],
+    show_leakage_locations=true,
+)
+
 # The `plot_multi_layer_ensemble_timeseries` is similar to `plot_multi_layer_timeseries`, but it plots the means and standard deviations across the ensemble.
 _phys_scale = volume_scale(ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, 1.0, 5.0), domain)
 plot_multi_layer_ensemble_timeseries(
