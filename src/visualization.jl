@@ -80,36 +80,9 @@ function plot_multi_layer end
 """
     plot_multi_layer_ensemble(layers, ensemble, domain; kwargs...) -> nothing
 
-Plot CO2 plume outlines for an ensemble of multi-layer simulations.
-Each ensemble member is drawn as a single contour line (at `contour_level` metres of
-CO2 column height), giving a compact uncertainty overview.
-Panels are arranged side-by-side, one per geological layer.
+Plot CO2 probability distributions over an ensemble for all layers 
 
 Requires a Makie backend (e.g. `using CairoMakie`).
-
-# Arguments
-- `layers`: `Vector{Layer}` from [`analyze_base_surfaces`](@ref)
-- `ensemble`: `Vector{MultiLayerSnapshot}`, one element per ensemble member
-- `domain`: [`Domain3D`](@ref)
-
-# Keyword arguments
-- `output_file`: Output file path (default `"ensemble_co2.svg"`)
-- `contour_color`: Colour for all ensemble contour lines (default `:black`)
-- `contour_level`: CO2 column height threshold that defines each plume outline in metres
-  (default `0.01`)
-- `linewidth`: Outline line width (default `2.5`)
-- `show_topography`: Overlay topography contours (default `true`)
-- `show_labels`: Label major topography contours (default `false`)
-- `topo_contour_levels`: Number of topography contour levels (default `10`)
-- `major_contour_every`: Every nth level is drawn as a major contour (default `5`)
-- `contour_opacity`: Topography contour line opacity (default `0.8`)
-- `injection_locations`: `Vector{Tuple{Float64,Float64}}` of (x, y) well locations
-  to mark on layer 1 (default `nothing`)
-- `show_leakage_locations`: Mark leakage points with triangles (default `false`)
-- `figure_size`: `(width, height)` in pixels (default `(700*n_layers, 600)`)
-- `member_labels`: `Vector{String}` of labels to place on each ensemble member's
-  contour lines, using Makie's built-in contour labelling (default `nothing`, i.e. no labels)
-- `member_label_fontsize`: Font size for member labels (default `12`)
 """
 function plot_multi_layer_ensemble end
 
