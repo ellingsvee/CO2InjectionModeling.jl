@@ -15,5 +15,6 @@ include("analysis.jl")
 include("r_interface.jl")
 include("visualization.jl")
 include("artifacts.jl")
+include("export.jl")
 
 end
