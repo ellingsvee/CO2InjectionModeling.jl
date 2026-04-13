@@ -247,6 +247,10 @@ function plot_multi_layer(
     show_extents::Bool=false,
     extent_color=(:dodgerblue, 0.5),
     colorbar_label="Column height",
+    show_ticks::Bool=true,
+    show_axis_labels::Bool=true,
+    xlabel::String="x",
+    ylabel::String="y",
 )
     n = length(layers)
 
@@ -261,10 +265,14 @@ function plot_multi_layer(
     for i in 1:n
         figure_row, figure_col = i_to_layout(figure_layout, i)
         ax = Axis(fig[figure_row, figure_col];
-            xlabel="x",
-            ylabel=(i == 1 ? "y" : ""),
+            xlabel=show_axis_labels ? xlabel : "",
+            ylabel=(show_axis_labels && i == 1 ? ylabel : ""),
             title=snap.layers[i].layer_name,
             aspect=DataAspect(),
+            xticklabelsvisible=show_ticks,
+            yticklabelsvisible=show_ticks,
+            xticksvisible=show_ticks,
+            yticksvisible=show_ticks,
         )
         _layer_panel!(ax, layers[i], snap.layers[i], domain;
             colormap, max_co2_height, show_contours, show_labels, contour_levels, major_contour_every, contour_opacity,
@@ -327,6 +335,10 @@ function plot_multi_layer_ensemble(
     figure_layout::Union{Tuple{Int,Int},Nothing}=nothing,
     cbar_location::Union{Tuple{Int,Int},Nothing}=nothing,
     colorbar_label="Probability",
+    show_ticks::Bool=true,
+    show_axis_labels::Bool=true,
+    xlabel::String="x",
+    ylabel::String="y",
 )
     n = length(layers)
 
@@ -341,10 +353,14 @@ function plot_multi_layer_ensemble(
     for i in 1:n
         figure_row, figure_col = i_to_layout(figure_layout, i)
         ax = Axis(fig[figure_row, figure_col];
-            xlabel="x",
-            ylabel=(i == 1 ? "y" : ""),
+            xlabel=show_axis_labels ? xlabel : "",
+            ylabel=(show_axis_labels && i == 1 ? ylabel : ""),
             title=snap[1].layers[i].layer_name,
             aspect=DataAspect(),
+            xticklabelsvisible=show_ticks,
+            yticklabelsvisible=show_ticks,
+            xticksvisible=show_ticks,
+            yticksvisible=show_ticks,
         )
 
         snap_layer_i_ensemble = [s.layers[i] for s in snap]

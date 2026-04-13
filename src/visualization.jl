@@ -74,15 +74,25 @@ Requires a Makie backend (e.g. `using CairoMakie`).
   to mark on layer 1 (default `nothing`)
 - `show_leakage_locations`: Mark leakage points with triangles (default `false`)
 - `figure_size`: `(width, height)` in pixels (default `(700*n_layers, 600)`)
+- `show_ticks`: Show axis tick marks and tick labels (default `true`)
+- `show_axis_labels`: Show x- and y-axis labels (default `true`)
+- `xlabel`: X-axis label (default `"x"`)
+- `ylabel`: Y-axis label (default `"y"`)
 """
 function plot_multi_layer end
 
 """
     plot_multi_layer_ensemble(layers, ensemble, domain; kwargs...) -> nothing
 
-Plot CO2 probability distributions over an ensemble for all layers 
+Plot CO2 probability distributions over an ensemble for all layers.
 
 Requires a Makie backend (e.g. `using CairoMakie`).
+
+# Keyword arguments
+- `show_ticks`: Show axis tick marks and tick labels (default `true`)
+- `show_axis_labels`: Show x- and y-axis labels (default `true`)
+- `xlabel`: X-axis label (default `"x"`)
+- `ylabel`: Y-axis label (default `"y"`)
 """
 function plot_multi_layer_ensemble end
 
