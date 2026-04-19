@@ -80,7 +80,6 @@ end
 
 """
 Compute the total CO2 that flowed through leaking traps (passthrough) up to time `t`.
-This is the "fast path": inflow to a leaking trap exits immediately upward to the next layer.
 """
 function compute_total_passthrough(
     t::Float64,
@@ -106,32 +105,20 @@ function compute_total_passthrough(
 end
 
 """
-Compute the total CO2 that has drained from traps via residual leakage up to time `t`.
-
-For directly leaking traps, uses dynamic equilibrium: drainage only accumulates
-during periods without inflow. For descendant (non-leaking) draining traps,
-uses standard linear drainage from leakage_start_time.
+Compute the total CO2 that has drained from descendant traps via residual
+leakage up to time `t`. Directly leaking traps maintain capillary-gravity
+equilibrium and do not drain.
 """
 function compute_total_drained(t::Float64, leakage_state::LeakageState)::Float64
     total = 0.0
     for trap in eachindex(leakage_state.draining)
+        leakage_state.leaking[trap] && continue
         !leakage_state.draining[trap] && continue
         t < leakage_state.leakage_start_time[trap] && continue
 
-        if leakage_state.leaking[trap]
-            # Directly leaking trap: use dynamic equilibrium volume.
-            # Reference from V_leak (not initial_volume_at_leak) for consistency
-            # with weather event generation.
-            current_vol = compute_dynamic_equilibrium_volume(trap, t, leakage_state)
-            isnothing(current_vol) && continue
-            ref_vol = leakage_state.leakage_volume[trap]
-            drained = ref_vol - current_vol
-        else
-            # Descendant draining trap: standard drainage from initial volume
-            current_vol = compute_volume_with_drainage(trap, t, leakage_state)
-            isnothing(current_vol) && continue
-            drained = leakage_state.initial_volume_at_leak[trap] - current_vol
-        end
+        current_vol = compute_volume_with_drainage(trap, t, leakage_state)
+        isnothing(current_vol) && continue
+        drained = leakage_state.initial_volume_at_leak[trap] - current_vol
         total += max(0.0, drained)
     end
     return total
@@ -156,21 +143,15 @@ function _compute_trap_volumes_at_time(
     leaking = copy(leakage_state.leaking)
     draining = copy(leakage_state.draining)
 
-    # Override SWIM volumes for traps that have started draining by time t.
-    # SWIM keeps the volume constant at the value set when leakage was detected;
-    # the true volume depends on drainage state.
-    # For directly leaking traps: use dynamic equilibrium (drainage only during
-    # periods without inflow).
-    # For descendant draining traps: standard linear drainage.
+    # Override SWIM volumes for descendant draining traps. SWIM keeps their
+    # volume constant at the value set when drainage started; the true volume
+    # decreases linearly over residual_leakage_time.
     for trap in 1:n
+        leaking[trap] && continue
         !draining[trap] && continue
         t < leakage_state.leakage_start_time[trap] && continue
 
-        if leakage_state.leaking[trap]
-            corrected = compute_dynamic_equilibrium_volume(trap, t, leakage_state)
-        else
-            corrected = compute_volume_with_drainage(trap, t, leakage_state)
-        end
+        corrected = compute_volume_with_drainage(trap, t, leakage_state)
         isnothing(corrected) && continue
         volumes[trap] = corrected
     end

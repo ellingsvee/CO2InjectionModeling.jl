@@ -61,11 +61,10 @@ function fill_layers(
         weather_events_per_layer[layer_idx] = weather_events_layer
 
         tstruct = layers[layer_idx].trap_structure
+        rp = reservoir_properties[layer_idx]
 
         seq, leakage_state = fill_sequence_with_leakage(
-            tstruct,
-            reservoir_properties[layer_idx],
-            weather_events_layer;
+            tstruct, rp, weather_events_layer;
             verbose=verbose
         )
 
