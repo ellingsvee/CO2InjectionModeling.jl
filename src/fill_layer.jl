@@ -219,7 +219,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
             graph_updates = SurfaceWaterIntegratedModeling.update_spillgraph!(sgraph, leak_fill_updates, tstruct)
 
             # Fix edges for all previously leaking traps (sibling cycle check may overwrite them)
-            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state, tstruct)
 
             # Set only the leaking trap's edge to 0 (out of domain = leakage)
             sgraph.edges[leak_trap] = 0
@@ -304,7 +304,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
             graph_updates = SurfaceWaterIntegratedModeling.update_spillgraph!(sgraph, fill_updates, tstruct)
 
             # Fix edges for all leaking traps (sibling cycle check may overwrite them)
-            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state, tstruct)
 
             # Given the updates to the spill graph, update flow information in `rateinfo`
             setsavepoint!(rateinfo)
@@ -425,23 +425,27 @@ end
 
 
 """
-    _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+    _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state, tstruct)
 
-Restore edge=0 for all leaking traps after `update_spillgraph!`.
+Restore edge=0 for all leaking traps after `update_spillgraph!`, and also
+restore edges for sibling traps that were redirected away from a leaking trap
+by the sibling cycle check.
 
 SWIM's `update_spillgraph!` contains a sibling cycle check that redirects all
-sibling traps to their parent when all become "full". This can overwrite edge=0
-for previously leaking traps, breaking flow routing. This helper restores the
-correct edges and ensures `graph_updates` reflects the fix so `_update_flow!`
-processes these traps.
+sibling traps to their parent when all become "full". Leaking traps have edge=0
+stored in `sgraph.edges`, which makes `_isfull` return true. When a sibling
+fills, the cycle check redirects ALL siblings (including the leaking trap) to
+the parent. This breaks flow routing in two ways:
+1. The leaking trap's edge=0 gets overwritten → fixed by restoring it.
+2. Sibling traps that should flow INTO the leaking trap get redirected to the
+   parent, bypassing the leak point → fixed by restoring their original edges.
 """
-function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageState)
+function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageState, tstruct)
+    # Pass 1: restore edge=0 for all leaking traps
     for trap in eachindex(leakage_state.leaking)
         if leakage_state.leaking[trap] && get(sgraph.edges, trap, 0) != 0
             old_target = sgraph.edges[trap]
             sgraph.edges[trap] = 0
-            # Also fix in graph_updates so _update_flow! processes this trap.
-            # graph_updates values are (old_target, new_target) tuples.
             found = false
             for i in eachindex(graph_updates)
                 if graph_updates[i].index == trap
@@ -453,6 +457,49 @@ function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageS
             end
             if !found
                 push!(graph_updates, IncrementalUpdate(trap, (old_target, 0)))
+            end
+        end
+    end
+
+    # Pass 2: fix siblings that were redirected away from a leaking trap.
+    # For each leaking trap, find its siblings. If a sibling's natural
+    # downstream target is the leaking trap but its current edge points
+    # elsewhere (to the parent), restore the natural edge.
+    num_traps = length(leakage_state.leaking)
+    for trap in 1:num_traps
+        leakage_state.leaking[trap] || continue
+
+        parents = Graphs.outneighbors(tstruct.agglomerations, trap)
+        isempty(parents) && continue
+        parent = parents[1]
+        siblings = Graphs.inneighbors(tstruct.agglomerations, parent)
+
+        for sib in siblings
+            sib == trap && continue
+            leakage_state.leaking[sib] && continue
+            haskey(sgraph.edges, sib) || continue
+
+            # Check if this sibling's natural downstream is the leaking trap
+            dsreg = tstruct.spillpoints[sib].downstream_region
+            natural_target = dsreg > 0 ? dsreg : num_traps + 1
+            natural_target == trap || continue
+
+            # Sibling should flow to leaking trap but was redirected to parent
+            sgraph.edges[sib] == parent || continue
+
+            # Restore the sibling's edge to its natural target (the leaking trap)
+            sgraph.edges[sib] = trap
+            found = false
+            for i in eachindex(graph_updates)
+                if graph_updates[i].index == sib
+                    prev_old = graph_updates[i].value[1]
+                    graph_updates[i] = IncrementalUpdate(sib, (prev_old, trap))
+                    found = true
+                    break
+                end
+            end
+            if !found
+                push!(graph_updates, IncrementalUpdate(sib, (parent, trap)))
             end
         end
     end
