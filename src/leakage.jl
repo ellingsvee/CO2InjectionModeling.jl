@@ -231,6 +231,57 @@ function initialize_leakage_state(
         leakage_volumes[trap_id] = isnothing(vol) ? Inf : vol
     end
 
+    # Correct parent traps whose leakage_volume was set to 0 because a
+    # shale-break child's deep topography pulled true_bottom down.
+    # When a child is a shale break (leakage_height=0), CO2 drains through it
+    # immediately, so the continuous CO2 column for the parent doesn't extend
+    # through that child's footprint. Recompute using an effective bottom that
+    # excludes break children's areas.
+    for trap_id in 1:num_traps
+        leakage_volumes[trap_id] == 0.0 || continue
+        trap_leakage_heights[trap_id] > 0.0 || continue
+
+        children = subtrapsof(tstruct, trap_id)
+        isempty(children) && continue
+
+        break_children = [c for c in children if trap_leakage_heights[c] == 0.0]
+        isempty(break_children) && continue
+
+        # Collect all cells belonging to break children's footprints
+        break_cells = Set{Int}()
+        for bc in break_children
+            union!(break_cells, tstruct.footprints[bc])
+        end
+
+        # Compute effective bottom from remaining cells
+        parent_footprint = tstruct.footprints[trap_id]
+        remaining_cells = [idx for idx in parent_footprint if !(idx in break_cells)]
+
+        if isempty(remaining_cells)
+            effective_bottom = z_vol_tables[trap_id][1][1]
+        else
+            effective_bottom = minimum(tstruct.topography[remaining_cells])
+        end
+
+        leakage_elevation = effective_bottom + trap_leakage_heights[trap_id]
+        spillpoint_elevation = tstruct.spillpoints[trap_id].elevation
+
+        if leakage_elevation >= spillpoint_elevation
+            leakage_volumes[trap_id] = Inf
+        else
+            zvals, vvals = z_vol_tables[trap_id]
+            if leakage_elevation <= zvals[1]
+                leakage_volumes[trap_id] = 0.0
+            elseif leakage_elevation >= zvals[end]
+                leakage_volumes[trap_id] = Inf
+            else
+                z2v = Interpolations.linear_interpolation(
+                    zvals, vvals, extrapolation_bc=Interpolations.Line())
+                leakage_volumes[trap_id] = z2v(leakage_elevation)
+            end
+        end
+    end
+
     # Convert raw S_r to the SWIM volume fraction: S_r / (1 - S_wi).
     # SWIM volumes are proportional to CO2 mass via porosity * (1 - S_wi) * cell_area.
     # After drainage, CO2 saturation drops from (1 - S_wi) to S_r, so the fraction
