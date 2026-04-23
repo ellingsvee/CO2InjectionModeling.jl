@@ -141,10 +141,11 @@ import SurfaceWaterIntegratedModeling as SWIM
         end
     end
 
-    @testset "Shale-break child does not make parent a pass-through" begin
+    @testset "Shale-break child does not reduce parent leakage volume" begin
         # When a child trap is a shale break (pressure=0, leakage_height=0),
-        # its parent should NOT inherit leakage_volume=0. The parent's effective
-        # CO2 column should exclude the break child's footprint.
+        # the parent's leakage volume should be computed from the effective
+        # bottom excluding the break child's footprint, not from the true
+        # bottom that includes the break child's deep area.
         for scenario in ALL_SCENARIOS
             tstruct_s = scenario.layers[1].trap_structure
             z_vol_s = SWIM._compute_z_vol_tables(tstruct_s)
@@ -168,21 +169,31 @@ import SurfaceWaterIntegratedModeling as SWIM
             pressures[break_child] = 0.0
             rp_break = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, pressures, 5.0)
 
-            state = initialize_leakage_state(
+            # Compute leakage state with and without the break child
+            state_with_break = initialize_leakage_state(
                 tstruct_s, z_vol_s, rp_break,
                 rp_break.sand_residual_co2_saturation,
                 rp_break.residual_leakage_time
             )
 
-            # Break child must have leakage_volume=0
-            @test state.leakage_volume[break_child] == 0.0
+            # Reference: same parent threshold but NO break children
+            pressures_nobreak = fill(1000.0, n)
+            rp_nobreak = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, pressures_nobreak, 5.0)
+            state_no_break = initialize_leakage_state(
+                tstruct_s, z_vol_s, rp_nobreak,
+                rp_nobreak.sand_residual_co2_saturation,
+                rp_nobreak.residual_leakage_time
+            )
 
-            # Parent must NOT have leakage_volume=0
-            # (unless it genuinely cannot hold any CO2, which doesn't happen for
-            # well-formed traps with capacity)
+            # Break child must have leakage_volume=0
+            @test state_with_break.leakage_volume[break_child] == 0.0
+
+            # Parent's leakage volume with a break child should be >= the
+            # volume without a break child (the corrected bottom is higher,
+            # so leakage_elevation is higher, requiring more volume)
             parent_capacity = tstruct_s.trapvolumes[parent_trap] - tstruct_s.subvolumes[parent_trap]
             if parent_capacity > 0
-                @test state.leakage_volume[parent_trap] > 0.0
+                @test state_with_break.leakage_volume[parent_trap] >= state_no_break.leakage_volume[parent_trap]
             end
         end
     end

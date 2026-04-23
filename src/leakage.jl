@@ -231,14 +231,13 @@ function initialize_leakage_state(
         leakage_volumes[trap_id] = isnothing(vol) ? Inf : vol
     end
 
-    # Correct parent traps whose leakage_volume was set to 0 because a
-    # shale-break child's deep topography pulled true_bottom down.
-    # When a child is a shale break (leakage_height=0), CO2 drains through it
-    # immediately, so the continuous CO2 column for the parent doesn't extend
-    # through that child's footprint. Recompute using an effective bottom that
-    # excludes break children's areas.
+    # Correct parent traps that have shale-break children (leakage_height=0).
+    # compute_leakage_volume measures column height from the TRUE topography
+    # bottom of the entire footprint, which includes break children's deep
+    # areas.  But a break child drains immediately, so the continuous CO2
+    # column for the parent doesn't extend through that child's footprint.
+    # Recompute using an effective bottom that excludes break children's areas.
     for trap_id in 1:num_traps
-        leakage_volumes[trap_id] == 0.0 || continue
         trap_leakage_heights[trap_id] > 0.0 || continue
 
         children = subtrapsof(tstruct, trap_id)
