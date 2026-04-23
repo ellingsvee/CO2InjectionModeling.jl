@@ -141,6 +141,63 @@ import SurfaceWaterIntegratedModeling as SWIM
         end
     end
 
+    @testset "Shale-break child does not reduce parent leakage volume" begin
+        # When a child trap is a shale break (pressure=0, leakage_height=0),
+        # the parent's leakage volume should be computed from the effective
+        # bottom excluding the break child's footprint, not from the true
+        # bottom that includes the break child's deep area.
+        for scenario in ALL_SCENARIOS
+            tstruct_s = scenario.layers[1].trap_structure
+            z_vol_s = SWIM._compute_z_vol_tables(tstruct_s)
+            n = SWIM.numtraps(tstruct_s)
+
+            # Find a parent-child pair
+            parent_trap = nothing
+            break_child = nothing
+            for t in 1:n
+                children = SWIM.subtrapsof(tstruct_s, t)
+                if !isempty(children)
+                    parent_trap = t
+                    break_child = children[1]
+                    break
+                end
+            end
+            isnothing(parent_trap) && continue
+
+            # Set only the child to shale-break; parent gets a normal threshold
+            pressures = fill(1000.0, n)
+            pressures[break_child] = 0.0
+            rp_break = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, pressures, 5.0)
+
+            # Compute leakage state with and without the break child
+            state_with_break = initialize_leakage_state(
+                tstruct_s, z_vol_s, rp_break,
+                rp_break.sand_residual_co2_saturation,
+                rp_break.residual_leakage_time
+            )
+
+            # Reference: same parent threshold but NO break children
+            pressures_nobreak = fill(1000.0, n)
+            rp_nobreak = ReservoirProperties(0.3, RESIDUAL_TRAPPING, 0.1, pressures_nobreak, 5.0)
+            state_no_break = initialize_leakage_state(
+                tstruct_s, z_vol_s, rp_nobreak,
+                rp_nobreak.sand_residual_co2_saturation,
+                rp_nobreak.residual_leakage_time
+            )
+
+            # Break child must have leakage_volume=0
+            @test state_with_break.leakage_volume[break_child] == 0.0
+
+            # Parent's leakage volume with a break child should be >= the
+            # volume without a break child (the corrected bottom is higher,
+            # so leakage_elevation is higher, requiring more volume)
+            parent_capacity = tstruct_s.trapvolumes[parent_trap] - tstruct_s.subvolumes[parent_trap]
+            if parent_capacity > 0
+                @test state_with_break.leakage_volume[parent_trap] >= state_no_break.leakage_volume[parent_trap]
+            end
+        end
+    end
+
     @testset "GRF topology: initialize_leakage_state" begin
         tstruct_grf = GRF_SCENARIO.layers[1].trap_structure
         z_vol_grf = SWIM._compute_z_vol_tables(tstruct_grf)

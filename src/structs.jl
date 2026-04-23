@@ -90,9 +90,9 @@ end
 Physical properties of the reservoir rock and fluids.
 
 # Arguments
-- `sand_porosity`: Porosity of the sand (0–1)
-- `sand_residual_co2_saturation`: Residual (irreducible) CO2 saturation after drainage (0–1)
-- `sand_irreducible_water_saturation`: Irreducible water saturation in sand (0–1)
+- `sand_porosity`: Porosity of the sand (0-1)
+- `sand_residual_co2_saturation`: Residual (irreducible) CO2 saturation after drainage (0-1)
+- `sand_irreducible_water_saturation`: Irreducible water saturation in sand (0-1)
 - `shale_pressure_threshold`: Caprock entry pressure in Pa (`Inf` for impermeable caprock)
 - `residual_leakage_time`: Duration over which residual CO2 drains after leakage onset (years)
 - `brine_density`: Brine density in kg/m^3 (default 1020.0)
@@ -113,11 +113,11 @@ struct ReservoirProperties
     sand_porosity::Float64
     sand_residual_co2_saturation::Float64
     sand_irreducible_water_saturation::Float64
-    shale_pressure_threshold::Union{Float64,Vector{Float64}}  # Mean pressure threshold (Pa)
-    leakage_height::Union{Float64,Vector{Float64}}  # Mean leakage height derived from pressure (m)
+    shale_pressure_threshold::Union{Float64,Vector{Float64}}
+    leakage_height::Union{Float64,Vector{Float64}}
     residual_leakage_time::Float64
-    brine_density::Float64  # kg/m^3
-    co2_density::Float64    # kg/m^3
+    brine_density::Float64
+    co2_density::Float64
 
     function ReservoirProperties(
         sand_porosity::Float64,
@@ -164,7 +164,7 @@ struct ReservoirProperties
             leakage_height,
             residual_leakage_time,
             brine_density,
-            co2_density
+            co2_density,
         )
     end
 
@@ -183,22 +183,22 @@ end
     LeakageState
 
 Tracks the leakage state for all traps in a layer during simulation.
-- `leaking`: Boolean vector indicating if each trap has reached leakage threshold (edge=0)
-- `draining`: Boolean vector indicating if each trap is experiencing residual drainage
-  (includes leaking traps AND their filled ancestors whose CO2 drains through)
-- `leakage_volume`: Volume at which leakage starts for each trap (precomputed from leakage_height)
-- `leakage_start_time`: When leakage/drainage started for each trap (Inf if not yet)
-- `leakage_records`: Vector of LeakageRecord for generating upstream WeatherEvents
-- `leakage_height`: Per-trap threshold heights for leakage (sampled from ReservoirProperties)
-- `initial_volume_at_leak`: Volume in each trap when drainage started (for residual drainage)
-- `residual_volume_fraction`: Fraction of SWIM volume that remains after drainage, equal to
-  `S_r / (1 - S_wi)` where `S_r` is residual CO2 saturation and `S_wi` is irreducible water
-  saturation. This converts from pore-space saturation to the equivalent SWIM volume fraction.
-- `residual_leakage_time`: Time over which residual drainage occurs (from ReservoirProperties)
-- `cumulative_no_inflow_time`: Total time each leaking trap has spent without inflow (for dynamic equilibrium)
-- `volume_at_last_state_change`: Stored volume when inflow state last changed
-- `time_of_last_state_change`: Time when inflow state last changed
-- `has_inflow`: Whether each leaking trap currently has positive inflow
+
+Directly leaking traps maintain their CO2 column at the equilibrium height
+(volume = leakage_volume) indefinitely — capillary-gravity equilibrium prevents
+the column from draining through the caprock. Only descendant (non-leaking)
+draining traps experience residual drainage through the spill hierarchy.
+
+# Fields
+- `leaking`: trap has reached leakage threshold (edge=0)
+- `draining`: trap is experiencing residual drainage (descendants of leaking traps)
+- `leakage_volume`: volume at which leakage starts (precomputed from leakage_height)
+- `leakage_start_time`: when leakage/drainage started (Inf if not yet)
+- `leakage_records`: records for generating upstream WeatherEvents
+- `leakage_height`: per-trap CO2 column height threshold
+- `initial_volume_at_leak`: volume when drainage started (for descendant residual drainage)
+- `residual_volume_fraction`: S_r / (1 - S_wi), fraction remaining after drainage
+- `residual_leakage_time`: duration of residual drainage for descendants
 """
 mutable struct LeakageState
     leaking::Vector{Bool}
@@ -207,13 +207,7 @@ mutable struct LeakageState
     leakage_start_time::Vector{Float64}
     leakage_records::Vector{LeakageRecord}
     leakage_height::Vector{Float64}
-    # Residual leakage fields
     initial_volume_at_leak::Vector{Float64}
     residual_volume_fraction::Float64
     residual_leakage_time::Float64
-    # Dynamic equilibrium tracking (for directly leaking traps)
-    cumulative_no_inflow_time::Vector{Float64}
-    volume_at_last_state_change::Vector{Float64}
-    time_of_last_state_change::Vector{Float64}
-    has_inflow::Vector{Bool}
 end

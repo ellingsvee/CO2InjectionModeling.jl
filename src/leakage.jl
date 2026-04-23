@@ -5,11 +5,9 @@ using Distributions: Normal, LogNormal, Uniform, truncated
 export compute_leakage_volume, initialize_leakage_state, find_leakage_location
 export compute_leakage_time_estimate, generate_leakage_weather_events
 export get_true_topography_bottom
-export compute_drainable_volume, compute_volume_with_drainage, compute_residual_drainage_rate
-export compute_dynamic_equilibrium_volume, update_leaking_trap_inflow_state!
+export compute_drainable_volume, compute_volume_with_drainage
+export compute_dynamic_equilibrium_volume
 export get_initial_leakage_time_estimates
-
-
 """
 Stores the estimated time when a trap will reach its leakage volume. Similar to SWIM's ChangeTimeEstimate.
 """
@@ -167,60 +165,19 @@ function compute_volume_with_drainage(
 end
 
 
-"""
-Compute the current residual drainage rate from a leaking trap.
-
-This is the rate at which CO2 is draining from the trap due to residual leakage
-(separate from the pass-through of new injections).
-"""
-function compute_residual_drainage_rate(
-    trap_id::Int,
-    current_time::Float64,
-    leakage_state::LeakageState
-)::Float64
-    # If not leaking, no drainage
-    if !leakage_state.leaking[trap_id]
-        return 0.0
-    end
-
-    # Get leakage parameters
-    t_leak = leakage_state.leakage_start_time[trap_id]
-    initial_vol = leakage_state.initial_volume_at_leak[trap_id]
-    res_frac = leakage_state.residual_volume_fraction
-    residual_time = leakage_state.residual_leakage_time
-
-    # If no drainage configured
-    if !isfinite(residual_time) || residual_time <= 0.0 || res_frac >= 1.0
-        return 0.0
-    end
-
-    # Check if we're still in the drainage period
-    time_since_leak = current_time - t_leak
-    if time_since_leak < 0.0 || time_since_leak >= residual_time
-        # Not yet started or already completed
-        return 0.0
-    end
-
-    # Constant drainage rate during the drainage period
-    drainable_vol = initial_vol * (1.0 - res_frac)
-    return drainable_vol / residual_time
-end
-
 
 """
     compute_dynamic_equilibrium_volume(trap_id, current_time, leakage_state) -> Float64
 
-Compute the stored volume in a directly leaking trap, accounting for dynamic
-equilibrium. This means that rainage only accumulates during periods without 
-inflow.
+Compute the stored volume in a trap accounting for leakage and drainage.
 
-Due to the equilibrium assumption of IP theory, a leaking traps CO2 column is 
-maintained at the threshold height (volume = leakage_volume) when it has positive inflow. 
-Drainage only occurs when inflow drops to zero, representing buoyancy-driven flow through 
-the caprock once the column is no longer sustained by injection.
+Directly leaking traps maintain capillary-gravity equilibrium: the CO2 column
+stays at the threshold height (volume = leakage_volume) indefinitely. The
+buoyancy pressure exactly balances the capillary entry pressure, so there is
+no net driving force to push CO2 through the seal once inflow stops.
 
-For non-leaking draining traps (descendants), falls back to the standard
-`compute_volume_with_drainage`.
+Non-leaking draining traps (descendants) experience residual drainage through
+the spill hierarchy via `compute_volume_with_drainage`.
 """
 function compute_dynamic_equilibrium_volume(
     trap_id::Int,
@@ -228,14 +185,8 @@ function compute_dynamic_equilibrium_volume(
     leakage_state::LeakageState
 )::Union{Float64,Nothing}
 
-    # For non-leaking draining traps, use standard drainage
     if !leakage_state.leaking[trap_id]
         return compute_volume_with_drainage(trap_id, current_time, leakage_state)
-    end
-
-    # Not yet leaking
-    if !leakage_state.draining[trap_id] && !leakage_state.leaking[trap_id]
-        return nothing
     end
 
     t_leak = leakage_state.leakage_start_time[trap_id]
@@ -243,104 +194,7 @@ function compute_dynamic_equilibrium_volume(
         return nothing
     end
 
-    res_frac = leakage_state.residual_volume_fraction
-    residual_time = leakage_state.residual_leakage_time
-
-    V_leak = leakage_state.leakage_volume[trap_id]
-
-    # If no drainage configured, volume stays at equilibrium
-    if !isfinite(residual_time) || residual_time <= 0.0 || res_frac >= 1.0
-        return V_leak
-    end
-
-    # Use V_leak (not initial_volume_at_leak) as the drainage reference for
-    # leaking traps. The equilibrium volume is V_leak; any overshoot beyond
-    # V_leak at the moment leakage was detected is a discrete-timestep artifact.
-    V_res = V_leak * res_frac
-    drainable_vol = V_leak * (1.0 - res_frac)
-    drain_rate = drainable_vol / residual_time
-
-    t_last_change = leakage_state.time_of_last_state_change[trap_id]
-
-    if current_time < t_last_change
-        # Query time is before the last state transition.
-        # The trap was in the OPPOSITE inflow state at this time.
-        if !leakage_state.has_inflow[trap_id]
-            # Currently no inflow, but at query time the trap HAD inflow.
-            # Column was maintained at V_leak.
-            return V_leak
-        else
-            # Currently has inflow, but at query time the trap had NO inflow (was draining).
-            # Reconstruct volume: at the transition (t_last_change), volume was
-            # volume_at_last_state_change. Going backward in time, volume increases
-            # (un-draining) at drain_rate.
-            V_at_transition = leakage_state.volume_at_last_state_change[trap_id]
-            return min(V_leak, max(V_res, V_at_transition + drain_rate * (t_last_change - current_time)))
-        end
-    end
-
-    if leakage_state.has_inflow[trap_id]
-        # Trap has inflow — column maintained at V_leak
-        return V_leak
-    else
-        # No inflow — draining from volume at last state change
-        V_at_change = leakage_state.volume_at_last_state_change[trap_id]
-        t_since_change = current_time - t_last_change
-        drained = drain_rate * t_since_change
-        return max(V_res, V_at_change - drained)
-    end
-end
-
-
-"""
-    update_leaking_trap_inflow_state!(leakage_state, trap_id, new_has_inflow, current_time)
-
-Update the dynamic equilibrium tracking for a leaking trap when its inflow state changes.
-Called from fill_layer.jl after flow rates are recomputed.
-"""
-function update_leaking_trap_inflow_state!(
-    leakage_state::LeakageState,
-    trap_id::Int,
-    new_has_inflow::Bool,
-    current_time::Float64
-)
-    !leakage_state.leaking[trap_id] && return
-
-    old_has_inflow = leakage_state.has_inflow[trap_id]
-    t_last = leakage_state.time_of_last_state_change[trap_id]
-
-    if old_has_inflow == new_has_inflow
-        return  # No state change
-    end
-
-    res_frac = leakage_state.residual_volume_fraction
-    residual_time = leakage_state.residual_leakage_time
-    has_finite_drainage = isfinite(residual_time) && residual_time > 0.0 && res_frac < 1.0
-
-    V_leak = leakage_state.leakage_volume[trap_id]
-    V_res = V_leak * res_frac
-
-    if old_has_inflow && !new_has_inflow
-        # Transition: inflow → no inflow. Column was maintained, now drainage begins.
-        leakage_state.volume_at_last_state_change[trap_id] = V_leak
-        leakage_state.time_of_last_state_change[trap_id] = current_time
-        leakage_state.has_inflow[trap_id] = false
-
-    elseif !old_has_inflow && new_has_inflow
-        # Transition: no inflow → inflow. Compute volume after drainage, begin refilling.
-        if has_finite_drainage && isfinite(t_last)
-            dt = current_time - t_last
-            drain_rate = V_leak * (1.0 - res_frac) / residual_time
-            V_start = leakage_state.volume_at_last_state_change[trap_id]
-            V_current = max(V_res, V_start - drain_rate * dt)
-            leakage_state.cumulative_no_inflow_time[trap_id] += dt
-            leakage_state.volume_at_last_state_change[trap_id] = V_current
-        else
-            leakage_state.volume_at_last_state_change[trap_id] = V_leak
-        end
-        leakage_state.time_of_last_state_change[trap_id] = current_time
-        leakage_state.has_inflow[trap_id] = true
-    end
+    return leakage_state.leakage_volume[trap_id]
 end
 
 
@@ -377,6 +231,56 @@ function initialize_leakage_state(
         leakage_volumes[trap_id] = isnothing(vol) ? Inf : vol
     end
 
+    # Correct parent traps that have shale-break children (leakage_height=0).
+    # compute_leakage_volume measures column height from the TRUE topography
+    # bottom of the entire footprint, which includes break children's deep
+    # areas.  But a break child drains immediately, so the continuous CO2
+    # column for the parent doesn't extend through that child's footprint.
+    # Recompute using an effective bottom that excludes break children's areas.
+    for trap_id in 1:num_traps
+        trap_leakage_heights[trap_id] > 0.0 || continue
+
+        children = subtrapsof(tstruct, trap_id)
+        isempty(children) && continue
+
+        break_children = [c for c in children if trap_leakage_heights[c] == 0.0]
+        isempty(break_children) && continue
+
+        # Collect all cells belonging to break children's footprints
+        break_cells = Set{Int}()
+        for bc in break_children
+            union!(break_cells, tstruct.footprints[bc])
+        end
+
+        # Compute effective bottom from remaining cells
+        parent_footprint = tstruct.footprints[trap_id]
+        remaining_cells = [idx for idx in parent_footprint if !(idx in break_cells)]
+
+        if isempty(remaining_cells)
+            effective_bottom = z_vol_tables[trap_id][1][1]
+        else
+            effective_bottom = minimum(tstruct.topography[remaining_cells])
+        end
+
+        leakage_elevation = effective_bottom + trap_leakage_heights[trap_id]
+        spillpoint_elevation = tstruct.spillpoints[trap_id].elevation
+
+        if leakage_elevation >= spillpoint_elevation
+            leakage_volumes[trap_id] = Inf
+        else
+            zvals, vvals = z_vol_tables[trap_id]
+            if leakage_elevation <= zvals[1]
+                leakage_volumes[trap_id] = 0.0
+            elseif leakage_elevation >= zvals[end]
+                leakage_volumes[trap_id] = Inf
+            else
+                z2v = Interpolations.linear_interpolation(
+                    zvals, vvals, extrapolation_bc=Interpolations.Line())
+                leakage_volumes[trap_id] = z2v(leakage_elevation)
+            end
+        end
+    end
+
     # Convert raw S_r to the SWIM volume fraction: S_r / (1 - S_wi).
     # SWIM volumes are proportional to CO2 mass via porosity * (1 - S_wi) * cell_area.
     # After drainage, CO2 saturation drops from (1 - S_wi) to S_r, so the fraction
@@ -385,19 +289,15 @@ function initialize_leakage_state(
     residual_vol_fraction = residual_saturation / (1.0 - S_wi)
 
     return LeakageState(
-        fill(false, num_traps),           # leaking
-        fill(false, num_traps),           # draining
-        leakage_volumes,                   # leakage_volume
-        fill(Inf, num_traps),             # leakage_start_time
-        LeakageRecord[],                   # leakage_records
-        trap_leakage_heights,              # leakage_height (NOW PER-TRAP VECTOR)
-        fill(0.0, num_traps),             # initial_volume_at_leak (0 until leakage starts)
-        residual_vol_fraction,             # residual_volume_fraction = S_r / (1 - S_wi)
-        residual_leakage_time,             # residual_leakage_time
-        fill(0.0, num_traps),             # cumulative_no_inflow_time
-        fill(0.0, num_traps),             # volume_at_last_state_change
-        fill(Inf, num_traps),             # time_of_last_state_change
-        fill(false, num_traps)            # has_inflow
+        fill(false, num_traps),
+        fill(false, num_traps),
+        leakage_volumes,
+        fill(Inf, num_traps),
+        LeakageRecord[],
+        trap_leakage_heights,
+        fill(0.0, num_traps),
+        residual_vol_fraction,
+        residual_leakage_time,
     )
 end
 
@@ -631,139 +531,38 @@ function generate_leakage_weather_events(
     res_frac = leakage_state.residual_volume_fraction
     has_finite_drainage = isfinite(T_res) && T_res > 0.0 && res_frac < 1.0
 
-    # Drainage rate for each draining trap (source-layer SWIM units).
-    # For directly leaking traps: use V_leak as reference (not initial_volume_at_leak)
-    #   to be consistent with compute_dynamic_equilibrium_volume and compute_total_drained.
-    # For descendant (non-leaking) draining traps: use initial_volume_at_leak.
+    # Drainage rates for descendant (non-leaking) draining traps only.
+    # Leaking traps maintain equilibrium and do not drain through the caprock.
     drain_rates = zeros(Float64, n_traps)
     if has_finite_drainage
         for trap in 1:n_traps
+            leakage_state.leaking[trap] && continue
             leakage_state.draining[trap] || continue
             haskey(drain_loc, trap) || continue
-            if leakage_state.leaking[trap]
-                drain_rates[trap] =
-                    leakage_state.leakage_volume[trap] * (1 - res_frac) / T_res
-            else
-                drain_rates[trap] =
-                    leakage_state.initial_volume_at_leak[trap] * (1 - res_frac) / T_res
-            end
+            drain_rates[trap] =
+                leakage_state.initial_volume_at_leak[trap] * (1 - res_frac) / T_res
         end
-    end
-
-    # Dynamic equilibrium state for directly leaking traps
-    # Track stored volume to determine whether trap is in equilibrium,
-    # draining, or refilling at each timestamp.
-    # Start at V_leak (equilibrium volume), not initial_volume_at_leak.
-    trap_volume = zeros(Float64, n_traps)
-    for trap in 1:n_traps
-        leakage_state.leaking[trap] || continue
-        trap_volume[trap] = leakage_state.leakage_volume[trap]
     end
 
     # Collect all timestamps where the combined rate can change
     timestamps = Set{Float64}()
-    push!(timestamps, seq[1].timestamp)          # always start at sim beginning
-
+    push!(timestamps, seq[1].timestamp)
     for se in seq
         push!(timestamps, se.timestamp)
-    end  # passthrough rate changes
+    end
     for de in direct_events
         push!(timestamps, de.timestamp)
-    end  # direct injection changes
-
+    end
     for trap in 1:n_traps
         t0 = leakage_state.leakage_start_time[trap]
         isfinite(t0) || continue
-        push!(timestamps, t0)                        # leakage begins
-        # Only add drainage end time for non-leaking draining traps (descendants).
-        # Leaking traps use dynamic equilibrium, so their drainage timing depends
-        # on inflow history and is computed below.
+        push!(timestamps, t0)
         if has_finite_drainage && leakage_state.draining[trap] && !leakage_state.leaking[trap]
             push!(timestamps, t0 + T_res)
         end
     end
 
     sorted_ts = sort(collect(timestamps))
-
-    # Get inflow to a leaking trap at spill sequence index
-    function _get_trap_inflow(trap, seq_ix)
-        isnothing(seq_ix) && return 0.0
-        inflows = inflow_at(seq, seq_ix)
-        return max(0.0, inflows[trap])
-    end
-
-    # Compute dynamic equilibrium timeline for leaking traps
-    extra_timestamps = Float64[]
-    prev_inflow = Dict{Int,Float64}()  # previous inflow per leaking trap
-
-    for (ti, t) in enumerate(sorted_ts)
-        seq_ix = findlast(se -> se.timestamp <= t, seq)
-        t_next = ti < length(sorted_ts) ? sorted_ts[ti+1] : Inf
-
-        for trap in 1:n_traps
-            leakage_state.leaking[trap] || continue
-            haskey(drain_loc, trap) || continue
-            leakage_state.leakage_start_time[trap] > t && continue
-
-            V_leak = leakage_state.leakage_volume[trap]
-            V_res = V_leak * res_frac
-            dr = drain_rates[trap]
-
-            inflow = _get_trap_inflow(trap, seq_ix)
-
-            # Advance volume from previous interval.
-            if ti > 1 && sorted_ts[ti-1] >= leakage_state.leakage_start_time[trap]
-                dt = t - sorted_ts[ti-1]
-                prev_q = get(prev_inflow, trap, 0.0)
-                if dt > 0
-                    if prev_q > 0 && trap_volume[trap] < V_leak
-                        # Was refilling
-                        trap_volume[trap] = min(trap_volume[trap] + prev_q * dt, V_leak)
-                    elseif prev_q <= 0 && trap_volume[trap] > V_res && has_finite_drainage
-                        # Was draining
-                        trap_volume[trap] = max(trap_volume[trap] - dr * dt, V_res)
-                    end
-                    # Equilibrium (prev_q > 0 && V >= V_leak): no volume change
-                end
-            end
-
-            prev_inflow[trap] = inflow
-
-            # Check for mid-interval transitions in [t, t_next)
-            if isfinite(t_next) && t_next > t
-                dt_interval = t_next - t
-                if inflow > 0 && trap_volume[trap] < V_leak
-                    # Refilling: when does V reach V_leak?
-                    time_to_refill = (V_leak - trap_volume[trap]) / inflow
-                    if time_to_refill < dt_interval - 1e-12
-                        push!(extra_timestamps, t + time_to_refill)
-                    end
-                elseif inflow <= 0 && trap_volume[trap] > V_res && has_finite_drainage && dr > 0
-                    # Draining: when does V reach V_res?
-                    time_to_drain = (trap_volume[trap] - V_res) / dr
-                    if time_to_drain < dt_interval - 1e-12
-                        push!(extra_timestamps, t + time_to_drain)
-                    end
-                end
-            end
-        end
-    end
-
-    # If we found mid-interval transitions, merge extra timestamps
-    if !isempty(extra_timestamps)
-        for et in extra_timestamps
-            push!(timestamps, et)
-        end
-        sorted_ts = sort(collect(timestamps))
-    end
-
-    # Always reset trap volumes and prev_inflow before the main pass,
-    # since the first pass consumes them.
-    for trap in 1:n_traps
-        leakage_state.leaking[trap] || continue
-        trap_volume[trap] = leakage_state.leakage_volume[trap]
-    end
-    empty!(prev_inflow)
 
     # Build weather events
     result = WeatherEvent[]
@@ -772,7 +571,7 @@ function generate_leakage_weather_events(
     for (ti, t) in enumerate(sorted_ts)
         rain = zeros(Float64, grid_size)
 
-        # Direct injection into the target layer.
+        # Direct injection into the target layer
         if !isempty(direct_events)
             ix = findlast(de -> de.timestamp <= t, direct_events)
             if !isnothing(ix)
@@ -783,59 +582,23 @@ function generate_leakage_weather_events(
 
         seq_ix = findlast(se -> se.timestamp <= t, seq)
 
-        # Use dynamic equilibrium for directly leaking traps
+        # Leaking traps: all inflow passes through (IP equilibrium)
         for trap in 1:n_traps
             leakage_state.leaking[trap] || continue
             haskey(drain_loc, trap) || continue
             leakage_state.leakage_start_time[trap] > t && continue
 
-            V_leak = leakage_state.leakage_volume[trap]
-            V_res = V_leak * res_frac
-            dr = drain_rates[trap]
+            rate = isnothing(seq_ix) ? 0.0 : max(0.0, inflow_at(seq, seq_ix)[trap])
 
-            inflow = _get_trap_inflow(trap, seq_ix)
-
-            # Advance volume from previous interval.
-            # Skip if the previous timestamp was before leakage started.
-            if ti > 1 && sorted_ts[ti-1] >= leakage_state.leakage_start_time[trap]
-                dt = t - sorted_ts[ti-1]
-                prev_q = get(prev_inflow, trap, 0.0)
-                if dt > 0
-                    if prev_q > 0 && trap_volume[trap] < V_leak
-                        # Was refilling
-                        trap_volume[trap] = min(trap_volume[trap] + prev_q * dt, V_leak)
-                    elseif prev_q <= 0 && trap_volume[trap] > V_res && has_finite_drainage
-                        # Was draining
-                        trap_volume[trap] = max(trap_volume[trap] - dr * dt, V_res)
-                    end
-                end
+            if rate > 0
+                spread_rate!(rain, Tuple(drain_loc[trap]), rate * unit_factor, leakage_radius; regions=target_regions)
             end
-
-            prev_inflow[trap] = inflow
-
-            # Determine leakage rate based on current state
-            if inflow > 0 && trap_volume[trap] >= V_leak
-                # Equilibrium: column maintained, all inflow passes through
-                rate = inflow * unit_factor
-            elseif inflow > 0 && trap_volume[trap] < V_leak
-                # Refilling: inflow goes to rebuilding column, excess passes through
-                # refill_deficit = V_leak - trap_volume[trap]
-                rate = 0.0
-            elseif inflow <= 0 && trap_volume[trap] > V_res && has_finite_drainage
-                # No inflow, draining: buoyancy drives CO2 through caprock
-                rate = dr * unit_factor
-            else
-                # Fully drained or no activity
-                rate = 0.0
-            end
-
-            rate > 0.0 && spread_rate!(rain, Tuple(drain_loc[trap]), rate, leakage_radius; regions=target_regions)
         end
 
-        # Non-leaking draining traps has a constant-rate drainage
+        # Non-leaking draining traps: constant-rate drainage through spill hierarchy
         if has_finite_drainage
             for trap in 1:n_traps
-                leakage_state.leaking[trap] && continue  # handled above
+                leakage_state.leaking[trap] && continue
                 drain_rates[trap] == 0.0 && continue
                 t0 = leakage_state.leakage_start_time[trap]
                 (t >= t0 && t < t0 + T_res) || continue
@@ -843,33 +606,19 @@ function generate_leakage_weather_events(
             end
         end
 
-        # Emit only when the combined rate actually changes.
         if isnothing(last_rain) || rain != last_rain
             push!(result, WeatherEvent(t, copy(rain)))
             last_rain = copy(rain)
         end
     end
 
-    # Just for safety, if the last emitted event still carries a positive rate,
-    # append a zero-rate event at the latest drainage end time.
+    # Append zero-rate event at the latest drainage end time.
     if !isempty(result) && any(result[end].rain_rate .> 0.0)
         max_t_end = -Inf
         for trap in 1:n_traps
-            leakage_state.draining[trap] || continue
             t0 = leakage_state.leakage_start_time[trap]
             isfinite(t0) || continue
-            if leakage_state.leaking[trap]
-                # For leaking traps, drainage timing depends on inflow history.
-                # Use cumulative_no_inflow_time + any remaining no-inflow period.
-                # Conservative estimate: assume drainage could take up to T_res
-                # from the last known state change.
-                t_last_change = leakage_state.time_of_last_state_change[trap]
-                if isfinite(t_last_change)
-                    max_t_end = max(max_t_end, t_last_change + T_res)
-                else
-                    max_t_end = max(max_t_end, t0 + T_res)
-                end
-            else
+            if leakage_state.draining[trap] && !leakage_state.leaking[trap]
                 max_t_end = max(max_t_end, t0 + T_res)
             end
         end

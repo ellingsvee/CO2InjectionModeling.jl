@@ -42,18 +42,12 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
     if num_traps == 0
         # No traps - return empty results
         empty_leakage = LeakageState(
-            Bool[],  # leaking
-            Bool[],  # draining
+            Bool[], Bool[],
             Float64[], Float64[], LeakageRecord[],
-            Float64[],  # leakage_height (per-trap vector, empty for no traps)
-            Float64[],  # initial_volume_at_leak
+            Float64[], Float64[],
             reservoir_properties.sand_residual_co2_saturation /
                 (1.0 - reservoir_properties.sand_irreducible_water_saturation),
             reservoir_properties.residual_leakage_time,
-            Float64[],  # cumulative_no_inflow_time
-            Float64[],  # volume_at_last_state_change
-            Float64[],  # time_of_last_state_change
-            Bool[]      # has_inflow
         )
         return Vector{SpillEvent}(), empty_leakage
     end
@@ -100,14 +94,6 @@ function fill_sequence_with_leakage(tstruct::TrapStructure{<:Real},
 
         # Compute inflow/runoff/infiltration rates corresponding to the fill graph and new rain rate
         rateinfo = SurfaceWaterIntegratedModeling.compute_flow(sgraph, we.rain_rate, infiltration, tstruct, verbose)
-
-        # Update dynamic equilibrium state for leaking traps at weather event boundary.
-        # This detects when injection rate changes (e.g., goes to 0), updating has_inflow.
-        for trap in 1:num_traps
-            leakage_state.leaking[trap] || continue
-            new_inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap) > 0
-            update_leaking_trap_inflow_state!(leakage_state, trap, new_inflow, cur_time)
-        end
 
         # Compute initial time estimates for when a trap become filled, or split into subtraps
         changetimeest = SurfaceWaterIntegratedModeling._set_initial_changetime_estimates(rateinfo, cur_amounts,
@@ -180,13 +166,6 @@ function _fill_sequence_for_weather_event_with_leakage!(
             leakage_state.leaking[leak_trap] = true
             leakage_state.leakage_start_time[leak_trap] = cur_time
 
-            # Initialize dynamic equilibrium: check if trap has inflow at leakage onset.
-            # The trap just reached threshold, so it has inflow (otherwise it wouldn't fill).
-            inflow_at_leak = SurfaceWaterIntegratedModeling.getinflow(rateinfo, leak_trap)
-            leakage_state.has_inflow[leak_trap] = inflow_at_leak > 0
-            leakage_state.time_of_last_state_change[leak_trap] = cur_time
-            # volume_at_last_state_change will be set below after leakage_vol is computed
-
             # Record the leakage for upstream layer
             leakage_location = find_leakage_location(leak_trap, tstruct)
             push!(leakage_state.leakage_records, LeakageRecord(
@@ -204,7 +183,6 @@ function _fill_sequence_for_weather_event_with_leakage!(
             )
             initial_vol = max(leakage_vol, actual_vol_at_leak)
             leakage_state.initial_volume_at_leak[leak_trap] = initial_vol
-            leakage_state.volume_at_last_state_change[leak_trap] = leakage_vol
             verbose && println("  Trap $leak_trap: leakage_vol=$(round(leakage_vol, digits=4)), initial_vol=$(round(initial_vol, digits=4))")
 
             # Mark as draining if there is actual volume to drain
@@ -241,7 +219,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
             graph_updates = SurfaceWaterIntegratedModeling.update_spillgraph!(sgraph, leak_fill_updates, tstruct)
 
             # Fix edges for all previously leaking traps (sibling cycle check may overwrite them)
-            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state, tstruct)
 
             # Set only the leaking trap's edge to 0 (out of domain = leakage)
             sgraph.edges[leak_trap] = 0
@@ -292,13 +270,6 @@ function _fill_sequence_for_weather_event_with_leakage!(
             # leakage/changetime estimate updates which read cur_amounts)
             SurfaceWaterIntegratedModeling._apply_updates!(cur_amounts, amount_updates)
 
-            # Update dynamic equilibrium state for all leaking traps whose inflow changed
-            for trap in 1:num_traps
-                leakage_state.leaking[trap] || continue
-                new_inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap) > 0
-                update_leaking_trap_inflow_state!(leakage_state, trap, new_inflow, cur_time)
-            end
-
             # Update leakage time estimate to Inf for the leaking trap (already leaking)
             leakage_time_est[leak_trap] = LeakageTimeEstimate(leak_trap, Inf, Inf)
 
@@ -333,7 +304,7 @@ function _fill_sequence_for_weather_event_with_leakage!(
             graph_updates = SurfaceWaterIntegratedModeling.update_spillgraph!(sgraph, fill_updates, tstruct)
 
             # Fix edges for all leaking traps (sibling cycle check may overwrite them)
-            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+            _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state, tstruct)
 
             # Given the updates to the spill graph, update flow information in `rateinfo`
             setsavepoint!(rateinfo)
@@ -356,18 +327,19 @@ function _fill_sequence_for_weather_event_with_leakage!(
                     fill_vol = tstruct.trapvolumes[tix] - tstruct.subvolumes[tix]
                     push!(amount_updates, IncrementalUpdate(tix, FilledAmount(fill_vol, cur_time)))
 
-                    # Check if this newly filled trap feeds into a leaking or draining chain.
-                    # A leaking trap includes pass-through traps (leakage_vol=0).
+                    # Mark as draining only if this trap is a descendant of a
+                    # leaking trap (shares the same CO2 column). Lateral neighbors
+                    # that spill into a leaking trap are structurally independent —
+                    # their CO2 is held by their own spillpoints.
                     if !leakage_state.draining[tix]
-                        spill_target = sgraph.edges[tix]
-                        # Only check if spill_target is a valid trap index (not runoff/boundary)
-                        if spill_target > 0 && spill_target <= num_traps &&
-                           (leakage_state.leaking[spill_target] || leakage_state.draining[spill_target])
-                            # This trap spills into a leaking/draining trap - it should also drain
-                            leakage_state.draining[tix] = true
-                            leakage_state.leakage_start_time[tix] = cur_time
-                            leakage_state.initial_volume_at_leak[tix] = fill_vol
-                            verbose && println("  Newly filled trap $(tix) marked as draining (feeds into leaking/draining trap $(spill_target))")
+                        for ancestor in get_all_parents(tstruct, tix)
+                            if leakage_state.leaking[ancestor]
+                                leakage_state.draining[tix] = true
+                                leakage_state.leakage_start_time[tix] = cur_time
+                                leakage_state.initial_volume_at_leak[tix] = fill_vol
+                                verbose && println("  Newly filled trap $(tix) marked as draining (descendant of leaking trap $(ancestor))")
+                                break
+                            end
                         end
                     end
                 end
@@ -387,13 +359,6 @@ function _fill_sequence_for_weather_event_with_leakage!(
 
             # Integrate the changes into the continuously updated `cur_amounts` vector
             SurfaceWaterIntegratedModeling._apply_updates!(cur_amounts, amount_updates)
-
-            # Update dynamic equilibrium state for all leaking traps whose inflow changed
-            for trap in 1:num_traps
-                leakage_state.leaking[trap] || continue
-                new_inflow = SurfaceWaterIntegratedModeling.getinflow(rateinfo, trap) > 0
-                update_leaking_trap_inflow_state!(leakage_state, trap, new_inflow, cur_time)
-            end
 
             # Update leakage time estimates for affected traps
             affected_traps = unique([u.index for u in getinflowupdates(rateinfo)])
@@ -418,12 +383,8 @@ function _fill_sequence_for_weather_event_with_leakage!(
     for (trap, cur_fill) ∈ enumerate(cur_amounts)
         if cur_fill.time < endtime
             if leakage_state.leaking[trap]
-                # For leaking trap, use dynamic equilibrium volume (accounts for
-                # drainage only during periods without inflow)
-                drained_vol = compute_dynamic_equilibrium_volume(trap, final_time, leakage_state)
-                # For leaking traps, drained_vol should never be nothing
-                final_vol = isnothing(drained_vol) ? cur_fill.amount : drained_vol
-                cur_amounts[trap] = FilledAmount(final_vol, final_time)
+                # Leaking traps stay at equilibrium volume (capillary-gravity balance)
+                cur_amounts[trap] = FilledAmount(leakage_state.leakage_volume[trap], final_time)
             else
                 cur_amounts[trap] = FilledAmount(
                     SurfaceWaterIntegratedModeling._compute_exact_fill(
@@ -464,23 +425,27 @@ end
 
 
 """
-    _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state)
+    _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state, tstruct)
 
-Restore edge=0 for all leaking traps after `update_spillgraph!`.
+Restore edge=0 for all leaking traps after `update_spillgraph!`, and also
+restore edges for sibling traps that were redirected away from a leaking trap
+by the sibling cycle check.
 
 SWIM's `update_spillgraph!` contains a sibling cycle check that redirects all
-sibling traps to their parent when all become "full". This can overwrite edge=0
-for previously leaking traps, breaking flow routing. This helper restores the
-correct edges and ensures `graph_updates` reflects the fix so `_update_flow!`
-processes these traps.
+sibling traps to their parent when all become "full". Leaking traps have edge=0
+stored in `sgraph.edges`, which makes `_isfull` return true. When a sibling
+fills, the cycle check redirects ALL siblings (including the leaking trap) to
+the parent. This breaks flow routing in two ways:
+1. The leaking trap's edge=0 gets overwritten → fixed by restoring it.
+2. Sibling traps that should flow INTO the leaking trap get redirected to the
+   parent, bypassing the leak point → fixed by restoring their original edges.
 """
-function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageState)
+function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageState, tstruct)
+    # Pass 1: restore edge=0 for all leaking traps
     for trap in eachindex(leakage_state.leaking)
         if leakage_state.leaking[trap] && get(sgraph.edges, trap, 0) != 0
             old_target = sgraph.edges[trap]
             sgraph.edges[trap] = 0
-            # Also fix in graph_updates so _update_flow! processes this trap.
-            # graph_updates values are (old_target, new_target) tuples.
             found = false
             for i in eachindex(graph_updates)
                 if graph_updates[i].index == trap
@@ -492,6 +457,49 @@ function _fix_leaking_trap_edges!(sgraph, graph_updates, leakage_state::LeakageS
             end
             if !found
                 push!(graph_updates, IncrementalUpdate(trap, (old_target, 0)))
+            end
+        end
+    end
+
+    # Pass 2: fix siblings that were redirected away from a leaking trap.
+    # For each leaking trap, find its siblings. If a sibling's natural
+    # downstream target is the leaking trap but its current edge points
+    # elsewhere (to the parent), restore the natural edge.
+    num_traps = length(leakage_state.leaking)
+    for trap in 1:num_traps
+        leakage_state.leaking[trap] || continue
+
+        parents = Graphs.outneighbors(tstruct.agglomerations, trap)
+        isempty(parents) && continue
+        parent = parents[1]
+        siblings = Graphs.inneighbors(tstruct.agglomerations, parent)
+
+        for sib in siblings
+            sib == trap && continue
+            leakage_state.leaking[sib] && continue
+            haskey(sgraph.edges, sib) || continue
+
+            # Check if this sibling's natural downstream is the leaking trap
+            dsreg = tstruct.spillpoints[sib].downstream_region
+            natural_target = dsreg > 0 ? dsreg : num_traps + 1
+            natural_target == trap || continue
+
+            # Sibling should flow to leaking trap but was redirected to parent
+            sgraph.edges[sib] == parent || continue
+
+            # Restore the sibling's edge to its natural target (the leaking trap)
+            sgraph.edges[sib] = trap
+            found = false
+            for i in eachindex(graph_updates)
+                if graph_updates[i].index == sib
+                    prev_old = graph_updates[i].value[1]
+                    graph_updates[i] = IncrementalUpdate(sib, (prev_old, trap))
+                    found = true
+                    break
+                end
+            end
+            if !found
+                push!(graph_updates, IncrementalUpdate(sib, (parent, trap)))
             end
         end
     end
